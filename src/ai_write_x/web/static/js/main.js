@@ -95,7 +95,7 @@ class AIWriteXApp {
         this.showView(this.currentView);
         this.setupResizeListener();
         this._setupKeyboardShortcuts();  // V3: 初始化键盘快捷键
-        new UpdateChecker();
+        window.updateChecker = window.updateChecker || new UpdateChecker();
 
         // V13.0: 初始加载时确保基础数据准备就绪 (各 Manager 会在 showView 时按需初始化)
         setTimeout(() => {

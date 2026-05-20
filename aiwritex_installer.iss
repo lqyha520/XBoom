@@ -1,7 +1,7 @@
 [Setup]
 AppId={{F9DE6B5D-57BD-4E43-B8AE-AFD2D17FE682}
 AppName=AIWriteX
-AppVersion=23.0.0
+AppVersion=23.0.6
 AppPublisher=AIWriteX
 DefaultDirName={autopf}\AIWriteX
 DefaultGroupName=AIWriteX

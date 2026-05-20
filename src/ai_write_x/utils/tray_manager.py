@@ -55,13 +55,7 @@ class TrayManager:
 
             # 创建托盘菜单
             menu = pystray.Menu(
-                pystray.MenuItem(f"显示 {self.app_name}", self._show_window),
-                pystray.MenuItem("隐藏窗口", self._hide_window),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("创意工坊", self._open_creative_workshop),
-                pystray.MenuItem("文章管理", self._open_article_manager),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("关于", self._show_about),
+                pystray.MenuItem(f"显示 {self.app_name}", self._show_window, default=True),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("退出", self._quit_application),
             )
@@ -97,33 +91,6 @@ class TrayManager:
         """显示主窗口"""
         if self.window_manager:
             self.window_manager.show_window()
-
-    def _hide_window(self, icon=None, item=None):
-        """隐藏主窗口"""
-        if self.window_manager:
-            self.window_manager.hide_window()
-            # 只有隐藏到托盘时才显示此通知
-            self.show_notification("AIWriteX", "已最小化到系统托盘")
-
-    def _open_creative_workshop(self, icon=None, item=None):
-        """打开创意工坊"""
-        if self.window_manager:
-            self.window_manager.show_window()
-            # 可以添加切换到创意工坊视图的逻辑
-
-    def _open_article_manager(self, icon=None, item=None):
-        """打开文章管理"""
-        if self.window_manager:
-            self.window_manager.show_window()
-            # 可以添加切换到文章管理视图的逻辑
-
-    def _show_about(self, icon=None, item=None):
-        """显示关于信息"""
-        # 这里可以实现一个简单的关于对话框
-        print(f"关于 {self.app_name}")
-        print("智能内容创作平台")
-        print("版本: 2.3.0")
-        print("基于 CrewAI 和 AIForge 构建")
 
     def _quit_application(self, icon=None, item=None):
         """退出应用程序"""

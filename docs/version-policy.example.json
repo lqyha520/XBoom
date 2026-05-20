@@ -1,0 +1,6 @@
+{
+  "latest_version": "23.0.6",
+  "min_supported_version": "23.0.6",
+  "download_url": "https://github.com/lqyha520/AIWriteX-main/releases/download/23.0.6/AIWriteX-Setup.exe",
+  "release_notes": "1. 修复强制更新流程\n2. 优化安装包启动速度\n3. 改善关闭时的后台清理"
+}

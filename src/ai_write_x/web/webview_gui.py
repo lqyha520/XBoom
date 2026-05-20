@@ -16,9 +16,7 @@ import json
 import traceback
 from datetime import datetime
 
-from src.ai_write_x.web.app import app
 from src.ai_write_x.utils import log
-from src.ai_write_x.config.config import Config
 from src.ai_write_x.utils.tray_manager import TrayManager
 from src.ai_write_x.utils.icon_manager import WindowIconManager
 
@@ -29,6 +27,7 @@ class WebViewGUI:
         self.server = None
         self.server_loop = None
         self.window = None
+        self.main_ui_loaded = False
         self.server_port = self.find_free_port()
         with open("port.txt", "w") as f:
             f.write(str(self.server_port))
@@ -107,10 +106,8 @@ class WebViewGUI:
             if self.tray_manager:
                 self.tray_manager.stop_tray()
 
-            # 2. 停止后端服务器
-            if hasattr(self, "server_thread") and self.server_thread:
-                # 这里需要添加服务器停止逻辑
-                pass
+            # 2. 停止后端服务和子进程
+            self.stop_background_services()
 
             # 3. 关闭WebView窗口
             if self.window:
@@ -122,8 +119,43 @@ class WebViewGUI:
         except Exception as e:
             print(f"退出时出错: {e}")
         finally:
-            # 强制退出
+            # 兜底强制退出
             os._exit(0)
+
+    def stop_background_services(self):
+        """停止后台线程、服务和子进程"""
+        try:
+            from src.ai_write_x.core.scheduler import scheduler_service
+
+            scheduler_service.stop()
+        except Exception:
+            pass
+
+        try:
+            from src.ai_write_x.tools.mcp_manager import MCPManager
+
+            MCPManager.get_instance().stop_all()
+        except Exception:
+            pass
+
+        try:
+            if self.server:
+                self.server.should_exit = True
+                self.server.force_exit = True
+        except Exception:
+            pass
+
+        try:
+            if self.server_loop and self.server_loop.is_running():
+                self.server_loop.call_soon_threadsafe(lambda: None)
+        except Exception:
+            pass
+
+        try:
+            if self.server_thread and self.server_thread.is_alive():
+                self.server_thread.join(timeout=5.0)
+        except Exception:
+            pass
 
     def cleanup_test_images(self):
         """退出前清理测试生成的图片 (文件名以 test_ 开头)"""
@@ -146,6 +178,8 @@ class WebViewGUI:
     def start_server(self):
         """启动FastAPI服务器"""
         try:
+            from src.ai_write_x.web.app import app
+
             config = uvicorn.Config(
                 app, host="127.0.0.1", port=self.server_port, log_level="warning", access_log=False
             )
@@ -174,11 +208,143 @@ class WebViewGUI:
             time.sleep(0.1)
         return False
 
+    def get_app_url(self):
+        return f"http://127.0.0.1:{self.server_port}/?token={self.client_token}"
+
+    def build_loading_html(self):
+        return """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AIWriteX</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .wrap {
+      width: 100%;
+      max-width: 420px;
+      padding: 32px;
+      text-align: center;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    .sub {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 24px;
+    }
+    .bar {
+      height: 4px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(148, 163, 184, 0.18);
+    }
+    .bar > div {
+      width: 35%;
+      height: 100%;
+      background: linear-gradient(90deg, #38bdf8, #818cf8);
+      animation: slide 1.1s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0% { transform: translateX(-130%); }
+      100% { transform: translateX(360%); }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">AIWriteX</div>
+    <div class="sub">正在启动桌面工作台...</div>
+    <div class="bar"><div></div></div>
+  </div>
+</body>
+</html>
+"""
+
+    def build_error_html(self, message):
+        safe_message = str(message).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f"""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AIWriteX</title>
+  <style>
+    html, body {{
+      margin: 0;
+      height: 100%;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+    }}
+    body {{
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }}
+    .panel {{
+      max-width: 520px;
+      padding: 24px;
+      border-radius: 12px;
+      background: #1f2937;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+    }}
+    .title {{
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }}
+    .sub {{
+      color: #9ca3af;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }}
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="title">AIWriteX 启动失败</div>
+    <div class="sub">{safe_message}</div>
+  </div>
+</body>
+</html>
+"""
+
+    def wait_for_server_and_load(self):
+        if self.check_server_ready(max_attempts=120):
+            self.main_ui_loaded = True
+            if self.window:
+                self.window.load_url(self.get_app_url())
+        else:
+            error_message = "本地 Web 服务启动超时，请检查 logs 目录中的错误日志。"
+            self.write_crash_log("wait_for_server_and_load", RuntimeError(error_message))
+            if self.window:
+                self.window.load_html(self.build_error_html(error_message))
+
     def show_window(self):
         """显示主窗口"""
         try:
             if self.window:
                 # 如果窗口存在，显示它
+                try:
+                    self.window.restore()
+                except Exception:
+                    pass
                 self.window.show()
                 # 更新托盘提示
                 if self.tray_manager:
@@ -203,14 +369,8 @@ class WebViewGUI:
 
     def on_window_closing(self):
         """窗口关闭事件处理"""
-        # 如果有托盘，隐藏到托盘而不是退出
-        if self.tray_manager and self.tray_manager.tray:
-            self.hide_window()
-            return False  # 阻止窗口关闭
-        else:
-            # 没有托盘时直接退出
-            self.quit_application()
-            return True
+        self.quit_application()
+        return True
 
     def start(self):
         """启动WebView应用"""
@@ -218,29 +378,17 @@ class WebViewGUI:
             # 设置信号处理器
             self.setup_signal_handlers()
 
-            # 初始化配置
-            config = Config.get_instance()
-            if not config.load_config():
-                log.print_log("配置加载失败，使用默认配置", "warning")
-
             # 启动后端服务器
             self.server_thread = threading.Thread(target=self.start_server, daemon=True)
             self.server_thread.start()
 
-            # 等待服务器启动
-            log.print_log("正在启动Web服务器...", "info", False)
-            if not self.check_server_ready():
-                raise Exception("Web服务器启动超时")
-
-            log.print_log("Web服务器启动成功", "info", False)
-
             # 读取窗口模式设置（首次启动时使用默认值）
             window_config = self.get_window_config()
 
-            # 创建WebView窗口时设置图标
+            # 先显示轻量加载页，等本地服务就绪后再切换到主界面
             window_kwargs = {
                 "title": "AIWriteX",
-                "url": f"http://127.0.0.1:{self.server_port}/?token={self.client_token}",
+                "html": self.build_loading_html(),
                 "width": window_config["width"],
                 "height": window_config["height"],
                 "min_size": (1000, 700),
@@ -262,6 +410,8 @@ class WebViewGUI:
 
                 # 监听窗口加载完成事件
                 def on_loaded():
+                    if not self.main_ui_loaded:
+                        return
                     time.sleep(0.05)
                     try:
                         # 可保证启动在最前面显示，但这样会有个缩放动画，非全屏
@@ -305,6 +455,8 @@ class WebViewGUI:
             # 设置窗口关闭事件
             if hasattr(self.window, "events"):
                 self.window.events.closing += self.on_window_closing
+
+            threading.Thread(target=self.wait_for_server_and_load, daemon=True).start()
 
             # 延迟创建托盘图标
             def delayed_tray_creation():

@@ -37,6 +37,7 @@ async def get_config():
             "publish_platform": config_dict.get("publish_platform", "wechat"),
             "api": config_dict.get("api", {}),
             "img_api": config_dict.get("img_api", {}),
+            "update": config_dict.get("update", {}),
             "wechat": config_dict.get("wechat", {}),
             "use_template": config_dict.get("use_template", True),
             "template_category": config_dict.get("template_category", ""),
@@ -258,17 +259,13 @@ async def get_help_manual():
 
 @router.get("/check-updates")
 async def check_for_updates():
-    """检查更新 - 本地开发版已禁用"""
-    current_version = get_version()
-    # 本地开发版，不检查更新
-    return {
-        "status": "success",
-        "has_update": False,
-        "current_version": current_version,
-        "latest_version": current_version,
-        "download_url": "",
-        "release_notes": "AIWriteX V18.0 自主蜂群版 [开发预览]",
-    }
+    """兼容旧前端入口，转发到新的更新策略接口"""
+    from src.ai_write_x.web.api.updater import get_update_policy
+
+    policy = await get_update_policy()
+    payload = policy.model_dump()
+    payload["status"] = "success"
+    return payload
 
 
 class URLRequest(BaseModel):
