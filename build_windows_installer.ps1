@@ -29,8 +29,21 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-if (Test-Path $iscc) {
+$isccCandidates = @(
+    'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+    'C:\Program Files\Inno Setup 6\ISCC.exe',
+    (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+)
+
+$iscc = $isccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if (-not $iscc) {
+    $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($isccCommand) {
+        $iscc = $isccCommand.Source
+    }
+}
+
+if ($iscc) {
     & $iscc '.\aiwritex_installer.iss'
 } else {
     Write-Host 'Inno Setup not found. onedir build completed. Install Inno Setup 6 and rerun this script for Setup.exe.'
