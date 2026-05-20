@@ -40,7 +40,7 @@ async def get_tasks():
         "article_count": t.article_count,
         "use_ai_beautify": t.use_ai_beautify,
         "status": t.status,
-        "last_run_at": t.last_run_at.strftime("%Y-%m-%d %H:%M:%S") if t.last_run_at else None,
+        "last_run_at": t.last_run_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(t, "last_run_at", None) else None,
         "created_at": t.created_at.strftime("%Y-%m-%d %H:%M:%S")
     } for t in tasks]
 

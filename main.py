@@ -68,6 +68,10 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     multiprocessing.set_start_method("spawn", force=True)
 
+    if getattr(sys, "frozen", False):
+        run()
+        sys.exit(0)
+
     if AIForgeEngine.handle_sandbox_subprocess(
         globals_dict=globals().copy(), sys_path=sys.path.copy()
     ):

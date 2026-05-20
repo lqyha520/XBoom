@@ -239,14 +239,21 @@ async def get_page_design_config():
 async def get_help_manual():
     """获取使用手册HTML内容"""
     from fastapi.responses import HTMLResponse
-    from ..app import templates
+    from pathlib import Path
 
-    # 渲染模板
-    html_content = templates.TemplateResponse(
-        "components/help-manual.html", {"request": {}}
-    ).body.decode("utf-8")
+    template_file = Path(__file__).resolve().parent.parent / "templates" / "components" / "help-manual.html"
 
-    return HTMLResponse(content=html_content)
+    if template_file.exists():
+        return HTMLResponse(content=template_file.read_text(encoding="utf-8"))
+
+    return HTMLResponse(
+        content="""
+        <div style="padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.7;">
+            <h2 style="margin:0 0 12px;">使用手册暂未内置</h2>
+            <p style="margin:0;">当前版本未找到帮助文档模板文件，请前往系统设置、模板管理和定时任务模块查看具体配置项。</p>
+        </div>
+        """
+    )
 
 
 @router.get("/check-updates")
@@ -562,7 +569,7 @@ class SaveCustomAPIRequest(BaseModel):
 async def save_custom_api(request: SaveCustomAPIRequest):
             """保存自定义API到后端配置"""
             try:
-                from ai_write_x.config.config import Config
+                from src.ai_write_x.config.config import Config
                 
                 config = Config.get_instance()
                 

@@ -924,8 +924,30 @@ class DataSourceRegistry:
         ),
     ]
     
-    def __init__(self, config_path: str = "knowledge/newshub_sources.json"):
-        self.config_path = config_path
+    def __init__(self, config_path: str = None):
+        # 支持多种数据源配置路径（兼容开发和打包模式）
+        if config_path is None:
+            from src.ai_write_x.utils import utils
+            from src.ai_write_x.utils.path_manager import PathManager
+            
+            candidates = [
+                "knowledge/newshub_sources.json",  # 开发模式相对路径
+                os.path.join(str(PathManager.get_base_dir()), "knowledge", "newshub_sources.json"),  # 打包模式绝对路径
+                os.path.join(str(PathManager.get_app_data_dir()), "knowledge", "newshub_sources.json"),  # AppData路径
+            ]
+            
+            config_path = None
+            for candidate in candidates:
+                if os.path.exists(candidate):
+                    config_path = candidate
+                    break
+            
+            if config_path:
+                log.print_log(f"[NewsHub] 使用自定义数据源: {config_path}", "info")
+            else:
+                log.print_log("[NewsHub] 未找到自定义数据源文件，使用内置默认数据源", "info")
+        
+        self.config_path = config_path or ""
         self.sources: Dict[str, DataSource] = {}
         self._load_sources()
 

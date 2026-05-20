@@ -14,6 +14,7 @@ class ContentEditorDialog {
         this.isClosing = false;    
         this.keydownHandler = null;    
         this.overlayClickHandler = null;    
+        this.qualityApplyHandler = null;
         this.resizeHandlers = null;  
         this.isResizing = false;  
     }    
@@ -611,12 +612,27 @@ class ContentEditorDialog {
         this.keydownHandler = this.handleKeydown.bind(this);    
         document.addEventListener('keydown', this.keydownHandler);    
           
-        this.overlayClickHandler = (e) => {    
-            if (e.target === this.dialog && !this.isClosing) {    
-                this.close();    
-            }    
-        };    
-        this.dialog.addEventListener('click', this.overlayClickHandler);    
+        this.overlayClickHandler = (e) => {
+            if (e.target === this.dialog && !this.isClosing) {
+                this.close();
+            }
+        };
+        this.dialog.addEventListener('click', this.overlayClickHandler);
+
+        this.qualityApplyHandler = (e) => {
+            if (e.detail?.content && this.editor) {
+                this.editor.setValue(e.detail.content);
+                this.isDirty = true;
+                this.updatePreview();
+
+                if (window.app?.showNotification) {
+                    window.app.showNotification('✅ 已应用优化后的内容到编辑器', 'success');
+                }
+
+                console.log('[ContentEditor] 已应用质量优化内容');
+            }
+        };
+        document.addEventListener('quality:apply-optimized', this.qualityApplyHandler);
     }  
       
     initResizeHandle() {    
@@ -923,7 +939,12 @@ class ContentEditorDialog {
             this.dialog.removeEventListener('click', this.overlayClickHandler);    
             this.overlayClickHandler = null;    
         }    
-          
+
+        if (this.qualityApplyHandler) {
+            document.removeEventListener('quality:apply-optimized', this.qualityApplyHandler);
+            this.qualityApplyHandler = null;
+        }
+
         // 清理resize事件监听器    
         if (this.resizeHandlers) {    
             const { handle, mouseDown, mouseMove, mouseUp, mouseLeave } = this.resizeHandlers;    

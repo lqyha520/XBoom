@@ -446,11 +446,11 @@ def print_log(msg, msg_type="status", show_in_ui=True):
                 _rich_print(msg, msg_type)
                 return
 
-        if not utils.get_is_release_ver():
-            try:
-                _rich_print(msg, msg_type)
-            except Exception:
-                pass
+        # 始终在控制台输出（开发和打包模式都需要可见性）
+        try:
+            _rich_print(msg, msg_type)
+        except Exception:
+            pass
     else:
         _rich_print(msg, msg_type)
 

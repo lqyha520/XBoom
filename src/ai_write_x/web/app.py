@@ -193,6 +193,10 @@ app = FastAPI(
 # 获取Web模块路径
 if utils.get_is_release_ver():
     web_path = Path(utils.get_res_path("web"))
+    if not (web_path / "templates").exists():
+        candidate = Path(utils.get_res_path("src/ai_write_x/web"))
+        if (candidate / "templates").exists():
+            web_path = candidate
 else:
     web_path = Path(__file__).parent
 

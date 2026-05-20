@@ -172,7 +172,13 @@ img_api:
   comfyui:
     api_key: ''
     model: ''
-    api_base: http://127.0.0.1:8000
+    api_base: http://127.0.0.1:8188
+  settings:
+    default_timeout_seconds: 60
+    fast_mode_timeout_seconds: 45
+    fast_mode_prompt_count: 3
+    fast_mode_prompt_excerpt_length: 120
+    allow_placeholder_fallback: true
   custom: []
   custom_index: 0
   api_type: comfyui

@@ -146,9 +146,10 @@ class CreativeWorkshopManager {
         select.appendChild(defaultOption);
 
         this.templateCategories.forEach(category => {
+            const categoryName = typeof category === 'object' ? category.name : category;
             const option = document.createElement('option');
-            option.value = category;
-            option.textContent = category;
+            option.value = categoryName;
+            option.textContent = categoryName;
             select.appendChild(option);
         });
     }
@@ -184,9 +185,10 @@ class CreativeWorkshopManager {
         select.appendChild(defaultOption);
 
         templates.forEach(template => {
+            const templateName = typeof template === 'object' ? template.name : template;
             const option = document.createElement('option');
-            option.value = template;
-            option.textContent = template;
+            option.value = templateName;
+            option.textContent = templateName;
             select.appendChild(option);
         });
     }
@@ -636,8 +638,14 @@ class CreativeWorkshopManager {
 
             const autoReTemplateSwitch = document.getElementById('auto-retemplate-switch');
             const isBeautifyOn = autoReTemplateSwitch ? autoReTemplateSwitch.checked : false;
+            const fastModeSwitch = document.getElementById('workshop-fast-mode');
+            const isFastModeOn = fastModeSwitch ? fastModeSwitch.checked : false;
 
             const workshopFilterProcessed = document.getElementById('workshop-filter-processed');
+
+            if (isFastModeOn) {
+                this.appendLog('⚡ 极速模式已开启：将跳过深度审计、预览截图与标题优化；正文会走轻量配图提示词并继续调用生图。', 'info', false, Date.now() / 1000);
+            }
 
             const response = await fetch('/api/generate', {
                 method: 'POST',
@@ -651,7 +659,8 @@ class CreativeWorkshopManager {
                     article_count: articleCount,
                     post_action: postAction,
                     ai_beautify: isBeautifyOn,
-                    filter_processed: workshopFilterProcessed?.checked || false
+                    filter_processed: workshopFilterProcessed?.checked || false,
+                    fast_mode: isFastModeOn
                 })
             });
 

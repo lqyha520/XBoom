@@ -3317,17 +3317,29 @@ class AIWriteXConfigManager {
 
     // 初始化自定义API
     initCustomAPIs() {
-        // 从localStorage加载自定义API
-        const stored = localStorage.getItem('custom_apis');
-        if (stored) {
-            try {
-                this.customAPIs = JSON.parse(stored);
-            } catch (e) {
-                this.customAPIs = [];
+        if (this.config.api && Array.isArray(this.config.api.custom)) {
+            this.customAPIs = this.config.api.custom;
+            this.saveCustomAPIs();
+        } else {
+            const stored = localStorage.getItem('custom_apis');
+            if (stored) {
+                try {
+                    this.customAPIs = JSON.parse(stored);
+                } catch (e) {
+                    this.customAPIs = [];
+                }
             }
         }
-        // 立即渲染
         this.renderCustomAPIs();
+    }
+
+    async persistCustomAPIsToConfig() {
+        await this.updateConfig({
+            api: {
+                ...this.config.api,
+                custom: this.customAPIs
+            }
+        });
     }
 
     // 保存自定义API到localStorage
@@ -3455,7 +3467,7 @@ class AIWriteXConfigManager {
     }
 
     // 添加自定义API
-    addCustomAPI() {
+    async addCustomAPI() {
         this.customAPIs.push({
             name: '',
             api_base: '',
@@ -3465,13 +3477,13 @@ class AIWriteXConfigManager {
             tested: false
         });
         this.saveCustomAPIs();
+        await this.persistCustomAPIsToConfig();
         this.renderCustomAPIs();
     }
 
     // 删除自定义API
-    deleteCustomAPI(index) {
+    async deleteCustomAPI(index) {
         if (confirm('确定要删除这个自定义API吗?')) {
-            // 如果删除的是当前使用的API，需要清除当前使用状态
             if (this.customAPIs[index]?.isCurrent) {
                 this.customAPIs.forEach((api, i) => {
                     if (api) api.isCurrent = false;
@@ -3479,6 +3491,7 @@ class AIWriteXConfigManager {
             }
             this.customAPIs.splice(index, 1);
             this.saveCustomAPIs();
+            await this.persistCustomAPIsToConfig();
             this.renderCustomAPIs();
         }
     }
@@ -3539,16 +3552,16 @@ class AIWriteXConfigManager {
     }
 
     // 更新自定义API
-    updateCustomAPI(index, field, value) {
+    async updateCustomAPI(index, field, value) {
         if (this.customAPIs[index]) {
             if (field === 'api_key') {
-                // 如果是 API Key，存为数组
                 this.customAPIs[index][field] = value.split('\n').map(k => k.trim()).filter(k => k !== '');
             } else {
                 this.customAPIs[index][field] = value;
             }
             this.customAPIs[index].tested = false;
             this.saveCustomAPIs();
+            await this.persistCustomAPIsToConfig();
         }
     }
 
@@ -3562,13 +3575,19 @@ class AIWriteXConfigManager {
         testBtn.textContent = '测试中...';
 
         try {
+            // 处理 API Key：支持数组或字符串格式
+            let apiKey = api.api_key;
+            if (Array.isArray(apiKey)) {
+                apiKey = apiKey[0] || '';
+            }
+
             const response = await fetch('/api/config/test-custom-api', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: api.name,
                     api_base: api.api_base,
-                    api_key: api.api_key,
+                    api_key: apiKey,
                     model: api.model
                 })
             });
@@ -3578,7 +3597,7 @@ class AIWriteXConfigManager {
             resultDiv.style.display = 'block';
             if (result.status === 'success') {
                 resultDiv.className = 'test-result success';
-                resultDiv.textContent = '✅ ' + result.message;
+                resultDiv.textContent = '✅ ' + (result.message || '连接成功');
                 this.customAPIs[index].tested = true;
 
                 // 自动设为当前使用
@@ -3591,13 +3610,13 @@ class AIWriteXConfigManager {
                 await this.fetchModels(index);
             } else {
                 resultDiv.className = 'test-result error';
-                resultDiv.textContent = '❌ ' + result.message;
+                resultDiv.textContent = '❌ ' + (result.message || '未知错误，请检查配置');
                 this.customAPIs[index].tested = false;
             }
         } catch (error) {
             resultDiv.style.display = 'block';
             resultDiv.className = 'test-result error';
-            resultDiv.textContent = '❌ 测试失败: ' + error.message;
+            resultDiv.textContent = '❌ 测试失败: ' + (error.message || '网络异常');
         }
 
         testBtn.disabled = false;
@@ -3863,6 +3882,11 @@ class AIWriteXConfigManager {
         // 清空现有内容  
         container.innerHTML = '';
 
+        const settingsCard = this.createImgAPIRuntimeSettingsCard();
+        if (settingsCard) {
+            container.appendChild(settingsCard);
+        }
+
         // 定义提供商列表(固定四个)  
         const providers = [
             { key: 'picsum', display: 'Picsum(随机)' },
@@ -3887,6 +3911,103 @@ class AIWriteXConfigManager {
 
         // 追加自定义图片API卡片
         this.renderCustomImgAPIs(true); // 传入 true 表示追加模式，不清理容器
+    }
+
+    createImgAPIRuntimeSettingsCard() {
+        const settings = this.config.img_api?.settings || {};
+        const card = document.createElement('div');
+        card.className = 'provider-card';
+
+        const header = document.createElement('div');
+        header.className = 'provider-card-header';
+        header.innerHTML = `
+            <div class="provider-info">
+                <div class="provider-name">图片生成策略</div>
+                <div class="provider-desc">控制极速模式超时、默认超时、轻量提示词强度与占位图回退策略</div>
+            </div>
+        `;
+
+        const form = document.createElement('div');
+        form.className = 'provider-form';
+
+        const row1 = document.createElement('div');
+        row1.className = 'form-row';
+        const defaultTimeoutGroup = this.createFormGroup(
+            '普通超时(秒)',
+            'number',
+            'img-api-settings-default-timeout',
+            settings.default_timeout_seconds ?? 60,
+            '默认 60',
+            false
+        );
+        const fastTimeoutGroup = this.createFormGroup(
+            '极速超时(秒)',
+            'number',
+            'img-api-settings-fast-timeout',
+            settings.fast_mode_timeout_seconds ?? 45,
+            '默认 45',
+            false
+        );
+        row1.appendChild(defaultTimeoutGroup);
+        row1.appendChild(fastTimeoutGroup);
+
+        const row2 = document.createElement('div');
+        row2.className = 'form-row';
+        const promptCountGroup = this.createFormGroup(
+            '极速插图数',
+            'number',
+            'img-api-settings-fast-prompt-count',
+            settings.fast_mode_prompt_count ?? 3,
+            '默认 3',
+            false
+        );
+        const excerptLengthGroup = this.createFormGroup(
+            '提示词截取长度',
+            'number',
+            'img-api-settings-fast-prompt-excerpt',
+            settings.fast_mode_prompt_excerpt_length ?? 120,
+            '默认 120',
+            false
+        );
+        row2.appendChild(promptCountGroup);
+        row2.appendChild(excerptLengthGroup);
+
+        const fallbackRow = document.createElement('div');
+        fallbackRow.className = 'form-row';
+        fallbackRow.style.alignItems = 'center';
+
+        const fallbackLabel = document.createElement('label');
+        fallbackLabel.className = 'checkbox-label';
+        fallbackLabel.style.marginTop = '8px';
+
+        const fallbackCheckbox = document.createElement('input');
+        fallbackCheckbox.type = 'checkbox';
+        fallbackCheckbox.id = 'img-api-settings-allow-placeholder-fallback';
+        fallbackCheckbox.checked = settings.allow_placeholder_fallback !== false;
+
+        const fallbackCustom = document.createElement('span');
+        fallbackCustom.className = 'checkbox-custom';
+
+        const fallbackText = document.createElement('span');
+        fallbackText.textContent = '允许自动回退到 Picsum 占位图';
+
+        fallbackLabel.appendChild(fallbackCheckbox);
+        fallbackLabel.appendChild(fallbackCustom);
+        fallbackLabel.appendChild(fallbackText);
+        fallbackRow.appendChild(fallbackLabel);
+
+        const help = document.createElement('div');
+        help.style.cssText = 'margin-top: 10px; color: var(--text-secondary); font-size: 13px; line-height: 1.6;';
+        help.textContent = '关闭后，ComfyUI 工作流缺失或失败时将保留原占位符，不再自动替换为随机图。';
+
+        form.appendChild(row1);
+        form.appendChild(row2);
+        form.appendChild(fallbackRow);
+        form.appendChild(help);
+
+        card.appendChild(header);
+        card.appendChild(form);
+        return card;
     }
 
     // 加载自定义图片API配置
@@ -4550,8 +4671,20 @@ class AIWriteXConfigManager {
                 api_key: document.getElementById('img-api-comfyui-api-key')?.value || '',
                 model: document.getElementById('img-api-comfyui-model')?.value || '',
                 api_base: document.getElementById('img-api-comfyui-api-base')?.value || ''
+            },
+            settings: {
+                default_timeout_seconds: parseInt(document.getElementById('img-api-settings-default-timeout')?.value || '60', 10),
+                fast_mode_timeout_seconds: parseInt(document.getElementById('img-api-settings-fast-timeout')?.value || '45', 10),
+                fast_mode_prompt_count: parseInt(document.getElementById('img-api-settings-fast-prompt-count')?.value || '3', 10),
+                fast_mode_prompt_excerpt_length: parseInt(document.getElementById('img-api-settings-fast-prompt-excerpt')?.value || '120', 10),
+                allow_placeholder_fallback: !!document.getElementById('img-api-settings-allow-placeholder-fallback')?.checked
             }
         };
+
+        imgApiConfig.settings.default_timeout_seconds = Math.max(5, Math.min(600, imgApiConfig.settings.default_timeout_seconds || 60));
+        imgApiConfig.settings.fast_mode_timeout_seconds = Math.max(5, Math.min(600, imgApiConfig.settings.fast_mode_timeout_seconds || 45));
+        imgApiConfig.settings.fast_mode_prompt_count = Math.max(1, Math.min(8, imgApiConfig.settings.fast_mode_prompt_count || 3));
+        imgApiConfig.settings.fast_mode_prompt_excerpt_length = Math.max(40, Math.min(300, imgApiConfig.settings.fast_mode_prompt_excerpt_length || 120));
 
         // 始终同步自定义列表到后端，确保数据持久化
         imgApiConfig.custom = this.customImgAPIs || [];

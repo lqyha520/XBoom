@@ -160,6 +160,14 @@ class UnifiedContentWorkflow:
 {value_extraction_rules}
 {memory_context}
 
+**【🚨 极其重要：话题约束 (TOPIC CONSTRAINT)】**：
+你当前必须撰写的唯一话题是：**'{{topic}}'**
+- 严禁偏离此话题，禁止谈论其他无关内容
+- 禁止生成"改写建议"、"修改意见"、"创作指导"等元评论
+- 必须直接输出最终文章，不要任何解释或说明
+- 文章的每一句话都必须围绕'{{topic}}'展开
+- 如果发现自己在跑题，立即停止并回到话题本身
+
 **【实时抓取素材注入 (HOT MATERIAL)】**：
 此处为你提供了实时抓取到的热点素材，请**必须优先**基于此素材进行解构、价值榨取与深度创作。严禁忽略此素材。
 ---
@@ -178,6 +186,14 @@ class UnifiedContentWorkflow:
 {reasoning_matrix}
 {value_extraction_rules}
 {memory_context}
+
+**【🚨 极其重要：话题约束 (TOPIC CONSTRAINT)】**：
+你当前必须撰写的唯一话题是：**'{{topic}}'**
+- 严禁偏离此话题，禁止谈论其他无关内容
+- 禁止生成"改写建议"、"修改意见"、"创作指导"等元评论
+- 必须直接输出最终文章，不要任何解释或说明
+- 文章的每一句话都必须围绕'{{topic}}'展开
+- 如果发现自己在跑题，立即停止并回到话题本身
 
 **【核心要求：深度调研与干货重塑】**：
 1. **爆发力叙事**：每一段都要释放新的利益点。前 100 字必须设置“黄金钩子”，直接击中痛点或揭秘真相。目标区间 **{config.min_article_len}-{config.max_article_len}字**。严禁注水。
@@ -198,10 +214,10 @@ class UnifiedContentWorkflow:
         # 基础配置 - 使用主API模型生成内容
         agents = [
             AgentConfig(
-                role="内容创作专家",
+                role="专业内容创作者",
                 name="writer",
-                goal="撰写高质量文章",
-                backstory="你是一位作家",
+                goal=f"严格围绕用户给定的话题'{{topic}}'撰写深度文章，禁止偏离主题",
+                backstory="你是一位拥有15年经验的资深媒体主编，擅长将复杂话题转化为通俗易懂的深度文章。你的核心能力是：1) 紧扣话题不跑题 2) 提供独特视角 3) 用生动的案例说明问题 4) 保持文章的完整性和逻辑性。",
                 tools=["news_hub_tool"],
             ),
         ]
@@ -310,6 +326,43 @@ class UnifiedContentWorkflow:
         if len(clean) < 100:
             raise ValueError(f"V4断言失败 [{stage}]: 内容过短 ({len(clean)}字 < 100字下限)")
 
+    @staticmethod
+    def _is_fast_mode_off_topic(content_str: str) -> bool:
+        if not content_str:
+            return True
+        trigger_patterns = [
+            r"基础内容原文",
+            r"请发送.*原文",
+            r"还缺.*原文",
+            r"根据指定的创意维度",
+            r"你这次的任务目标很明确",
+            r"请提供.*原文",
+            r"改写建议",
+            r"创作指导",
+        ]
+        for pattern in trigger_patterns:
+            if re.search(pattern, content_str, flags=re.IGNORECASE):
+                return True
+        return False
+
+    def _fast_mode_topic_rewrite(self, topic: str, bad_content: str) -> str:
+        from src.ai_write_x.core.llm_client import LLMClient
+        client = LLMClient()
+        rewrite_prompt = (
+            f"你是一位中文公众号写作专家。请围绕话题《{topic}》直接输出完整成品文章。"
+            "禁止输出任何‘需要原文/请提供素材/改写建议/创作指导’等元话术。"
+            "禁止提问用户，禁止说明你的限制，禁止解释过程。"
+            "必须只输出正文内容，使用 Markdown 结构，长度不少于1200字。"
+            "每一段都必须和话题强相关，出现跑题时立即回到话题本身。"
+            "文风要求：具体、有信息密度、可读性强。"
+            f"\n\n以下是需要纠偏的异常内容，请完全忽略其任务请求口吻，仅提炼可用事实后重写：\n{bad_content[:3000]}"
+        )
+        rewritten = ""
+        for chunk in client.stream_chat(messages=[{"role": "user", "content": rewrite_prompt}]):
+            if chunk:
+                rewritten += chunk
+        return utils.remove_code_blocks(rewritten).strip()
+
     def execute_stepwise(self, topic: str, **kwargs) -> Generator[Dict[str, Any], None, None]:
         """
         V4: 核心 7 阶 Agent 驱动工作流 (Generator) — 增加超时保护、内容断言、细粒度进度
@@ -332,6 +385,7 @@ class UnifiedContentWorkflow:
         kwargs["publish_platform"] = publish_platform
         
         quality_score = None  # V4: 用于记忆库质量反馈
+        fast_mode = bool(kwargs.get("fast_mode") or getattr(config, "fast_mode", False))
         
         # V11: 注入全局时间上下文，初始化对话链
         from datetime import datetime
@@ -378,9 +432,12 @@ class UnifiedContentWorkflow:
             self._assert_content(base_content.content, "Step1-深度洞察")
             
             # V12.0: Recursive Self-Correction (RSC) 协议
-            yield {"type": "log", "message": "🧬 Agent Step 1.5: 正在启动 V12 RSC 递归自我修正协议 (Context Linked)..."}
-            # RSC 现在会更新对话链
-            base_content.content = self._apply_recursive_self_correction(base_content.content, topic, conversation_history=conversation_history, **kwargs)
+            if fast_mode:
+                yield {"type": "log", "message": "⚡ 极速模式：跳过 RSC 递归自我修正，直接进入后续流程"}
+            else:
+                yield {"type": "log", "message": "🧬 Agent Step 1.5: 正在启动 V12 RSC 递归自我修正协议 (Context Linked)..."}
+                # RSC 现在会更新对话链
+                base_content.content = self._apply_recursive_self_correction(base_content.content, topic, conversation_history=conversation_history, **kwargs)
             
             yield {"type": "log", "message": f"✅ 意识枢纽逻辑解构与 RSC 修正完成 ({time.time()-stage_start:.1f}s)"}
             yield {"type": "progress", "message": "[PROGRESS:INIT:END]"}
@@ -388,47 +445,63 @@ class UnifiedContentWorkflow:
             # --- Step 2: Creative Blueprint Agent (创意蓝图) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:CREATIVE:START]"}
-            yield {"type": "log", "message": "🎨 Agent Step 2: 正在构建维度化创意蓝图与情感锚点..."}
-            final_content = self._apply_dimensional_creative_transformation(base_content, **kwargs)
+            if fast_mode:
+                yield {"type": "log", "message": "⚡ 极速模式：跳过维度化创意改写，锁定原话题直出"}
+                final_content = base_content
+            else:
+                yield {"type": "log", "message": "🎨 Agent Step 2: 正在构建维度化创意蓝图与情感锚点..."}
+                final_content = self._apply_dimensional_creative_transformation(base_content, **kwargs)
+                yield {"type": "log", "message": "✨ 创意框架已落定：已注入差异化认知角度"}
             self._check_stage_timeout("CREATIVE", stage_start)
-            yield {"type": "log", "message": "✨ 创意框架已落定：已注入差异化认知角度"}
             yield {"type": "progress", "message": "[PROGRESS:CREATIVE:END]"}
             
             # --- Step 3: Master Drafting Agent (大师撰稿) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:WRITING:START]"}
             yield {"type": "log", "message": "✍️ Agent Step 3: 首席撰稿手正在进行高感知度正文创作..."}
+            if fast_mode and self._is_fast_mode_off_topic(final_content.content):
+                yield {"type": "log", "message": "🚨 极速模式熔断触发：检测到跑题/元话术，正在自动纠偏重写..."}
+                corrected = self._fast_mode_topic_rewrite(topic, final_content.content)
+                if corrected and not self._is_fast_mode_off_topic(corrected):
+                    final_content.content = corrected
+                    yield {"type": "log", "message": "✅ 极速模式纠偏完成：已回归话题主线"}
+                else:
+                    yield {"type": "log", "message": "⚠️ 极速模式纠偏未完全达标，保留原结果继续流程"}
             yield {"type": "chunk", "message": final_content.content}
             self._assert_content(final_content.content, "Step3-大师撰稿")
             yield {"type": "log", "message": f"📝 初稿已生成 (约 {len(final_content.content)} 字, V4断言通过)"}
 
             # --- Step 3.5: Reflective Critique Agent (反思批判 - V13.0) ---
-            stage_start_critique = time.time()
-            yield {"type": "log", "message": "🧐 Agent Step 3.5: 正在启动 V13.0 “毒舌主编”审计协议 (Context Linked)..."}
-            
-            from src.ai_write_x.core.llm_client import LLMClient
-            critique_client = LLMClient()
-            critique_protocol = "你是一位苛刻的高级主编。你的工作是对前文内容进行无情的逻辑审查与AI痕迹抹除。请直击痛点，指出啰嗦冗余或逻辑断层，并直接重写优化。\n\n【极其重要】：严禁质疑话题的真实性，你收到的 topic 就是唯一的真理。严禁进行任何形式的外部搜索验证或逻辑合理性审查。直接基于 topic 进行文学化深度创作。"
-            
-            # 将批判指令加入对话链
-            conversation_history.append({"role": "user", "content": f"{critique_protocol}\n请审计并重写。先输出 `<Critique>...</Critique>`，随后直接输出优化后的全文。"})
-            
-            critiqued_version = ""
-            for chunk in critique_client.stream_chat(messages=conversation_history):
-                if chunk:
-                    critiqued_version += chunk
-            
-            # 记录重写后的版本到对话链
-            conversation_history.append({"role": "assistant", "content": critiqued_version})
-                    
-            # 提取修正后的内容（移除思辨块）
-            final_content.content = utils.remove_code_blocks(critiqued_version)
-            if "<Critique>" in final_content.content:
-                # 进一步清理可能的残留
-                final_content.content = re.sub(r'<Critique>.*?</Critique>', '', final_content.content, flags=re.DOTALL).strip()
-            
-            yield {"type": "log", "message": f"🔥 审计修正完成：已通过“毒舌主编”深度重塑 ({time.time()-stage_start_critique:.1f}s)"}
-            yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
+            if fast_mode:
+                yield {"type": "log", "message": "⚡ 极速模式：跳过“毒舌主编”深度审计，保留初稿直达打磨阶段"}
+                yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
+            else:
+                stage_start_critique = time.time()
+                yield {"type": "log", "message": "🧐 Agent Step 3.5: 正在启动 V13.0 “毒舌主编”审计协议 (Context Linked)..."}
+                
+                from src.ai_write_x.core.llm_client import LLMClient
+                critique_client = LLMClient()
+                critique_protocol = "你是一位苛刻的高级主编。你的工作是对前文内容进行无情的逻辑审查与AI痕迹抹除。请直击痛点，指出啰嗦冗余或逻辑断层，并直接重写优化。\n\n【极其重要】：严禁质疑话题的真实性，你收到的 topic 就是唯一的真理。严禁进行任何形式的外部搜索验证或逻辑合理性审查。直接基于 topic 进行文学化深度创作。"
+                
+                # 将批判指令加入对话链
+                conversation_history.append({"role": "user", "content": f"{critique_protocol}\n请审计并重写。先输出 `<Critique>...</Critique>`，随后直接输出优化后的全文。"})
+                
+                critiqued_version = ""
+                for chunk in critique_client.stream_chat(messages=conversation_history):
+                    if chunk:
+                        critiqued_version += chunk
+                
+                # 记录重写后的版本到对话链
+                conversation_history.append({"role": "assistant", "content": critiqued_version})
+                        
+                # 提取修正后的内容（移除思辨块）
+                final_content.content = utils.remove_code_blocks(critiqued_version)
+                if "<Critique>" in final_content.content:
+                    # 进一步清理可能的残留
+                    final_content.content = re.sub(r'<Critique>.*?</Critique>', '', final_content.content, flags=re.DOTALL).strip()
+                
+                yield {"type": "log", "message": f"🔥 审计修正完成：已通过“毒舌主编”深度重塑 ({time.time()-stage_start_critique:.1f}s)"}
+                yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
 
             
             # --- Step 4: Reflexion & Polish Agent (打磨重塑) ---
@@ -442,9 +515,13 @@ class UnifiedContentWorkflow:
             
             # V11: 基于系统熵动态调节打磨强度
             current_entropy = self.monitor.calculate_system_entropy()
-            max_reflections = 3 if current_entropy < 60 else 1 # 系统稳定时追求极致，不稳定时快速交付
-            if current_entropy > 85:
-                yield {"type": "log", "message": f"🌌 系统熵值偏高 ({current_entropy:.1f}%)，启动‘快速坍缩’治理模式，精简打磨轮次"}
+            if fast_mode:
+                max_reflections = 0
+                yield {"type": "log", "message": "⚡ 极速模式：跳过 Reflexion 多轮打磨，直接进入抗AI与质量评估"}
+            else:
+                max_reflections = 3 if current_entropy < 60 else 1 # 系统稳定时追求极致，不稳定时快速交付
+                if current_entropy > 85:
+                    yield {"type": "log", "message": f"🌌 系统熵值偏高 ({current_entropy:.1f}%)，启动‘快速坍缩’治理模式，精简打磨轮次"}
             
             result_str = final_content.content
             iteration = 0
@@ -518,12 +595,25 @@ class UnifiedContentWorkflow:
             # V20.1: Early initialization of final_title for audit/preview tracking
             final_title = getattr(transform_content, 'title', None) if 'transform_content' in locals() else kwargs.get("title", topic)
             
-            from src.ai_write_x.core.visual_assets import VisualAssetsManager
-            final_content.content = VisualAssetsManager.inject_image_prompts(final_content.content)
-            yield {"type": "log", "message": "🖼️ 图像占位符已注入，正在同步生成视觉资产..."}
-            
-            # V24.0: 先生成图片，再进行最终 HTML 包装。这样包装节点能看到最终的 img 标签并应用样式。
-            final_content.content = VisualAssetsManager.sync_trigger_image_generation(final_content.content)
+            if fast_mode:
+                yield {"type": "log", "message": "⚡ 极速模式：使用轻量配图提示词并继续调用生图"}
+                from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                final_content.content = VisualAssetsManager.inject_image_prompts_fast(final_content.content)
+                # 极速模式下保留真实生图，但避免前置分镜分析拖慢整条链路
+                try:
+                    fast_timeout = int(config.img_runtime_settings.get("fast_mode_timeout_seconds", 45) or 45)
+                    final_content.content = VisualAssetsManager.sync_trigger_image_generation(final_content.content, timeout=fast_timeout)
+                    yield {"type": "log", "message": "🖼️ 极速模式图片生成完成"}
+                except Exception as img_err:
+                    lg.print_log(f"极速模式图片生成失败（已跳过）: {img_err}", "warning")
+                    yield {"type": "log", "message": "⚠️ 图片生成超时或失败，文章已保存（无配图）"}
+            else:
+                from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                final_content.content = VisualAssetsManager.inject_image_prompts(final_content.content)
+                yield {"type": "log", "message": "🖼️ 图像占位符已注入，正在同步生成视觉资产..."}
+                
+                # V24.0: 先生成图片，再进行最终 HTML 包装。这样包装节点能看到最终的 img 标签并应用样式。
+                final_content.content = VisualAssetsManager.sync_trigger_image_generation(final_content.content)
             
             # 创建副本以防污染 kwargs
             transform_kwargs = kwargs.copy()
@@ -552,7 +642,7 @@ class UnifiedContentWorkflow:
             yield {"type": "log", "message": f"🖼️ 视觉资产已同步 ({time.time()-stage_start:.1f}s)：封面图与正文配图已就绪"}
             
             # --- Step 5.2: WeChat Preview (微信预览 - V19.5) ---
-            if publish_platform == PlatformType.WECHAT.value:
+            if publish_platform == PlatformType.WECHAT.value and not fast_mode:
                 # 4. (V20.1) 微信预览自测自纠与 1:1 仿真库截图 (V-AUDIT)
                 yield {"type": "progress", "message": "[PROGRESS:V-AUDIT:START]"}
                 try:
@@ -587,6 +677,8 @@ class UnifiedContentWorkflow:
                     yield {"type": "log", "message": f"⚠️ 预览与审计步骤失败: {str(e)}"}
                 
                 yield {"type": "progress", "message": "[PROGRESS:V-AUDIT:END]"}
+            elif publish_platform == PlatformType.WECHAT.value and fast_mode:
+                yield {"type": "log", "message": "⚡ 极速模式：跳过微信预览审计与截图采集"}
             
             yield {"type": "progress", "message": "[PROGRESS:VISUAL:END]"}
             
@@ -597,54 +689,57 @@ class UnifiedContentWorkflow:
             
             # Note: final_title is now initialized earlier in Step 5 Visual.
 
-            try:
-                import asyncio
-                from src.ai_write_x.core.quality_engine import TitleOptimizer
-                title = kwargs.get("title", topic)
-                current_title = transform_content.title if getattr(transform_content, 'title', None) else title
-                
-                # 提取正文内容前1500字作为参考
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(transform_content.content, "html.parser")
-                content_preview = soup.get_text(separator='\n', strip=True)[:1500]
-                
-                # 安全调用标题优化器，处理事件循环冲突
+            if fast_mode:
+                yield {"type": "log", "message": "⚡ 极速模式：跳过AI标题优化，保留当前标题"}
+            else:
                 try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
-
-                if loop and loop.is_running():
-                    # 如果当前已有运行中的 loop，则在线程中运行或跳过（此处简单处理为捕获异常并记录）
-                    # 也可以尝试使用 nest_asyncio，但直接运行更安全
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        opt_result = executor.submit(
-                            lambda: asyncio.run(TitleOptimizer.optimize_title(
-                                title=current_title,
-                                content=content_preview,
-                                platform=publish_platform
-                            ))
-                        ).result()
-                else:
-                    opt_result = asyncio.run(TitleOptimizer.optimize_title(
-                        title=current_title,
-                        content=content_preview,
-                        platform=publish_platform
-                    ))
-                
-                if opt_result.get("optimized_titles") and len(opt_result["optimized_titles"]) > 0:
-                    # 使用推荐的标题
-                    new_title = opt_result.get("recommended", current_title)
-                    transform_content.title = new_title
-                    final_title = new_title # Update final_title after optimization
-                    yield {"type": "log", "message": f"✨ AI标题优化完成: '{current_title[:30]}...' → '{new_title[:30]}...'"}
-                    yield {"type": "log", "message": f"📊 共生成 {len(opt_result['optimized_titles'])} 个候选标题，已自动选择最优方案"}
-                else:
-                    yield {"type": "log", "message": "⚠️ AI标题优化未返回有效结果，保留原标题"}
+                    import asyncio
+                    from src.ai_write_x.core.quality_engine import TitleOptimizer
+                    title = kwargs.get("title", topic)
+                    current_title = transform_content.title if getattr(transform_content, 'title', None) else title
                     
-            except Exception as e:
-                yield {"type": "log", "message": f"⚠️ AI标题优化步骤出错: {str(e)}，跳过并保留原标题"}
+                    # 提取正文内容前1500字作为参考
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(transform_content.content, "html.parser")
+                    content_preview = soup.get_text(separator='\n', strip=True)[:1500]
+                    
+                    # 安全调用标题优化器，处理事件循环冲突
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+
+                    if loop and loop.is_running():
+                        # 如果当前已有运行中的 loop，则在线程中运行或跳过（此处简单处理为捕获异常并记录）
+                        # 也可以尝试使用 nest_asyncio，但直接运行更安全
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            opt_result = executor.submit(
+                                lambda: asyncio.run(TitleOptimizer.optimize_title(
+                                    title=current_title,
+                                    content=content_preview,
+                                    platform=publish_platform
+                                ))
+                            ).result()
+                    else:
+                        opt_result = asyncio.run(TitleOptimizer.optimize_title(
+                            title=current_title,
+                            content=content_preview,
+                            platform=publish_platform
+                        ))
+                    
+                    if opt_result.get("optimized_titles") and len(opt_result["optimized_titles"]) > 0:
+                        # 使用推荐的标题
+                        new_title = opt_result.get("recommended", current_title)
+                        transform_content.title = new_title
+                        final_title = new_title # Update final_title after optimization
+                        yield {"type": "log", "message": f"✨ AI标题优化完成: '{current_title[:30]}...' → '{new_title[:30]}...'"}
+                        yield {"type": "log", "message": f"📊 共生成 {len(opt_result['optimized_titles'])} 个候选标题，已自动选择最优方案"}
+                    else:
+                        yield {"type": "log", "message": "⚠️ AI标题优化未返回有效结果，保留原标题"}
+                        
+                except Exception as e:
+                    yield {"type": "log", "message": f"⚠️ AI标题优化步骤出错: {str(e)}，跳过并保留原标题"}
             
             yield {"type": "progress", "message": "[PROGRESS:TITLE_OPT:END]"}
             
@@ -1041,7 +1136,7 @@ class UnifiedContentWorkflow:
 - **图片插入与排版建议**:
     - 建议平均每个段落配置一张图片，或在观点转折处精准切入，提升阅读快感。
     - **生图质量管控**：生成的配图必须清晰、高端，**严禁**出现任何文字、字体、中国国旗/国徽及额外/畸形的手部肢体。
-    - 图片格式：使用 <img src="https://picsum.photos/750/400?random=1" style="width:100%;border-radius:12px;margin:16px 0;" />
+    - 图片格式：使用项目内图片路径或最终生成后的 `<img>` 标签，保留原有图片位置与样式，不要使用随机外链占位图
 
 - 严格限制：
     * 不输出任何 Markdown 字符

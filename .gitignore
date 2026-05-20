@@ -97,3 +97,8 @@ port.txt
 # 🕷️ 爬虫输出与缓存
 src/output/spider/articles/
 src/output/spider/*.json
+data/*.db-wal
+data/*.db-shm
+knowledge/newshub_cache.json
+knowledge_graph.json
+logs/desktop_crash.log

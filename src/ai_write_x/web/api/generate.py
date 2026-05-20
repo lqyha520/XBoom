@@ -47,6 +47,7 @@ class GenerateRequest(BaseModel):
     post_action: Optional[str] = "none"
     ai_beautify: Optional[bool] = False
     filter_processed: Optional[bool] = False
+    fast_mode: Optional[bool] = False
 
 
 @router.get("/config/validate")
@@ -123,6 +124,7 @@ async def generate_content(request: GenerateRequest):
         # 将 post_action 保存到 Config 以便后续执行发布
         config.post_action = request.post_action or "none"
         config.article_count = request.article_count or 1
+        config.fast_mode = request.fast_mode or False
 
         # 我们需要一个特殊的后台任务进程，用于循环生成文章
         from multiprocessing import Process, Queue
@@ -130,7 +132,7 @@ async def generate_content(request: GenerateRequest):
         import threading
         import queue
         
-        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False):
+        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False, fast_mode=False):
             # V11 Hotfix: 通过 log.get_process_queue() 动态获取当前线程绑定的日志队列
             # 兼容 task_manager.py 的 _worker_wrapper 注入逻辑
             import src.ai_write_x.utils.log as lg
@@ -396,7 +398,8 @@ async def generate_content(request: GenerateRequest):
                             "custom_template": ref_config_dict.get("template_name", ""),
                             "platform": req_platform,
                             "reference_content": "",
-                            "date_str": d_str
+                            "date_str": d_str,
+                            "fast_mode": fast_mode
                         }
                         lg.print_log(f"✅ config_data创建成功", "debug")
                     except Exception as config_e:
@@ -689,7 +692,8 @@ async def generate_content(request: GenerateRequest):
                 ref_dict["is_reference"],
                 ref_dict,
                 request.ai_beautify,
-                request.filter_processed or False
+                request.filter_processed or False,
+                request.fast_mode or False
             )
         )
         

@@ -754,13 +754,17 @@ class LLMClient:
                 yield chunk
 
         # 在同步环境中运行异步迭代器
+        created_loop = False
         try:
-            # 尝试获取当前事件循环，如果没有则创建一个新的
+            # 尝试获取当前事件循环，如果没有或已关闭则创建一个新的
             try:
                 loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    raise RuntimeError("Event loop is closed")
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
+                created_loop = True
             
             gen = _run()
             
@@ -774,6 +778,9 @@ class LLMClient:
         except Exception as e:
             log.print_log(f"LLM同步流式调用失败: {e}", "error")
             raise
+        finally:
+            if created_loop and not loop.is_closed():
+                loop.close()
 
     def count_tokens(self, text: str) -> int:
         """估算token数量（简单估算）"""

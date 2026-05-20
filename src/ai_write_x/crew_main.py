@@ -131,7 +131,8 @@ def run(inputs):
             "urls": inputs.get("urls", []),
             "reference_ratio": inputs.get("reference_ratio", 0.0),
             "reference_content": inputs.get("reference_content", ""),
-            "date_str": inputs.get("date_str", "近期 (以系统时间推测)")
+            "date_str": inputs.get("date_str", "近期 (以系统时间推测)"),
+            "fast_mode": inputs.get("fast_mode", False)
         }
 
         # V18.0: 蜂群并发逻辑判定

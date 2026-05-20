@@ -13,6 +13,8 @@ import sys
 import os
 import secrets
 import json
+import traceback
+from datetime import datetime
 
 from src.ai_write_x.web.app import app
 from src.ai_write_x.utils import log
@@ -24,6 +26,8 @@ from src.ai_write_x.utils.icon_manager import WindowIconManager
 class WebViewGUI:
     def __init__(self):
         self.server_thread = None
+        self.server = None
+        self.server_loop = None
         self.window = None
         self.server_port = self.find_free_port()
         with open("port.txt", "w") as f:
@@ -66,6 +70,27 @@ class WebViewGUI:
         signal.signal(signal.SIGTERM, self.signal_handler)
         if platform.system() == "Windows":
             signal.signal(signal.SIGBREAK, self.signal_handler)
+
+    def write_crash_log(self, stage, error):
+        try:
+            base_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path.cwd()
+            log_dir = base_dir / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            crash_file = log_dir / "desktop_crash.log"
+            content = (
+                f"[{datetime.now().isoformat(timespec='seconds')}] stage={stage}\n"
+                f"error={repr(error)}\n"
+                f"traceback=\n{traceback.format_exc()}\n"
+                f"python={sys.version}\n"
+                f"executable={sys.executable}\n"
+                f"cwd={os.getcwd()}\n"
+                f"platform={platform.platform()}\n"
+                "-" * 80 + "\n"
+            )
+            with open(crash_file, "a", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            pass
 
     def quit_application(self):
         """完整的退出流程"""
@@ -121,18 +146,18 @@ class WebViewGUI:
     def start_server(self):
         """启动FastAPI服务器"""
         try:
-            # 配置uvicorn服务器
             config = uvicorn.Config(
                 app, host="127.0.0.1", port=self.server_port, log_level="warning", access_log=False
             )
-            server = uvicorn.Server(config)
+            self.server = uvicorn.Server(config)
 
-            # 在新的事件循环中运行服务器
             loop = asyncio.new_event_loop()
+            self.server_loop = loop
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(server.serve())
+            loop.run_until_complete(self.server.serve())
 
         except Exception as e:
+            self.write_crash_log("start_server", e)
             log.print_log(f"服务器启动失败: {str(e)}", "error")
 
     def check_server_ready(self, max_attempts=30):
@@ -302,11 +327,9 @@ class WebViewGUI:
         except KeyboardInterrupt:
             self.quit_application()
         except Exception as e:
+            self.write_crash_log("start", e)
             log.print_log(f"GUI启动失败: {str(e)}", "error")
-            raise
-        finally:
-            # 确保清理资源
-            self.quit_application()
+            return
 
     def on_task_start(self):
         """任务开始时的托盘状态更新"""
@@ -375,6 +398,20 @@ def gui_start():
     except KeyboardInterrupt:
         log.print_log("用户中断程序", "info")
     except Exception as e:
+        try:
+            base_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path.cwd()
+            log_dir = base_dir / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            crash_file = log_dir / "desktop_crash.log"
+            with open(crash_file, "a", encoding="utf-8") as f:
+                f.write(
+                    f"[{datetime.now().isoformat(timespec='seconds')}] stage=gui_start\\n"
+                    f"error={repr(e)}\\n"
+                    f"traceback=\\n{traceback.format_exc()}\\n"
+                    + "-" * 80 + "\\n"
+                )
+        except Exception:
+            pass
         log.print_log(f"GUI启动失败: {str(e)}", "error")
 
 

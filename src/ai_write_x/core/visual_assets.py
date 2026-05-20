@@ -33,6 +33,134 @@ class HeartbeatLogger:
 class VisualAssetsManager:
     """视觉资产管理器：负责文本到图像的自动化提示词生成与后台同步渲染链路"""
     
+    @staticmethod
+    def _get_runtime_settings() -> dict:
+        from src.ai_write_x.config.config import Config
+
+        config = Config.get_instance()
+        return config.img_runtime_settings
+
+    @staticmethod
+    def _coerce_int(value, default: int, minimum: int = 1, maximum: Optional[int] = None) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = default
+        parsed = max(minimum, parsed)
+        if maximum is not None:
+            parsed = min(maximum, parsed)
+        return parsed
+
+    @staticmethod
+    def _coerce_bool(value, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+        return default
+
+    @staticmethod
+    def _clean_visual_text(text: str) -> str:
+        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r'!\[[^\]]*\]\([^)]+\)', ' ', text)
+        text = re.sub(r'\[[^\]]+\]\([^)]+\)', ' ', text)
+        text = re.sub(r'[`*_>#-]+', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
+    @classmethod
+    def _build_fast_scene_prompt(cls, snippet: str, is_cover: bool = False) -> str:
+        cleaned = cls._clean_visual_text(snippet)
+        if not cleaned:
+            cleaned = "article theme scene"
+
+        settings = cls._get_runtime_settings()
+        excerpt_length = cls._coerce_int(
+            settings.get("fast_mode_prompt_excerpt_length"),
+            default=120,
+            minimum=40,
+            maximum=300,
+        )
+        short_text = cleaned[:excerpt_length]
+        ratio = "21:9" if is_cover else "16:9"
+        composition = (
+            "cinematic hero scene, wide environmental composition, strong focal subject"
+            if is_cover else
+            "editorial illustration, realistic scene, clear single-subject composition"
+        )
+        pos_prompt = (
+            f"{composition}, inspired by: {short_text}, natural lighting, detailed environment, "
+            "coherent perspective, high detail, professional color grading, 8k"
+        )
+        neg_prompt = (
+            "bad anatomy, blurry face, duplicate features, text distortion, watermark, "
+            "low detail, extra limbs, deformed hands"
+        )
+        return f"[[V-SCENE: {pos_prompt} | {neg_prompt} | {ratio}]]"
+
+    @classmethod
+    def inject_image_prompts_fast(cls, markdown_text: str) -> str:
+        """极速模式使用的轻量提示词注入：避免先走重型 LLM 分镜分析。"""
+        if not markdown_text.strip():
+            return markdown_text
+
+        if "V-SCENE:" in markdown_text or "IMG_PROMPT:" in markdown_text:
+            return markdown_text
+
+        lines = markdown_text.splitlines()
+        blocks = []
+        current = []
+        for line in lines:
+            if line.strip():
+                current.append(line)
+            elif current:
+                blocks.append("\n".join(current))
+                current = []
+        if current:
+            blocks.append("\n".join(current))
+
+        candidate_blocks = []
+        for block in blocks:
+            cleaned = cls._clean_visual_text(block)
+            if len(cleaned) < 24:
+                continue
+            if cleaned.startswith("V SCENE") or cleaned.startswith("IMG PROMPT"):
+                continue
+            candidate_blocks.append(block)
+
+        if not candidate_blocks:
+            return markdown_text
+
+        settings = cls._get_runtime_settings()
+        prompt_limit = cls._coerce_int(
+            settings.get("fast_mode_prompt_count"),
+            default=3,
+            minimum=1,
+            maximum=8,
+        )
+        prompt_count = min(prompt_limit, max(1, len(candidate_blocks) // 4 + 1))
+        chosen_blocks = candidate_blocks[:prompt_count]
+
+        cover_prompt = cls._build_fast_scene_prompt(chosen_blocks[0], is_cover=True)
+        updated_text = markdown_text
+        first_non_heading = re.search(r'\n(?!#)(.+)', markdown_text)
+        if first_non_heading:
+            insert_pos = first_non_heading.start()
+            updated_text = updated_text[:insert_pos] + "\n" + cover_prompt + "\n" + updated_text[insert_pos:]
+        else:
+            updated_text = cover_prompt + "\n\n" + updated_text
+
+        for block in chosen_blocks[1:]:
+            marker = cls._build_fast_scene_prompt(block, is_cover=False)
+            updated_text = updated_text.replace(block, f"{block}\n\n{marker}", 1)
+
+        lg.print_log(f"[VisualAssets] 极速模式已注入 {len(chosen_blocks)} 组轻量配图提示词", "info")
+        return updated_text
+
     @classmethod
     def inject_image_prompts(cls, markdown_text: str) -> str:
         """根据正文内容，自动分析并在适当位置插入 [IMG_PROMPT: prompt | ratio] 标签"""
@@ -142,8 +270,13 @@ class VisualAssetsManager:
             return markdown_text
 
     @classmethod
-    def sync_trigger_image_generation(cls, text_with_prompts: str) -> str:
-        """扫描文本中的提示词标记（Markdown 或 HTML 占位符），调用图像 API 生成图片并替换"""
+    def sync_trigger_image_generation(cls, text_with_prompts: str, timeout: Optional[int] = None) -> str:
+        """扫描文本中的提示词标记（Markdown 或 HTML 占位符），调用图像 API 生成图片并替换
+
+        Args:
+            text_with_prompts: 包含图片占位符的文本
+            timeout: 单张图片生成超时时间（秒），未传时读取配置
+        """
         from bs4 import BeautifulSoup
         all_tasks = []
         
@@ -236,6 +369,17 @@ class VisualAssetsManager:
         import os, requests as req_lib
         
         config = Config.get_instance()
+        runtime_settings = cls._get_runtime_settings()
+        effective_timeout = cls._coerce_int(
+            timeout if timeout is not None else runtime_settings.get("default_timeout_seconds"),
+            default=60,
+            minimum=5,
+            maximum=600,
+        )
+        allow_placeholder_fallback = cls._coerce_bool(
+            runtime_settings.get("allow_placeholder_fallback"),
+            default=True,
+        )
         img_api_type = config.img_api_type
         # 获取所有可用 Key 列表
         img_api_keys = config.get_img_api_keys()
@@ -346,8 +490,8 @@ class VisualAssetsManager:
                         proxy = config.proxy
                         proxies = {"http": proxy, "https": proxy} if proxy else None
                         
-                        res = req_lib.post(endpoint, headers=headers, json=payload, timeout=30, proxies=proxies)
-                        
+                        res = req_lib.post(endpoint, headers=headers, json=payload, timeout=effective_timeout, proxies=proxies)
+
                         # --- 多 Key 自动容灾逻辑 (V19.0) ---
                         if (res.status_code == 429 or res.status_code == 401) and len(img_api_keys) > 1:
                             # 如果当前 Key 限流或失效，尝试切换下一个
@@ -358,7 +502,7 @@ class VisualAssetsManager:
                             # 为了简单起见，我们在这里直接进行一次内部递归或重发请求
                             # 这里采用重发请求以保持逻辑线性
                             headers["Authorization"] = f"Bearer {img_api_key}"
-                            res = req_lib.post(endpoint, headers=headers, json=payload, timeout=30, proxies=proxies)
+                            res = req_lib.post(endpoint, headers=headers, json=payload, timeout=effective_timeout, proxies=proxies)
                         
                         res_json = res.json()
                         
@@ -513,14 +657,78 @@ class VisualAssetsManager:
                         continue
                     comfy_base_url = api_base.rstrip('/')
                     
+                    # 0. 先测试 ComfyUI 服务是否可用
+                    try:
+                        test_res = req_lib.get(f"{comfy_base_url}/system_stats", timeout=5)
+                        if test_res.status_code == 200:
+                            lg.print_log(f"  ✅ ComfyUI 服务连接成功 ({comfy_base_url})", "info")
+                        else:
+                            lg.print_log(f"  ⚠️ ComfyUI 服务响应异常 (HTTP {test_res.status_code})，尝试继续...", "warning")
+                    except Exception as test_e:
+                        lg.print_log(f"  ❌ 无法连接到 ComfyUI 服务 ({comfy_base_url}): {test_e}", "error")
+                        lg.print_log(f"  [提示] 请确认 ComfyUI 已启动并运行在 {comfy_base_url}", "warning")
+                        continue
+                    
                     # 1. 尝试加载用户放在主目录的自定 z-image 专用配置文件
-                    comfy_workflow_path = os.path.join(str(PathManager.get_app_data_dir()), "z-image专用nf4快速备份.json")
-                    if not os.path.exists(comfy_workflow_path):
-                        raise Exception(f"找不到 ComfyUI API 工作流配置文件: {comfy_workflow_path}")
+                    from src.ai_write_x.utils import utils
+                    workflow_filename = "z-image专用nf4快速备份.json"
+                    resource_workflow_path = utils.get_res_path(workflow_filename)
+                    comfy_workflow_candidates = [
+                        os.path.join(str(PathManager.get_app_data_dir()), workflow_filename),
+                        os.path.join(str(PathManager.get_base_dir()), workflow_filename),
+                        os.path.join(str(PathManager.get_root_dir()), workflow_filename),
+                        str(resource_workflow_path),
+                    ]
+                    
+                    # 打包模式特殊处理：PyInstaller onedir 模式下，文件可能在 _internal 子目录
+                    if utils.get_is_release_ver():
+                        internal_path = os.path.join(str(PathManager.get_base_dir()), "_internal", workflow_filename)
+                        comfy_workflow_candidates.append(internal_path)
+
+                    appdata_workflow_path = os.path.join(str(PathManager.get_app_data_dir()), workflow_filename)
+                    if (
+                        utils.get_is_release_ver()
+                        and not os.path.exists(appdata_workflow_path)
+                        and resource_workflow_path
+                        and os.path.exists(resource_workflow_path)
+                    ):
+                        try:
+                            import shutil
+                            shutil.copy2(resource_workflow_path, appdata_workflow_path)
+                            comfy_workflow_candidates.insert(0, appdata_workflow_path)
+                            lg.print_log(f"  [ComfyUI] 已将工作流复制到用户目录: {appdata_workflow_path}", "info")
+                        except Exception as copy_e:
+                            lg.print_log(f"  [ComfyUI] 工作流复制失败，将继续使用资源目录: {copy_e}", "warning")
+                    
+                    lg.print_log(f"  [ComfyUI] 正在查找工作流文件...", "info")
+                    lg.print_log(f"  [ComfyUI] 运行模式: {'打包版' if utils.get_is_release_ver() else '开发版'}", "info")
+                    for idx_c, candidate in enumerate(comfy_workflow_candidates, 1):
+                        exists = os.path.exists(candidate) if candidate else False
+                        lg.print_log(f"  [路径{idx_c}] {candidate} {'✅ 存在' if exists else '❌ 不存在'}", "info" if exists else "warning")
+                    
+                    comfy_workflow_path = next((p for p in comfy_workflow_candidates if p and os.path.exists(p)), "")
+                    if not comfy_workflow_path:
+                        if allow_placeholder_fallback:
+                            lg.print_log(f"  [降级] 未找到 ComfyUI 工作流文件，自动切换为 Picsum 占位图", "warning")
+                            w_h = size.split("*")
+                            download_url = f"https://picsum.photos/{w_h[0]}/{w_h[1]}?random={idx+1}"
+                            from src.ai_write_x.utils import utils as u
+                            img_path = u.download_and_save_image(download_url, str(image_dir))
+                            if not img_path:
+                                lg.print_log("  [失败] Picsum 降级也失败，保留原占位符", "warning")
+                            else:
+                                lg.print_log("  [降级成功] 已使用 Picsum 占位图替代 ComfyUI输出", "warning")
+                                task["fallback_notice"] = "当前图片为占位图：ComfyUI 工作流文件缺失，已临时回退到 Picsum。"
+                            continue  # 跳过本次图片生成，进入下一张
+                        raise Exception("未找到 ComfyUI 工作流文件，且当前配置已禁用占位图回退")
                         
                     import json
-                    with open(comfy_workflow_path, 'r', encoding='utf-8') as f:
-                        workflow_data = json.load(f)
+                    try:
+                        with open(comfy_workflow_path, 'r', encoding='utf-8') as f:
+                            workflow_data = json.load(f)
+                    except Exception as json_e:
+                        lg.print_log(f"  [失败] 工作流文件读取异常: {json_e}", "error")
+                        continue
                         
                     # 2. 动态替换长宽和提示词参数
                     w_str, h_str = size.split("*")
@@ -725,6 +933,13 @@ class VisualAssetsManager:
                 continue
             generated_count += 1
             img_tag = f'<img src="/images/{os.path.basename(img_path)}" alt="{prompt[:50]}" style="max-width:100%;border-radius:12px;margin:16px 0;box-shadow:0 10px 30px rgba(0,0,0,0.1);display:block;">'
+            fallback_notice = task.get("fallback_notice", "")
+            if fallback_notice:
+                img_tag = (
+                    '<div style="margin:16px 0;padding:10px 12px;border-radius:10px;'
+                    'background:#fff7e6;border:1px solid #ffd591;color:#ad6800;font-size:13px;line-height:1.6;">'
+                    f'{fallback_notice}</div>{img_tag}'
+                )
             
             if "original_element" in task and task["original_element"]:
                 # HTML 模式：使用 BeautifulSoup 对象直接替换

@@ -16,8 +16,10 @@ from sqlalchemy.pool import StaticPool
 from typing import List, Optional, Callable
 from datetime import datetime
 
-# Database path - 使用V13+路径
-DB_PATH = os.path.join("data", "aiwritex_v6.db")
+# Database path - 使用V13+路径（确保使用绝对路径，兼容打包模式）
+from src.ai_write_x.utils.path_manager import PathManager
+app_data_dir = PathManager.get_app_data_dir()
+DB_PATH = os.path.join(str(app_data_dir), "data", "aiwritex_v6.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 # Create engine with connection pool

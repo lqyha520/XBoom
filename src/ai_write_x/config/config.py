@@ -224,6 +224,13 @@ class Config:
                 "modelscope": {"api_key": "", "model": "Tongyi-MAI/Z-Image-Turbo", "api_base": "https://api-inference.modelscope.cn/v1"},
                 "picsum": {"api_key": "", "model": ""},
                 "comfyui": {"api_key": "", "model": "", "api_base": ""},
+                "settings": {
+                    "default_timeout_seconds": 60,
+                    "fast_mode_timeout_seconds": 45,
+                    "fast_mode_prompt_count": 3,
+                    "fast_mode_prompt_excerpt_length": 120,
+                    "allow_placeholder_fallback": True,
+                },
                 "custom": [],
             },
             "proxy": "",  # 全局代理 (e.g., http://127.0.0.1:7890)
@@ -1835,6 +1842,28 @@ class Config:
                 return first.get("model", "") if isinstance(first, dict) else str(first)
                 
             return ""
+
+    @property
+    def img_runtime_settings(self):
+        with self._lock:
+            default_settings = {
+                "default_timeout_seconds": 60,
+                "fast_mode_timeout_seconds": 45,
+                "fast_mode_prompt_count": 3,
+                "fast_mode_prompt_excerpt_length": 120,
+                "allow_placeholder_fallback": True,
+            }
+            if not self.config:
+                return default_settings
+
+            img_api = self.config.get("img_api", {})
+            runtime_settings = img_api.get("settings", {}) if isinstance(img_api, dict) else {}
+            if not isinstance(runtime_settings, dict):
+                return default_settings
+
+            merged = dict(default_settings)
+            merged.update(runtime_settings)
+            return merged
 
     @property
     def use_template(self):
