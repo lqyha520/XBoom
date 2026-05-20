@@ -102,3 +102,4 @@ data/*.db-shm
 knowledge/newshub_cache.json
 knowledge_graph.json
 logs/desktop_crash.log
+previews/*.html

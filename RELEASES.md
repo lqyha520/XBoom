@@ -4,6 +4,30 @@
 
 ---
 
+## Maintenance Update
+
+### Main Branch Cleanup and Packaging Verification
+
+This maintenance pass keeps the recent desktop packaging and fast-mode improvements while removing machine-local runtime state from version control.
+
+Highlights:
+- Preserved the Windows packaging path, including `aiwritex_windows.spec`, `aiwritex_installer.iss`, and `build_windows_installer.ps1`
+- Kept the fast-mode workflow updates, lightweight visual prompt injection, and quality-editor apply flow
+- Removed generated runtime artifacts from git tracking, including the local database WAL/cache payloads and preview HTML output
+- Tightened `.gitignore` for generated preview files and desktop crash/runtime cache outputs
+
+Validation completed:
+- `python -c "import main"` passed
+- `python -m py_compile ...` passed on the edited Python entrypoints
+- Frontend syntax check passed for the edited browser-side scripts
+- `build_windows_installer.ps1` completed a PyInstaller onedir build successfully
+- `dist/AIWriteX/AIWriteX.exe` started successfully in a smoke test
+
+Known note:
+- Inno Setup is not installed on this machine, so the script produced the onedir build but did not emit `Setup.exe`
+
+---
+
 ## 📦 最新版本
 
 ### V23.0.0- Cognitive Architecture (认知架构) - **当前版本**
