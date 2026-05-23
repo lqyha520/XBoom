@@ -1,8 +1,9 @@
-{
-  "latest_version": "23.0.9",
-  "min_supported_version": "23.0.8",
-  "auto_update_on_startup": true,
-  "auto_update_silent": true,
-  "release_notes": "23.0.9: 下载完成后自动重启并安装，无需再点按钮；修复重启脚本与旧版更新界面状态码不匹配问题。",
-  "published_at": "2026-05-23T00:00:00Z"
+﻿{
+    "latest_version":  "23.0.9",
+    "published_at":  "2026-05-23T12:12:42Z",
+    "release_notes":  "AIWriteX v 鍥藉唴婧愶級",
+    "auto_update_silent":  true,
+    "auto_update_on_startup":  true,
+    "download_url":  "https://ghfast.top/https://github.com/lqyha520/AIWriteX-main/releases/download/v23.0.9/AIWriteX-Setup.exe",
+    "min_supported_version":  "23.0.8"
 }

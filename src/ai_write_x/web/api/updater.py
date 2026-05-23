@@ -32,7 +32,7 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "github_owner": "lqyha520",
     "github_repo": "AIWriteX-main",
     "allow_prerelease": False,
-    "manifest_url": "",
+    "manifest_url": "https://gitee.com/lqyha520/AIWriteX-main/raw/master/releases/version-policy.json",
     "manifest_asset_name": "version-policy.json",
     "installer_asset_name": "AIWriteX-Setup.exe",
     "installer_silent_args": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
@@ -152,10 +152,30 @@ def _release_assets(release: dict) -> list[dict]:
 
 
 async def _fetch_json(url: str, timeout_seconds: int, headers: Optional[dict] = None) -> dict:
+    request_headers = dict(headers or {})
+    request_headers.setdefault("User-Agent", "AIWriteX-Updater")
     async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
-        response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=request_headers)
         response.raise_for_status()
         return response.json()
+
+
+def _gitee_auth_params(settings: Dict[str, Any]) -> Dict[str, str]:
+    token = str(settings.get("gitee_token") or os.environ.get("GITEE_TOKEN") or "").strip()
+    if token:
+        return {"access_token": token}
+    return {}
+
+
+def _gitee_auth_url(url: str, settings: Dict[str, Any]) -> str:
+    if "gitee.com" not in (url or ""):
+        return url
+    params = _gitee_auth_params(settings)
+    if not params:
+        return url
+    token = params["access_token"]
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}access_token={token}"
 
 
 def _resolve_gitee_raw_urls(settings: Dict[str, Any]) -> Dict[str, str]:
@@ -203,7 +223,7 @@ async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, st
 
     if prefer_mirror:
         for manifest_url in manifest_urls:
-            manifest = await _load_manifest(manifest_url, timeout)
+            manifest = await _load_manifest(manifest_url, timeout, settings)
             if manifest:
                 if not manifest.get("download_url"):
                     download_url = (
@@ -236,7 +256,7 @@ async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, st
             manifest: dict = {}
             manifest_url = release_info.get("manifest_url", "")
             if manifest_url:
-                manifest = await _load_manifest(manifest_url, timeout)
+                manifest = await _load_manifest(manifest_url, timeout, settings)
             if not manifest and release_info.get("latest_version"):
                 manifest = {
                     "latest_version": release_info.get("latest_version", ""),
@@ -256,7 +276,7 @@ async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, st
         github_manifest_url = release_info.get("manifest_url", "") or explicit_manifest
         manifest = {}
         if github_manifest_url:
-            manifest = await _load_manifest(github_manifest_url, timeout)
+            manifest = await _load_manifest(github_manifest_url, timeout, settings)
         if manifest:
             if not manifest.get("download_url") and release_info.get("download_url"):
                 manifest = dict(manifest)
@@ -268,11 +288,13 @@ async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, st
     return {}, release_info, "config"
 
 
-async def _load_manifest(manifest_url: str, timeout_seconds: int) -> dict:
+async def _load_manifest(manifest_url: str, timeout_seconds: int, settings: Optional[Dict[str, Any]] = None) -> dict:
     if not manifest_url:
         return {}
+    settings = settings or _merge_update_config()
     try:
-        return await _fetch_json(manifest_url, timeout_seconds)
+        url = _gitee_auth_url(manifest_url, settings)
+        return await _fetch_json(url, timeout_seconds)
     except Exception as exc:
         log.print_log(f"[Updater] 加载版本策略失败: {exc}", "warning")
         return {}
@@ -307,13 +329,27 @@ async def _load_gitee_release_info(settings: Dict[str, Any]) -> dict:
         installer_asset = _find_asset(assets, settings.get("installer_asset_name", ""), ".exe")
         manifest_asset = _find_asset(assets, settings.get("manifest_asset_name", ""), ".json")
         tag = str(release.get("tag_name", "")).lstrip("vV")
+        tag_name = str(release.get("tag_name", tag) or tag)
 
         download_url = _asset_download_url(installer_asset)
-        if not download_url and tag:
+        if not download_url and tag_name:
             installer_name = settings.get("installer_asset_name", "AIWriteX-Setup.exe")
-            download_url = (
-                f"https://gitee.com/{owner}/{repo}/releases/download/{release.get('tag_name', tag)}/{installer_name}"
+            has_installer = any(
+                (a.get("name") or "").strip().lower() == installer_name.strip().lower()
+                for a in assets
             )
+            if has_installer:
+                download_url = (
+                    f"https://gitee.com/{owner}/{repo}/releases/download/"
+                    f"{tag_name}/{installer_name}"
+                )
+            else:
+                gh_owner = str(settings.get("github_owner") or owner).strip()
+                gh_repo = str(settings.get("github_repo") or repo).strip()
+                download_url = (
+                    f"https://ghfast.top/https://github.com/{gh_owner}/{gh_repo}"
+                    f"/releases/download/{tag_name}/{settings.get('installer_asset_name', 'AIWriteX-Setup.exe')}"
+                )
 
         return {
             "latest_version": tag,

@@ -32,8 +32,18 @@ $Branch = if ($GITEE_BRANCH) { $GITEE_BRANCH } else { 'master' }
 $Version = (python -c "from src.ai_write_x.version import get_version; print(get_version())").Trim()
 $Tag = "v$Version"
 $Setup = Join-Path $Root "dist\installer\AIWriteX-Setup.exe"
-$DownloadUrl = "https://gitee.com/$Owner/$Repo/releases/download/$Tag/AIWriteX-Setup.exe"
 $PolicyPath = Join-Path $Root 'version-policy.json'
+$SkipExeUpload = $false
+
+$DownloadUrl = "https://gitee.com/$Owner/$Repo/releases/download/$Tag/AIWriteX-Setup.exe"
+if ($INSTALLER_URL) {
+    $DownloadUrl = $INSTALLER_URL
+} elseif ((Get-Item $Setup).Length -gt 100MB) {
+    $DownloadUrl = "https://ghfast.top/https://github.com/$Owner/$Repo/releases/download/$Tag/AIWriteX-Setup.exe"
+    Write-Host "Installer > 100MB, use GitHub mirror in version-policy:" -ForegroundColor Yellow
+    Write-Host "  $DownloadUrl"
+    $SkipExeUpload = $true
+}
 
 if (-not (Test-Path $Setup)) {
     Write-Host "未找到安装包，请先运行 build_windows_installer.ps1" -ForegroundColor Red
@@ -96,14 +106,38 @@ if (-not $ReleaseId) {
 }
 
 function Upload-Attach($FilePath, $Label) {
-    Write-Host "上传 $Label ..."
+    Write-Host "Upload $Label ..."
     $uri = "$Base/releases/$ReleaseId/attach_files?access_token=$GITEE_TOKEN"
-    $form = @{ file = Get-Item -Path $FilePath }
-    Invoke-RestMethod -Method Post -Uri $uri -Form $form -Headers $Headers | Out-Null
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        & curl.exe -sS -X POST $uri -F "file=@$FilePath"
+        if ($LASTEXITCODE -ne 0) {
+            throw "curl upload failed for $Label (exit $LASTEXITCODE)"
+        }
+        return
+    }
+
+    Add-Type -AssemblyName System.Net.Http
+    $client = New-Object System.Net.Http.HttpClient
+    $content = New-Object System.Net.Http.MultipartFormDataContent
+    $stream = [System.IO.File]::OpenRead($FilePath)
+    $fileContent = New-Object System.Net.Http.StreamContent($stream)
+    $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse('application/octet-stream')
+    $content.Add($fileContent, 'file', [System.IO.Path]::GetFileName($FilePath))
+    $response = $client.PostAsync($uri, $content).GetAwaiter().GetResult()
+    $stream.Close()
+    if (-not $response.IsSuccessStatusCode) {
+        $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        throw "Upload failed for ${Label}: $($response.StatusCode) $body"
+    }
 }
 
 Upload-Attach $PolicyPath 'version-policy.json'
-Upload-Attach $Setup 'AIWriteX-Setup.exe'
+if (-not $SkipExeUpload) {
+    Upload-Attach $Setup 'AIWriteX-Setup.exe'
+} else {
+    Write-Host "Skip exe upload (Gitee 100MB limit). Users download via download_url in version-policy.json"
+}
 
 Write-Host ""
 Write-Host "完成。Gitee Release:" -ForegroundColor Green

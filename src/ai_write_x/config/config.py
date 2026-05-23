@@ -249,7 +249,7 @@ class Config:
                 "github_owner": "lqyha520",
                 "github_repo": "AIWriteX-main",
                 "allow_prerelease": False,
-                "manifest_url": "",
+                "manifest_url": "https://gitee.com/lqyha520/AIWriteX-main/raw/master/releases/version-policy.json",
                 "manifest_asset_name": "version-policy.json",
                 "installer_asset_name": "AIWriteX-Setup.exe",
                 "installer_silent_args": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
