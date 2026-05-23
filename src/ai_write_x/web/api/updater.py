@@ -23,7 +23,12 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "mandatory_update_enabled": True,
     "auto_update_on_startup": True,
     "auto_update_silent": True,
-    "provider": "github_release",
+    "provider": "gitee_release",
+    "gitee_owner": "lqyha520",
+    "gitee_repo": "AIWriteX-main",
+    "gitee_branch": "master",
+    "gitee_release_path": "releases",
+    "gitee_token": "",
     "github_owner": "lqyha520",
     "github_repo": "AIWriteX-main",
     "allow_prerelease": False,
@@ -37,6 +42,9 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "min_supported_version": "",
     "latest_version": "",
     "manual_download_url": "",
+    "update_mirror_base": "",
+    "prefer_mirror": True,
+    "fallback_github": True,
 }
 
 _update_progress: Dict[str, Any] = {
@@ -127,11 +135,137 @@ def _find_asset(assets: list[dict], preferred_name: str, suffix: str) -> Optiona
     return None
 
 
+def _asset_download_url(asset: Optional[dict]) -> str:
+    if not asset:
+        return ""
+    return str(asset.get("browser_download_url") or asset.get("url") or "").strip()
+
+
+def _release_assets(release: dict) -> list[dict]:
+    assets = release.get("assets")
+    if isinstance(assets, list) and assets:
+        return assets
+    attach = release.get("attach_files") or release.get("attachments")
+    if isinstance(attach, list):
+        return attach
+    return []
+
+
 async def _fetch_json(url: str, timeout_seconds: int, headers: Optional[dict] = None) -> dict:
     async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
         response = await client.get(url, headers=headers)
         response.raise_for_status()
         return response.json()
+
+
+def _resolve_gitee_raw_urls(settings: Dict[str, Any]) -> Dict[str, str]:
+    """Gitee 仓库 raw 直链（version-policy + 安装包，适合小文件或 LFS）。"""
+    owner = str(settings.get("gitee_owner") or settings.get("github_owner") or "").strip()
+    repo = str(settings.get("gitee_repo") or settings.get("github_repo") or "").strip()
+    branch = str(settings.get("gitee_branch") or "master").strip() or "master"
+    subdir = str(settings.get("gitee_release_path") or "releases").strip().strip("/") or "releases"
+    if not owner or not repo:
+        return {}
+    base = f"https://gitee.com/{owner}/{repo}/raw/{branch}/{subdir}"
+    return {
+        "manifest_url": f"{base}/version-policy.json",
+        "download_url": f"{base}/AIWriteX-Setup.exe",
+        "html_url": f"https://gitee.com/{owner}/{repo}/releases",
+    }
+
+
+def _resolve_mirror_urls(settings: Dict[str, Any]) -> Dict[str, str]:
+    """从 update_mirror_base 推导国内镜像地址。"""
+    base = str(settings.get("update_mirror_base", "") or "").strip().rstrip("/")
+    if not base:
+        return {}
+    return {
+        "manifest_url": f"{base}/version-policy.json",
+        "download_url": f"{base}/AIWriteX-Setup.exe",
+    }
+
+
+async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, str]:
+    """优先 Gitee（Release / raw），可选回退 GitHub。"""
+    timeout = int(settings.get("check_timeout_seconds", 15))
+    prefer_mirror = bool(settings.get("prefer_mirror", True))
+    provider = str(settings.get("provider") or "gitee_release").strip().lower()
+    fallback_github = bool(settings.get("fallback_github", True))
+
+    gitee_raw = _resolve_gitee_raw_urls(settings)
+    mirror_urls = _resolve_mirror_urls(settings)
+    explicit_manifest = str(settings.get("manifest_url", "") or "").strip()
+
+    manifest_urls: list[str] = []
+    for url in (explicit_manifest, mirror_urls.get("manifest_url", ""), gitee_raw.get("manifest_url", "")):
+        if url and url not in manifest_urls:
+            manifest_urls.append(url)
+
+    if prefer_mirror:
+        for manifest_url in manifest_urls:
+            manifest = await _load_manifest(manifest_url, timeout)
+            if manifest:
+                if not manifest.get("download_url"):
+                    download_url = (
+                        gitee_raw.get("download_url")
+                        or mirror_urls.get("download_url")
+                        or str(settings.get("manual_download_url", "") or "")
+                    )
+                    if download_url:
+                        manifest = dict(manifest)
+                        manifest["download_url"] = download_url
+                return manifest, {}, manifest_url
+
+        manual_download = str(settings.get("manual_download_url", "") or "").strip()
+        configured_latest = str(settings.get("latest_version", "") or "").strip()
+        if manual_download and configured_latest and not manifest_urls:
+            return (
+                {
+                    "latest_version": configured_latest,
+                    "download_url": manual_download,
+                    "min_supported_version": settings.get("min_supported_version", ""),
+                },
+                {},
+                "manual_download_url",
+            )
+
+    release_info: dict = {}
+    if provider in ("gitee_release", "gitee", "auto", "mirror"):
+        release_info = await _load_gitee_release_info(settings)
+        if release_info:
+            manifest: dict = {}
+            manifest_url = release_info.get("manifest_url", "")
+            if manifest_url:
+                manifest = await _load_manifest(manifest_url, timeout)
+            if not manifest and release_info.get("latest_version"):
+                manifest = {
+                    "latest_version": release_info.get("latest_version", ""),
+                    "download_url": release_info.get("download_url", ""),
+                    "min_supported_version": "",
+                }
+            if manifest:
+                if not manifest.get("download_url") and release_info.get("download_url"):
+                    manifest = dict(manifest)
+                    manifest["download_url"] = release_info["download_url"]
+                return manifest, release_info, release_info.get("html_url") or "gitee"
+            if release_info.get("download_url"):
+                return {}, release_info, release_info.get("html_url") or "gitee"
+
+    if fallback_github and provider != "gitee_only":
+        release_info = await _load_github_release_info(settings)
+        github_manifest_url = release_info.get("manifest_url", "") or explicit_manifest
+        manifest = {}
+        if github_manifest_url:
+            manifest = await _load_manifest(github_manifest_url, timeout)
+        if manifest:
+            if not manifest.get("download_url") and release_info.get("download_url"):
+                manifest = dict(manifest)
+                manifest["download_url"] = release_info["download_url"]
+            return manifest, release_info, github_manifest_url or "github"
+        if release_info:
+            return manifest, release_info, release_info.get("html_url") or "github"
+
+    return {}, release_info, "config"
 
 
 async def _load_manifest(manifest_url: str, timeout_seconds: int) -> dict:
@@ -144,7 +278,57 @@ async def _load_manifest(manifest_url: str, timeout_seconds: int) -> dict:
         return {}
 
 
-async def _load_release_info(settings: Dict[str, Any]) -> dict:
+async def _load_gitee_release_info(settings: Dict[str, Any]) -> dict:
+    owner = str(settings.get("gitee_owner") or settings.get("github_owner") or "").strip()
+    repo = str(settings.get("gitee_repo") or settings.get("github_repo") or "").strip()
+    if not owner or not repo:
+        return {}
+
+    api_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/releases"
+    params: Dict[str, str] = {}
+    token = str(settings.get("gitee_token") or os.environ.get("GITEE_TOKEN") or "").strip()
+    if token:
+        params["access_token"] = token
+    headers = {"User-Agent": "AIWriteX-Updater"}
+
+    try:
+        timeout = int(settings.get("check_timeout_seconds", 15))
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(api_url, params=params, headers=headers)
+            response.raise_for_status()
+            releases = response.json()
+        if not isinstance(releases, list):
+            return {}
+        release = _select_release(releases, bool(settings.get("allow_prerelease")))
+        if not release:
+            return {}
+
+        assets = _release_assets(release)
+        installer_asset = _find_asset(assets, settings.get("installer_asset_name", ""), ".exe")
+        manifest_asset = _find_asset(assets, settings.get("manifest_asset_name", ""), ".json")
+        tag = str(release.get("tag_name", "")).lstrip("vV")
+
+        download_url = _asset_download_url(installer_asset)
+        if not download_url and tag:
+            installer_name = settings.get("installer_asset_name", "AIWriteX-Setup.exe")
+            download_url = (
+                f"https://gitee.com/{owner}/{repo}/releases/download/{release.get('tag_name', tag)}/{installer_name}"
+            )
+
+        return {
+            "latest_version": tag,
+            "release_notes": release.get("body") or release.get("name") or "",
+            "published_at": release.get("created_at") or release.get("published_at") or "",
+            "download_url": download_url,
+            "manifest_url": _asset_download_url(manifest_asset),
+            "html_url": release.get("html_url") or f"https://gitee.com/{owner}/{repo}/releases",
+        }
+    except Exception as exc:
+        log.print_log(f"[Updater] 获取 Gitee Release 失败: {exc}", "warning")
+        return {}
+
+
+async def _load_github_release_info(settings: Dict[str, Any]) -> dict:
     owner = settings.get("github_owner", "").strip()
     repo = settings.get("github_repo", "").strip()
     if not owner or not repo:
@@ -164,7 +348,7 @@ async def _load_release_info(settings: Dict[str, Any]) -> dict:
         if not release:
             return {}
 
-        assets = release.get("assets", []) or []
+        assets = _release_assets(release)
         installer_asset = _find_asset(assets, settings.get("installer_asset_name", ""), ".exe")
         manifest_asset = _find_asset(assets, settings.get("manifest_asset_name", ""), ".json")
 
@@ -172,8 +356,8 @@ async def _load_release_info(settings: Dict[str, Any]) -> dict:
             "latest_version": str(release.get("tag_name", "")).lstrip("vV"),
             "release_notes": release.get("body") or "",
             "published_at": release.get("published_at") or "",
-            "download_url": (installer_asset or {}).get("browser_download_url", ""),
-            "manifest_url": (manifest_asset or {}).get("browser_download_url", ""),
+            "download_url": _asset_download_url(installer_asset),
+            "manifest_url": _asset_download_url(manifest_asset),
             "html_url": release.get("html_url") or "",
         }
     except Exception as exc:
@@ -207,9 +391,8 @@ async def _build_update_policy() -> UpdatePolicyResponse:
             should_auto_update=False,
         )
 
-    release_info = await _load_release_info(settings)
-    manifest_url = settings.get("manifest_url") or release_info.get("manifest_url", "")
-    manifest = await _load_manifest(manifest_url, int(settings.get("check_timeout_seconds", 15)))
+    manifest, release_info, source = await _load_update_sources(settings)
+    mirror_urls = _resolve_mirror_urls(settings)
 
     latest_version = (
         manifest.get("latest_version")
@@ -225,6 +408,8 @@ async def _build_update_policy() -> UpdatePolicyResponse:
     download_url = (
         manifest.get("download_url")
         or release_info.get("download_url")
+        or _resolve_gitee_raw_urls(settings).get("download_url")
+        or mirror_urls.get("download_url")
         or settings.get("manual_download_url")
         or ""
     )
@@ -273,7 +458,7 @@ async def _build_update_policy() -> UpdatePolicyResponse:
         download_url=download_url,
         release_notes=release_notes,
         published_at=manifest.get("published_at") or release_info.get("published_at") or "",
-        source=manifest_url or release_info.get("html_url") or "config",
+        source=source or release_info.get("html_url") or "config",
         auto_update_on_startup=bool(auto_update_on_startup),
         auto_update_silent=bool(auto_update_silent),
         is_release_build=is_release_build,

@@ -6,6 +6,9 @@
 .env
 .env.*
 *.env
+scripts/gitee-release.env
+scripts/cloud-update.env
+scripts/update-mirror.env
 secrets/api_keys.yaml
 secrets/*.yaml
 !secrets/api_keys.example.yaml
