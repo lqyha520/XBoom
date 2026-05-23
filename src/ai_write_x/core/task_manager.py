@@ -30,12 +30,59 @@ class BackgroundTaskManager:
         self.log_queues: Dict[str, queue.Queue] = {} # taskId -> Queue
         self.task_registry_lock = threading.Lock()
 
+    def _is_task_alive_unlocked(self, task: Dict) -> bool:
+        thread = task.get("thread")
+        if thread and thread.is_alive():
+            return True
+        for p in task.get("sub_processes", []):
+            if p.is_alive():
+                return True
+        return False
+
+    def _terminate_sub_processes_unlocked(self, task: Dict):
+        for p in task.get("sub_processes", []):
+            if p.is_alive():
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+
+    def prepare_for_new_task(self, task_id: str):
+        """放弃未完成的旧任务，为新创作腾出干净槽位（不续跑中断任务）。"""
+        with self.task_registry_lock:
+            if task_id not in self.active_tasks:
+                return True, "ready"
+
+            task = self.active_tasks[task_id]
+            status = task.get("status")
+
+            if status != TaskStatus.RUNNING:
+                self.log_queues.pop(task_id, None)
+                del self.active_tasks[task_id]
+                return True, "cleared previous task"
+
+            self._terminate_sub_processes_unlocked(task)
+            alive = self._is_task_alive_unlocked(task)
+            task["status"] = TaskStatus.STOPPED
+            task["finished_at"] = time.time()
+            task["error"] = "上次任务未完成已中断"
+
+            self.log_queues.pop(task_id, None)
+            del self.active_tasks[task_id]
+
+            if alive:
+                log.print_log(
+                    "已放弃未完成的生成任务（后台线程仍在收尾，新任务将独立执行）",
+                    "warning",
+                )
+                return True, "abandoned active task"
+
+            log.print_log("已清理中断的生成任务，即将启动新任务", "info")
+            return True, "cleared stale task"
+
     def start_task(self, task_id: str, target_func, args=()):
         """启动一个新的后台任务线程"""
         with self.task_registry_lock:
-            if task_id in self.active_tasks and self.active_tasks[task_id]['status'] == TaskStatus.RUNNING:
-                return False, "Task already running"
-
             log_q = queue.Queue()
             self.log_queues[task_id] = log_q
             
@@ -93,8 +140,16 @@ class BackgroundTaskManager:
         with self.task_registry_lock:
             if task_id not in self.active_tasks:
                 return {"status": TaskStatus.IDLE}
-            
+
             task = self.active_tasks[task_id]
+            if (
+                task.get("status") == TaskStatus.RUNNING
+                and not self._is_task_alive_unlocked(task)
+            ):
+                task["status"] = TaskStatus.STOPPED
+                task["finished_at"] = time.time()
+                task["error"] = task.get("error") or "任务已中断"
+
             return {
                 "status": task["status"],
                 "error": task.get("error"),
@@ -108,14 +163,15 @@ class BackgroundTaskManager:
                 return False, "Task not found"
             
             task = self.active_tasks[task_id]
-            # 这里的终止逻辑较为复杂，通常需要通知 Worker 线程并清理子进程
-            # 实际上在 generate.py 中我们通常用 _current_process.terminate()
-            # 这里我们建议保留子进程引用在 task["sub_processes"]
-            for p in task.get("sub_processes", []):
-                if p.is_alive():
-                    p.terminate()
-            
+            self._terminate_sub_processes_unlocked(task)
+
+            if task.get("status") == TaskStatus.RUNNING and not self._is_task_alive_unlocked(task):
+                self.log_queues.pop(task_id, None)
+                del self.active_tasks[task_id]
+                return True, "Stale task cleared"
+
             task["status"] = TaskStatus.STOPPED
+            task["finished_at"] = time.time()
             return True, "Task stopped"
 
     def register_sub_process(self, task_id: str, process):

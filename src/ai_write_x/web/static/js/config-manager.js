@@ -352,6 +352,26 @@ class AIWriteXConfigManager {
             });
         }
 
+        // 文章配图数量
+        const articleImageCountInput = document.getElementById('article-image-count');
+        if (articleImageCountInput) {
+            articleImageCountInput.addEventListener('change', async (e) => {
+                let count = parseInt(e.target.value, 10);
+                if (Number.isNaN(count)) count = 3;
+                count = Math.max(1, Math.min(12, count));
+                e.target.value = count;
+                await this.updateConfig({
+                    img_api: {
+                        ...(this.config.img_api || {}),
+                        settings: {
+                            ...(this.config.img_api?.settings || {}),
+                            article_image_count: count
+                        }
+                    }
+                });
+            });
+        }
+
         // 严格新鲜度
         const strictFreshnessCheckbox = document.getElementById('strict-freshness');
         if (strictFreshnessCheckbox) {
@@ -975,6 +995,11 @@ class AIWriteXConfigManager {
 
         const pd = this.config.page_design;
 
+        const unifiedBrand = document.getElementById('unified-brand-style');
+        if (unifiedBrand) {
+            unifiedBrand.checked = pd.unified_brand_style !== false;
+        }
+
         // 使用原始样式开关     
         const useOriginalCheckbox = document.getElementById('use-original-styles');
         if (useOriginalCheckbox) {
@@ -1020,7 +1045,7 @@ class AIWriteXConfigManager {
         // 色彩    
         if (pd.accent) {
             document.getElementById('accent-primary-color').value = pd.accent.primary_color || '#3a7bd5';
-            document.getElementById('accent-secondary-color').value = pd.accent.secondary_color || '#00b09b';
+            document.getElementById('accent-secondary-color').value = pd.accent.secondary_color || '#2563a8';
             document.getElementById('accent-highlight-bg').value = pd.accent.highlight_bg || '#f0f7ff';
         }
     }
@@ -1056,6 +1081,7 @@ class AIWriteXConfigManager {
     // 保存页面设计配置  
     async savePageDesignConfig() {
         const pageDesignConfig = {
+            unified_brand_style: document.getElementById('unified-brand-style')?.checked !== false,
             use_original_styles: document.getElementById('use-original-styles')?.checked || false,
             container: {
                 max_width: parseInt(document.getElementById('container-max-width')?.value || 750),
@@ -1081,7 +1107,7 @@ class AIWriteXConfigManager {
             },
             accent: {
                 primary_color: document.getElementById('accent-primary-color')?.value || '#3a7bd5',
-                secondary_color: document.getElementById('accent-secondary-color')?.value || '#00b09b',
+                secondary_color: document.getElementById('accent-secondary-color')?.value || '#2563a8',
                 highlight_bg: document.getElementById('accent-highlight-bg')?.value || '#f0f7ff'
             }
         };
@@ -1230,6 +1256,14 @@ class AIWriteXConfigManager {
         const maxArticleLenInput = document.getElementById('max-article-len');
         if (maxArticleLenInput && this.config.max_article_len !== undefined) {
             maxArticleLenInput.value = this.config.max_article_len;
+        }
+
+        // ========== 7.1 填充文章配图数量 ==========
+        const articleImageCountInput = document.getElementById('article-image-count');
+        if (articleImageCountInput) {
+            const settings = this.config.img_api?.settings || {};
+            const count = settings.article_image_count ?? settings.fast_mode_prompt_count ?? 3;
+            articleImageCountInput.value = count;
         }
 
         // ========== 8. 填充生成鲜度控制 ==========
@@ -3354,7 +3388,12 @@ class AIWriteXConfigManager {
 
         container.innerHTML = '';
 
+        const currentApiType = this.config?.api?.api_type || '';
         this.customAPIs.forEach((api, index) => {
+            if (api) {
+                const customProviderKey = api.provider_key || api.name || '';
+                api.isCurrent = Boolean(currentApiType && customProviderKey === currentApiType);
+            }
             const card = this.createCustomAPICard(api, index);
             container.appendChild(card);
         });
@@ -3371,14 +3410,13 @@ class AIWriteXConfigManager {
 
         const title = document.createElement('div');
         title.className = 'custom-api-card-title';
-        title.textContent = api.name || `自定义API ${index + 1}`;
+        const isCurrent = this.customAPIs[index]?.isCurrent;
+        title.innerHTML = `${api.name || `自定义API ${index + 1}`}${isCurrent ? '<span class="current-api-badge">当前使用</span>' : ''}`;
 
         const actions = document.createElement('div');
         actions.className = 'custom-api-card-actions';
 
-        // 设为当前使用按钮
         const useBtn = document.createElement('button');
-        const isCurrent = this.customAPIs[index]?.isCurrent;
         useBtn.className = `btn-use ${isCurrent ? 'active' : ''}`;
         useBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ${isCurrent ? '当前使用' : '设为当前'}`;
         useBtn.onclick = () => this.setCurrentCustomAPI(index);
@@ -3407,10 +3445,24 @@ class AIWriteXConfigManager {
 
         // 名称
         const nameGroup = document.createElement('div');
-        nameGroup.className = 'form-group form-group-full';
+        nameGroup.className = 'form-group';
         nameGroup.innerHTML = `
             <label>API名称</label>
             <input type="text" value="${api.name || ''}" placeholder="例如: 我的OpenAI" onchange="window.configManager.updateCustomAPI(${index}, 'name', this.value)">
+        `;
+
+        const typeGroup = document.createElement('div');
+        typeGroup.className = 'form-group';
+        const currentType = api.provider || api.type || 'openai';
+        typeGroup.innerHTML = `
+            <label>模型类型</label>
+            <select onchange="window.configManager.updateCustomAPI(${index}, 'provider', this.value)">
+                <option value="openai" ${currentType === 'openai' ? 'selected' : ''}>OpenAI兼容</option>
+                <option value="ollama" ${currentType === 'ollama' ? 'selected' : ''}>Ollama本地模型</option>
+                <option value="gemini" ${currentType === 'gemini' ? 'selected' : ''}>Gemini兼容</option>
+                <option value="anthropic" ${currentType === 'anthropic' ? 'selected' : ''}>Claude兼容</option>
+                <option value="custom" ${currentType === 'custom' ? 'selected' : ''}>其他自定义</option>
+            </select>
         `;
 
         // API Base
@@ -3443,12 +3495,14 @@ class AIWriteXConfigManager {
                 </select>
                 <button type="button" class="model-dropdown-btn" onclick="window.configManager.fetchModels(${index})" title="刷新模型列表">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                    刷新模型
                 </button>
             </div>
             <input type="text" value="${api.model || ''}" placeholder="或手动输入模型名称" style="margin-top:8px" onchange="window.configManager.updateCustomAPI(${index}, 'model', this.value)">
         `;
 
         form.appendChild(nameGroup);
+        form.appendChild(typeGroup);
         form.appendChild(baseGroup);
         form.appendChild(keyGroup);
         form.appendChild(modelGroup);
@@ -3470,6 +3524,7 @@ class AIWriteXConfigManager {
     async addCustomAPI() {
         this.customAPIs.push({
             name: '',
+            provider: 'openai',
             api_base: '',
             api_key: '',
             model: '',
@@ -3514,8 +3569,10 @@ class AIWriteXConfigManager {
         try {
             // 将自定义API添加到后端配置
             const customProviderKey = api.name || `CustomAPI_${Date.now()}`;
+            api.provider_key = customProviderKey;
 
             const apiKeys = Array.isArray(api.api_key) ? api.api_key : (api.api_key ? api.api_key.split('\n').map(k => k.trim()).filter(k => k !== '') : []);
+            this.saveCustomAPIs();
 
             // 更新后端配置
             await this.updateConfig({
@@ -3523,12 +3580,13 @@ class AIWriteXConfigManager {
                     ...this.config.api,
                     api_type: customProviderKey,
                     [customProviderKey]: {
-                        key: "OPENAI_API_KEY",  // 添加key字段
+                        key: "OPENAI_API_KEY",
                         api_key: apiKeys,
                         key_index: 0,
                         model: api.model ? [api.model] : ['gpt-3.5-turbo'],
                         model_index: 0,
-                        api_base: api.api_base
+                        api_base: api.api_base,
+                        provider: api.provider || api.type || 'openai'
                     }
                 }
             });
@@ -3588,7 +3646,8 @@ class AIWriteXConfigManager {
                     name: api.name,
                     api_base: api.api_base,
                     api_key: apiKey,
-                    model: api.model
+                    model: api.model,
+                    provider: api.provider || api.type || 'openai'
                 })
             });
 
@@ -3761,7 +3820,8 @@ class AIWriteXConfigManager {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     api_base: api.api_base,
-                    api_key: api.api_key
+                    api_key: Array.isArray(api.api_key) ? (api.api_key[0] || '') : api.api_key,
+                    provider: api.provider || api.type || 'openai'
                 })
             });
 
@@ -3954,11 +4014,11 @@ class AIWriteXConfigManager {
         const row2 = document.createElement('div');
         row2.className = 'form-row';
         const promptCountGroup = this.createFormGroup(
-            '极速插图数',
+            '文章配图数量',
             'number',
-            'img-api-settings-fast-prompt-count',
-            settings.fast_mode_prompt_count ?? 3,
-            '默认 3',
+            'img-api-settings-article-image-count',
+            settings.article_image_count ?? settings.fast_mode_prompt_count ?? 3,
+            '含封面，1–12，默认 3',
             false
         );
         const excerptLengthGroup = this.createFormGroup(
@@ -4675,7 +4735,13 @@ class AIWriteXConfigManager {
             settings: {
                 default_timeout_seconds: parseInt(document.getElementById('img-api-settings-default-timeout')?.value || '60', 10),
                 fast_mode_timeout_seconds: parseInt(document.getElementById('img-api-settings-fast-timeout')?.value || '45', 10),
-                fast_mode_prompt_count: parseInt(document.getElementById('img-api-settings-fast-prompt-count')?.value || '3', 10),
+                article_image_count: parseInt(
+                    document.getElementById('img-api-settings-article-image-count')?.value
+                    || document.getElementById('article-image-count')?.value
+                    || String(this.config.img_api?.settings?.article_image_count ?? 3),
+                    10
+                ),
+                fast_mode_prompt_count: parseInt(document.getElementById('img-api-settings-article-image-count')?.value || '3', 10),
                 fast_mode_prompt_excerpt_length: parseInt(document.getElementById('img-api-settings-fast-prompt-excerpt')?.value || '120', 10),
                 allow_placeholder_fallback: !!document.getElementById('img-api-settings-allow-placeholder-fallback')?.checked
             }
@@ -4683,7 +4749,8 @@ class AIWriteXConfigManager {
 
         imgApiConfig.settings.default_timeout_seconds = Math.max(5, Math.min(600, imgApiConfig.settings.default_timeout_seconds || 60));
         imgApiConfig.settings.fast_mode_timeout_seconds = Math.max(5, Math.min(600, imgApiConfig.settings.fast_mode_timeout_seconds || 45));
-        imgApiConfig.settings.fast_mode_prompt_count = Math.max(1, Math.min(8, imgApiConfig.settings.fast_mode_prompt_count || 3));
+        imgApiConfig.settings.article_image_count = Math.max(1, Math.min(12, imgApiConfig.settings.article_image_count || 3));
+        imgApiConfig.settings.fast_mode_prompt_count = imgApiConfig.settings.article_image_count;
         imgApiConfig.settings.fast_mode_prompt_excerpt_length = Math.max(40, Math.min(300, imgApiConfig.settings.fast_mode_prompt_excerpt_length || 120));
 
         // 始终同步自定义列表到后端，确保数据持久化

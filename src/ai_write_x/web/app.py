@@ -70,6 +70,13 @@ async def lifespan(app: FastAPI):
         app_state.config = Config.get_instance()
         if not app_state.config.load_config():
             log.print_log("配置加载失败，使用默认配置", "warning")
+
+        # 服务启动时清掉上次未跑完的生成任务登记（不自动续跑）
+        try:
+            from src.ai_write_x.core.task_manager import task_manager
+            task_manager.prepare_for_new_task("main_generate")
+        except Exception:
+            pass
             
         # 启动宇宙清道夫 (V10.0 Cosmic Scavenger)
         from src.ai_write_x.core.scavenger import CosmicScavenger
@@ -386,11 +393,14 @@ async def verify_client_token(request: Request, call_next):
         response.set_cookie(key="app_client_token", value=url_token, httponly=False) # JS需要读取
         return response
 
-    # 验证 header 中的 token
+    # 验证 header / cookie 中的 token（服务重启后 allowed_tokens 会清空，需从 cookie 恢复）
     header_token = request.headers.get("X-App-Client-Token")
-    if header_token in allowed_tokens:
+    cookie_token = request.cookies.get("app_client_token")
+    effective_token = header_token or cookie_token
+    if effective_token:
+        allowed_tokens.add(effective_token)
         return await call_next(request)
-        
+
     # 如果是访问主页但没带token，或者接口没带token且不在白名单，拒绝
     from fastapi.responses import JSONResponse
     return JSONResponse(

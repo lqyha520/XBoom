@@ -180,8 +180,9 @@ class ContentAnalyzer:
         """为内容块建议组件类型"""
         components = []
         
-        # 布局池，用于循环分配不同的排版风格，增加灵活性
-        layout_pool = ['card', 'accent', 'glass', 'clean']
+        # 布局池：统一品牌模式下固定卡片风格，避免红绿蓝混排
+        from src.ai_write_x.core.brand_style import is_unified_brand_style
+        layout_pool = ['card', 'clean'] if is_unified_brand_style() else ['card', 'accent', 'glass', 'clean']
         layout_idx = 0
         
         for i, block in enumerate(blocks):
@@ -304,7 +305,12 @@ class ModularTemplateBuilder:
         return '\n'.join(html_parts)
     
     def _generate_random_scheme(self) -> DesignScheme:
-        """生成随机设计方案"""
+        """生成设计方案（统一品牌模式下固定为 config 配色）"""
+        from src.ai_write_x.core.brand_style import get_brand_design_scheme, is_unified_brand_style
+
+        if is_unified_brand_style():
+            return get_brand_design_scheme()
+
         schemes = [
             DesignScheme("深海蓝", "#3b82f6", "#1e3a8a", "#f59e0b", "#eff6ff", "#334155", ["现代", "交互"]),
             DesignScheme("翠柏绿", "#10b981", "#064e3b", "#f59e0b", "#ecfdf5", "#334155", ["自然", "交互"]),

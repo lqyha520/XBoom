@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import Optional, Tuple
 from src.ai_write_x.core.llm_client import LLMClient
 import src.ai_write_x.utils.log as lg
 import threading
@@ -73,6 +73,20 @@ class VisualAssetsManager:
         return text.strip()
 
     @classmethod
+    def get_target_image_count(cls) -> int:
+        """每篇文章目标配图总数（含封面），来自基础设置 img_api.settings.article_image_count"""
+        settings = cls._get_runtime_settings()
+        raw = settings.get("article_image_count")
+        if raw is None:
+            raw = settings.get("fast_mode_prompt_count", 3)
+        return cls._coerce_int(raw, default=3, minimum=1, maximum=12)
+
+    @classmethod
+    def get_body_image_slot_count(cls) -> int:
+        """正文配图槽位数（总数减封面）"""
+        return max(0, cls.get_target_image_count() - 1)
+
+    @classmethod
     def _build_fast_scene_prompt(cls, snippet: str, is_cover: bool = False) -> str:
         cleaned = cls._clean_visual_text(snippet)
         if not cleaned:
@@ -136,14 +150,12 @@ class VisualAssetsManager:
             return markdown_text
 
         settings = cls._get_runtime_settings()
-        prompt_limit = cls._coerce_int(
-            settings.get("fast_mode_prompt_count"),
-            default=3,
-            minimum=1,
-            maximum=8,
-        )
-        prompt_count = min(prompt_limit, max(1, len(candidate_blocks) // 4 + 1))
-        chosen_blocks = candidate_blocks[:prompt_count]
+        target_total = cls.get_target_image_count()
+        prompt_limit = target_total
+        prompt_count = min(prompt_limit, max(1, len(candidate_blocks)))
+        # 封面占 1 张，其余为正文配图
+        body_slots = max(0, prompt_count - 1)
+        chosen_blocks = candidate_blocks[: max(1, body_slots + 1)]
 
         cover_prompt = cls._build_fast_scene_prompt(chosen_blocks[0], is_cover=True)
         updated_text = markdown_text
@@ -158,7 +170,7 @@ class VisualAssetsManager:
             marker = cls._build_fast_scene_prompt(block, is_cover=False)
             updated_text = updated_text.replace(block, f"{block}\n\n{marker}", 1)
 
-        lg.print_log(f"[VisualAssets] 极速模式已注入 {len(chosen_blocks)} 组轻量配图提示词", "info")
+        lg.print_log(f"[VisualAssets] 极速模式已注入 {len(chosen_blocks)} 组配图提示词（目标共 {target_total} 张）", "info")
         return updated_text
 
     @classmethod
@@ -180,10 +192,9 @@ class VisualAssetsManager:
 
         # 艺术化动态策略：从“机械字数配给”转向“叙事呼吸感分析”
         content_len = len(markdown_text)
-        # 根据字数动态约束图片数量区间（放宽限制，增加插图数量）
-        safe_min = max(3, content_len // 600)
-        safe_max = max(5, content_len // 300)
-        if safe_max > 15: safe_max = 15 # 硬上限，防止过度生成
+        target_count = cls.get_target_image_count()
+        safe_min = target_count
+        safe_max = target_count
         
         system_prompt = f'''你现在是顶级 **AI 视觉逆向工程师 (AI Vision Reverse-Engineer)**，负责将文章的叙事瞬间解构为像素级的绘画提示词。
 你的目标是生成 **生产级提示词集 (Production-Ready Prompt Set)**，实现 1:1 的视觉还原，彻底杜绝“脸部畸变、文字乱码、人物重复”。
@@ -214,11 +225,17 @@ class VisualAssetsManager:
 必须包含：bad anatomy, blurry face, text distortion, watermark, headless, duplicate features, distorted text.
 
 ## 约束准则
-- **数量限制**：正文插图数量在 **{safe_min} 到 {safe_max} 张之间**。
+- **数量限制**：正文插图（含封面）共 **{safe_min} 张**，请严格按此数量插入占位符，不要多也不要少。
 - **首图强制**：必须插入 2.35:1 的封面大图。
 - **构图**：16:9 (全景), 3:4 (人物), 4:3 (标准)。
 
 直接输出文章全貌，包括正文与占位符，不要任何解释。
+
+【严禁泄露给读者】：
+- 禁止输出「场景描述」「画面描述」「配图描述」等可见标签或说明段落
+- 禁止把英文提示词、Negative Prompt 作为正文展示
+- 占位符必须且只能是独立一行的 [[V-SCENE: ...]]，不得加粗、不得放在引用块里
+
 【特别注意】：占位符格式 [[V-SCENE: ...]] 左右严禁出现 ** 或其他符号。'''
 
         messages = [
@@ -229,7 +246,7 @@ class VisualAssetsManager:
         try:
             lg.print_log("[PROGRESS:VISUAL:START]", "internal")
             lg.print_log(f"[PROGRESS:VISUAL:DETAIL] 模型: {client.current_model}<br>模式: 叙事呼吸感分析", "internal")
-            lg.print_log(f"[VisualAssets] 🧠 正在分析全文信息密度与叙事节奏 (智能限制 {safe_min}-{safe_max} 张图)...")
+            lg.print_log(f"[VisualAssets] 🧠 正在分析全文并植入配图占位符（目标 {safe_min} 张）...")
             lg.print_log("[VisualAssets] 正在测算“视觉缓冲区”并植入绘画提示词...")
             
             heartbeat = HeartbeatLogger(interval=8.0)
@@ -262,9 +279,10 @@ class VisualAssetsManager:
                         for i in range(1, len(prompts)):
                             pos = min((i + 1) * chunk_size, len(lines)-1)
                             lines.insert(pos, "\n" + prompts[i])
-                    return "\n".join(lines).strip()
+                    enhanced_text = "\n".join(lines).strip()
                 
-            return enhanced_text.strip()
+            from src.ai_write_x.core.article_polish import strip_leaked_prompt_text
+            return strip_leaked_prompt_text(enhanced_text.strip())
         except Exception as e:
             lg.print_log(f"[Warning] 视觉资产提示词植入失败，使用原文跳过: {str(e)}")
             return markdown_text
@@ -293,7 +311,10 @@ class VisualAssetsManager:
         for m in re.finditer(pattern, text_with_prompts):
             pos_prompt = m.group(1).strip()
             comment = m.group(2).strip() if m.group(2) else ""
-            neg_prompt = m.group(3).strip() if m.group(3) else "bad anatomy, text, watermark, blurry face"
+            from src.ai_write_x.core.article_polish import append_no_text_negative
+            neg_prompt = append_no_text_negative(
+                m.group(3).strip() if m.group(3) else "bad anatomy, blurry face"
+            )
             actual_ratio = m.group(4).strip() if m.group(4) else "16:9"
             
             # 整合提示词
@@ -361,6 +382,17 @@ class VisualAssetsManager:
 
         if not all_tasks:
             return text_with_prompts
+
+        def _task_priority(task):
+            element = task.get("original_element")
+            if element is not None and element.get("data-cover") == "1":
+                return 0
+            ratio = str(task.get("ratio") or "")
+            if "2.35" in ratio or "21:9" in ratio:
+                return 1
+            return 2
+
+        all_tasks.sort(key=_task_priority)
             
         lg.print_log(f"\n[VisualAssets] 共检测到 {len(all_tasks)} 张图片需要生成")
         
@@ -719,8 +751,10 @@ class VisualAssetsManager:
                             else:
                                 lg.print_log("  [降级成功] 已使用 Picsum 占位图替代 ComfyUI输出", "warning")
                                 task["fallback_notice"] = "当前图片为占位图：ComfyUI 工作流文件缺失，已临时回退到 Picsum。"
-                            continue  # 跳过本次图片生成，进入下一张
-                        raise Exception("未找到 ComfyUI 工作流文件，且当前配置已禁用占位图回退")
+                            if not img_path:
+                                continue
+                        else:
+                            raise Exception("未找到 ComfyUI 工作流文件，且当前配置已禁用占位图回退")
                         
                     import json
                     try:
@@ -932,7 +966,22 @@ class VisualAssetsManager:
             if not img_path:
                 continue
             generated_count += 1
-            img_tag = f'<img src="/images/{os.path.basename(img_path)}" alt="{prompt[:50]}" style="max-width:100%;border-radius:12px;margin:16px 0;box-shadow:0 10px 30px rgba(0,0,0,0.1);display:block;">'
+            is_cover = False
+            if task.get("original_element") is not None:
+                is_cover = task["original_element"].get("data-cover") == "1"
+            if not is_cover:
+                ratio_str = str(task.get("ratio") or "")
+                is_cover = "2.35" in ratio_str or "21:9" in ratio_str
+            extra_attrs = ""
+            if is_cover:
+                extra_attrs += ' data-cover="1"'
+            ratio_val = (task.get("ratio") or ("2.35:1" if is_cover else "16:9")).strip()
+            extra_attrs += f' data-aspect-ratio="{ratio_val}"'
+            img_tag = (
+                f'<img src="/images/{os.path.basename(img_path)}" alt="{prompt[:50]}"'
+                f'{extra_attrs} style="max-width:100%;border-radius:12px;margin:16px 0;'
+                f'box-shadow:0 10px 30px rgba(0,0,0,0.1);display:block;">'
+            )
             fallback_notice = task.get("fallback_notice", "")
             if fallback_notice:
                 img_tag = (
@@ -994,6 +1043,365 @@ class VisualAssetsManager:
         return result_text
 
     @classmethod
+    def is_stock_placeholder_url(cls, src: str) -> bool:
+        """是否为 Picsum 等随机占位图（不应视为 AI 配图已完成）"""
+        if not src:
+            return False
+        lower = src.lower()
+        stock_hosts = (
+            "picsum.photos",
+            "placeholder.com",
+            "via.placeholder",
+            "placehold.co",
+            "dummyimage.com",
+        )
+        return any(h in lower for h in stock_hosts)
+
+    @classmethod
+    def count_valid_article_images(cls, html: str) -> int:
+        """统计文章中已落地的有效配图（仅本地 /images/ 或本地文件，不含随机占位图）"""
+        if not html:
+            return 0
+        from bs4 import BeautifulSoup
+        import os
+        from src.ai_write_x.utils.path_manager import PathManager
+
+        soup = BeautifulSoup(html, "html.parser")
+        image_dir = PathManager.get_image_dir()
+        count = 0
+        for img in soup.find_all("img"):
+            src = (img.get("src") or "").strip()
+            if not src or src.startswith("data:") or cls.is_stock_placeholder_url(src):
+                continue
+            if "/images/" in src:
+                name = src.split("/images/")[-1].split("?")[0]
+                if (image_dir / name).exists():
+                    count += 1
+                    continue
+            if src.startswith(("http://", "https://")):
+                continue
+            if os.path.isfile(src):
+                count += 1
+        return count
+
+    @classmethod
+    def has_scene_description_leaks(cls, html: str) -> bool:
+        if not html:
+            return False
+        if re.search(r"场景描述[：:]|画面描述[：:]", html, re.I):
+            return True
+        if "<" in html:
+            from bs4 import BeautifulSoup
+            from src.ai_write_x.core.article_polish import _SCENE_LABEL_RE
+
+            soup = BeautifulSoup(html, "html.parser")
+            for p in soup.find_all("p"):
+                t = p.get_text(" ", strip=True)
+                if t and (_SCENE_LABEL_RE.match(t) or t.startswith("场景描述")):
+                    return True
+        return False
+
+    @classmethod
+    def prepare_html_for_image_generation(cls, html: str) -> str:
+        """生图前：场景描述转占位符，并去掉误展示的提示词段落"""
+        from src.ai_write_x.core.article_polish import (
+            convert_scene_description_paragraphs_to_placeholders,
+            strip_leaked_prompt_text,
+        )
+
+        html = convert_scene_description_paragraphs_to_placeholders(html)
+        html = strip_leaked_prompt_text(html)
+        return html
+
+    @classmethod
+    def _image_prompt_text(cls, topic: str, context: str = "", is_cover: bool = False) -> tuple:
+        base = (context or topic or "文章配图").strip()[:120]
+        subject = topic.strip()[:60] or base
+        ratio = "2.35:1" if is_cover else "16:9"
+        if is_cover:
+            pos = (
+                f"photo realistic cover image about {subject}, {base}, "
+                "natural lighting, single clear subject, absolutely no text no words no letters"
+            )
+        else:
+            pos = (
+                f"photo realistic scene about {subject}, {base}, "
+                "editorial photography, absolutely no text no words no letters no watermark"
+            )
+        return pos, ratio
+
+    @classmethod
+    def _build_scene_prompt(cls, topic: str, context: str = "", is_cover: bool = False) -> str:
+        from src.ai_write_x.core.article_polish import append_no_text_negative
+
+        pos, ratio = cls._image_prompt_text(topic, context, is_cover)
+        neg = append_no_text_negative("bad anatomy, blurry, low quality, duplicate subject")
+        return f"[[V-SCENE: {pos} | {neg} | {ratio}]]"
+
+    @classmethod
+    def inject_html_image_placeholders(cls, html: str, topic: str, title: str, min_count: int = 2) -> str:
+        """在 HTML 中插入可生图的占位符（HTML 包装后兜底）"""
+        from bs4 import BeautifulSoup
+
+        if not html or not html.strip():
+            return html
+
+        soup = BeautifulSoup(html, "html.parser")
+        body = soup.body or soup
+        headings = body.find_all(["h2", "h3"])
+        insert_targets = []
+
+        # 封面图：放在首个实质段落之后（不要顶在标题前）
+        first_p = None
+        for p in body.find_all("p"):
+            if len(p.get_text(strip=True)) >= 40:
+                first_p = p
+                break
+        if first_p:
+            insert_targets.append((first_p, True))
+
+        # 章节配图：放在该节首段文字之后（图在文下，不在标题下）
+        for h in headings[: max(min_count + 2, 4)]:
+            if len(insert_targets) >= min_count + 1:
+                break
+            section_p = h.find_next("p")
+            if section_p and len(section_p.get_text(strip=True)) >= 20:
+                insert_targets.append((section_p, False))
+            elif h.find_next_sibling(name="p"):
+                insert_targets.append((h.find_next_sibling(name="p"), False))
+
+        if not insert_targets and body.find("section"):
+            sec_p = body.find("section").find("p")
+            if sec_p:
+                insert_targets.append((sec_p, True))
+
+        for anchor, is_cover in insert_targets:
+            ctx = title if is_cover else anchor.get_text(strip=True)[:80]
+            prompt_text, ratio = cls._image_prompt_text(topic, ctx, is_cover=is_cover)
+            attrs = {
+                "class": "img-placeholder",
+                "data-img-prompt": prompt_text,
+                "data-aspect-ratio": ratio,
+            }
+            if is_cover:
+                attrs["data-cover"] = "1"
+            ph = soup.new_tag("div", attrs=attrs)
+            ph.string = "配图生成中"
+            anchor.insert_after(ph)
+
+        return soup.decode(formatter=None)
+
+    @classmethod
+    def pick_cover_file_from_html(cls, html: str) -> Optional[str]:
+        """从 HTML 中选取最佳封面（跳过 Picsum 等随机占位图）"""
+        import os
+        from bs4 import BeautifulSoup
+        from src.ai_write_x.utils import utils
+
+        if not html:
+            return None
+
+        soup = BeautifulSoup(html, "html.parser")
+        ranked = []
+        for img in soup.find_all("img"):
+            src = (img.get("src") or "").strip()
+            if not src or src.startswith("data:") or cls.is_stock_placeholder_url(src):
+                continue
+            resolved = utils.resolve_image_path(src)
+            if not resolved or not os.path.isfile(resolved):
+                if "/images/" in src:
+                    from src.ai_write_x.utils.path_manager import PathManager
+                    name = src.split("/images/")[-1].split("?")[0]
+                    candidate = PathManager.get_image_dir() / name
+                    if candidate.exists():
+                        resolved = str(candidate)
+            if not resolved or not os.path.isfile(resolved):
+                continue
+            score = 0
+            if img.get("data-cover") == "1":
+                score += 20
+            if "cover" in (img.get("alt") or "").lower() or "封面" in (img.get("alt") or ""):
+                score += 15
+            if "2.35" in (img.get("data-aspect-ratio") or ""):
+                score += 8
+            if "/images/" in src:
+                score += 5
+            ranked.append((score, resolved))
+
+        if ranked:
+            ranked.sort(key=lambda x: -x[0])
+            return ranked[0][1]
+        return None
+
+    @classmethod
+    def generate_standalone_cover(cls, topic: str, title: str = "") -> Optional[str]:
+        """无有效正文图时，单独调用图片 API 生成微信封面（2.35:1）"""
+        import os
+        import re
+        from src.ai_write_x.utils import utils
+
+        label = (title or topic or "文章").strip()
+        marker = cls._build_scene_prompt(topic or label, label, is_cover=True)
+        lg.print_log(f"[VisualAssets] 正在生成专用封面: {label[:40]}...", "info")
+        try:
+            out = cls.sync_trigger_image_generation(marker + "\n", timeout=120)
+        except Exception as e:
+            lg.print_log(f"[VisualAssets] 封面生成失败: {e}", "warning")
+            return None
+
+        for m in re.finditer(r'src=["\']([^"\']+)["\']', out or ""):
+            src = m.group(1)
+            if cls.is_stock_placeholder_url(src):
+                continue
+            path = utils.resolve_image_path(src)
+            if path and os.path.isfile(path):
+                lg.print_log(f"[VisualAssets] 封面已生成: {os.path.basename(path)}", "success")
+                return path
+        return None
+
+    @classmethod
+    def resolve_cover_for_article(
+        cls, html: str, topic: str = "", title: str = ""
+    ) -> Optional[str]:
+        cover = cls.pick_cover_file_from_html(html)
+        if cover:
+            return cover
+        return cls.generate_standalone_cover(topic, title)
+
+    @classmethod
+    def persist_cover_metadata(cls, article_path: str, html: str) -> Optional[str]:
+        """写入 .design.json 封面路径（本地 ComfyUI 图，非 Picsum 随机图）"""
+        import json
+        import os
+        from pathlib import Path
+
+        if not article_path or not html:
+            return None
+
+        stem = Path(article_path).stem.replace("_", "|")
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        h1 = soup.find("h1")
+        title = h1.get_text(strip=True) if h1 else stem
+
+        cover_path = cls.resolve_cover_for_article(html, topic=stem, title=title)
+        if not cover_path or not os.path.isfile(cover_path):
+            lg.print_log("[VisualAssets] 未能解析有效封面路径，发布时可能需手动上传", "warning")
+            return None
+
+        design_file = Path(article_path).with_suffix(".design.json")
+        data = {}
+        if design_file.exists():
+            try:
+                data = json.loads(design_file.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data["cover"] = cover_path
+        design_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        lg.print_log(f"[VisualAssets] 封面已关联: {os.path.basename(cover_path)}", "info")
+        return cover_path
+
+    @classmethod
+    def finalize_html_images(
+        cls,
+        html: str,
+        topic: str,
+        title: str,
+        fast_mode: bool = False,
+        article_path: str = "",
+    ) -> str:
+        """HTML 定稿后统一生图（避免排版阶段冲掉 Markdown 阶段的配图）"""
+        if not html or not html.strip():
+            return html
+
+        from src.ai_write_x.core.article_polish import strip_unprocessed_visual_markers
+
+        html = cls.prepare_html_for_image_generation(html)
+
+        target_total = cls.get_target_image_count()
+        min_images = target_total
+        body_slots = cls.get_body_image_slot_count()
+        valid = cls.count_valid_article_images(html)
+        has_pending = bool(
+            re.search(r"\[\[V-SCENE:", html)
+            or "img-placeholder" in html
+            or re.search(r"data-img-prompt=", html)
+        )
+
+        lg.print_log(
+            f"[VisualAssets] HTML 定稿检查: 有效配图 {valid} 张, 目标 {min_images} 张, 待处理占位 {has_pending}",
+            "info",
+        )
+
+        if valid < min_images and not has_pending:
+            lg.print_log("[VisualAssets] 正文缺少配图，正在注入 HTML 占位符...", "info")
+            html = cls.inject_html_image_placeholders(
+                html, topic, title, min_count=max(1, body_slots)
+            )
+
+        settings = cls._get_runtime_settings()
+        timeout = cls._coerce_int(
+            settings.get("fast_mode_timeout_seconds" if fast_mode else "default_timeout_seconds"),
+            default=45 if fast_mode else 90,
+            minimum=15,
+            maximum=600,
+        )
+        html = cls.sync_trigger_image_generation(html, timeout=timeout)
+        html = strip_unprocessed_visual_markers(html)
+        from src.ai_write_x.core.article_polish import strip_leaked_prompt_text
+        html = strip_leaked_prompt_text(html)
+
+        if article_path:
+            cls.persist_cover_metadata(article_path, html)
+
+        final_valid = cls.count_valid_article_images(html)
+        if final_valid < 1:
+            lg.print_log("[VisualAssets] 配图生成未完成，请检查图片 API / ComfyUI 配置", "warning")
+        else:
+            lg.print_log(f"[VisualAssets] HTML 配图完成，共 {final_valid} 张", "success")
+        return html
+
+    @classmethod
+    def article_needs_image_fix(cls, html: str) -> bool:
+        """判断文章是否仍需补图（含 Picsum 随机占位图）"""
+        if not html or not html.strip():
+            return True
+        valid = cls.count_valid_article_images(html)
+        target = cls.get_target_image_count()
+        has_pending = bool(
+            re.search(r"\[\[V-SCENE:", html)
+            or "img-placeholder" in html
+            or re.search(r"data-img-prompt=", html)
+        )
+        has_picsum = bool(re.search(r"picsum\.photos", html, re.I))
+        has_leaks = cls.has_scene_description_leaks(html)
+        return (
+            valid < max(1, target)
+            or has_pending
+            or has_leaks
+            or has_picsum
+        )
+
+    @classmethod
+    def prepare_for_wechat_publish(cls, article_path: str) -> str:
+        """发布前同步补齐配图并刷新封面，返回最新 HTML"""
+        from pathlib import Path
+
+        path = Path(article_path)
+        if not path.exists():
+            return ""
+
+        content = path.read_text(encoding="utf-8")
+        if cls.article_needs_image_fix(content):
+            lg.print_log("[VisualAssets] 发布前检测到配图未就绪，正在同步补齐...", "info")
+            cls.auto_fix_article_images(str(path))
+            content = path.read_text(encoding="utf-8")
+        else:
+            cls.persist_cover_metadata(str(path), content)
+
+        return content
+
+    @classmethod
     def auto_fix_article_images(cls, article_path_str: str) -> dict:
         """自动化补图：扫描文章中的图片占位符并调用图片API生成图片"""
         from pathlib import Path
@@ -1009,14 +1417,27 @@ class VisualAssetsManager:
             lg.print_log(f"开始自动修复文章图片: {article_path_str}", "info")
             content = file_path.read_text(encoding="utf-8")
             
-            # V4: 短路检测 — 如果工作流 Step 5 已经完成了所有图片替换，直接跳过
             has_vscene = bool(re.search(r'\[\[V-SCENE:', content))
             has_img_prompt = bool(re.search(r'\[(?:IMG_PROMPT|图片解析)[:：]', content))
-            has_empty_placeholder = bool(re.search(r'<div[^>]*class="img-placeholder"[^>]*>(?!.*data-img-prompt)', content))
-            
-            if not has_vscene and not has_img_prompt and not has_empty_placeholder:
-                lg.print_log(f"[VisualAssets] 文章 {file_path.name} 中无未替换的占位符，跳过自动补图 ✅", "success")
-                return {"status": "skipped", "message": "所有图片占位符已在工作流中替换完毕"}
+            has_placeholder = "img-placeholder" in content or "data-img-prompt=" in content
+            has_scene_leaks = cls.has_scene_description_leaks(content)
+            valid_images = cls.count_valid_article_images(content)
+            has_picsum_imgs = bool(re.search(r"picsum\.photos", content, re.I))
+
+            if (
+                not has_vscene
+                and not has_img_prompt
+                and not has_placeholder
+                and not has_scene_leaks
+                and not has_picsum_imgs
+                and valid_images >= 1
+            ):
+                lg.print_log(
+                    f"[VisualAssets] 文章 {file_path.name} 已有 {valid_images} 张本地配图，跳过补图",
+                    "success",
+                )
+                cls.persist_cover_metadata(article_path_str, content)
+                return {"status": "skipped", "message": f"已有 {valid_images} 张有效配图"}
             
             # 1. 扫描是否已有提示词 (避免对已包含 prompts 的 HTML 重复注入)
             # 如果文章已经有提示词标记（[IMG_PROMPT]）或者 placeholder 已包含数据属性，说明 LLM 已经完成了分析
@@ -1028,10 +1449,39 @@ class VisualAssetsManager:
                 content = cls.inject_image_prompts(content)
                 file_path.write_text(content, encoding="utf-8")
             
-            # 2. 触发预览与后台生成
+            # 2. 无占位符且缺图：注入后再生成
+            from src.ai_write_x.core.article_polish import strip_unprocessed_visual_markers
+
+            if has_picsum_imgs:
+                from src.ai_write_x.config.config import Config
+                api_label = Config.get_instance().img_api_type
+                lg.print_log(
+                    f"[VisualAssets] 检测到 Picsum 随机占位图，将改用 {api_label} API 按场景描述重新生图",
+                    "warning",
+                )
+                from bs4 import BeautifulSoup
+                soup_fix = BeautifulSoup(content, "html.parser")
+                for img in soup_fix.find_all("img"):
+                    if cls.is_stock_placeholder_url(img.get("src") or ""):
+                        img.decompose()
+                content = soup_fix.decode(formatter=None)
+
+            content = cls.prepare_html_for_image_generation(content)
+            valid_images = cls.count_valid_article_images(content)
+            has_placeholder = "img-placeholder" in content or "data-img-prompt=" in content
+
+            if valid_images < 1 and not has_vscene and not has_placeholder:
+                topic_guess = file_path.stem
+                slots = max(1, cls.get_body_image_slot_count())
+                content = cls.inject_html_image_placeholders(
+                    content, topic_guess, topic_guess, min_count=slots
+                )
+
             updated_content = cls.sync_trigger_image_generation(content)
-            
-            # 保存更新后的内容 (包含 <img> 标签)
+            updated_content = strip_unprocessed_visual_markers(updated_content)
+            updated_content = strip_leaked_prompt_text(updated_content)
+            cls.persist_cover_metadata(article_path_str, updated_content)
+
             if updated_content != content:
                 file_path.write_text(updated_content, encoding="utf-8")
                 lg.print_log("文章图片占位符已成功替换为生成的图片。", "success")

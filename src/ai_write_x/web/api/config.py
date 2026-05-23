@@ -303,19 +303,37 @@ async def test_custom_api(config: CustomAPIConfig):
         url = config.api_base.rstrip('/') + "/chat/completions"
         headers = {
             "Authorization": f"Bearer {config.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
         payload = {
             "model": config.model or "gpt-3.5-turbo",
             "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 10
+            "max_tokens": 10,
+            "stream": False
         }
         
         # 发送请求
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 200:
-                    result = await response.json()
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if "text/event-stream" in content_type:
+                        stream_text = await response.text()
+                        stream_data = []
+                        for line in stream_text.splitlines():
+                            line = line.strip()
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if not data or data == "[DONE]":
+                                continue
+                            try:
+                                stream_data.append(json.loads(data))
+                            except json.JSONDecodeError:
+                                stream_data.append({"raw": data})
+                        return {"status": "success", "message": "连接成功!", "response": {"stream": True, "chunks": stream_data[:3]}}
+                    result = await response.json(content_type=None)
                     return {"status": "success", "message": "连接成功!", "response": result}
                 else:
                     error_text = await response.text()
@@ -560,6 +578,7 @@ class SaveCustomAPIRequest(BaseModel):
     api_base: str
     api_key: str
     model: str = ""
+    provider: str = "openai"
 
 
 @router.post("/save-custom-api")
@@ -582,7 +601,8 @@ async def save_custom_api(request: SaveCustomAPIRequest):
                     "key_index": 0,
                     "model": [request.model] if request.model else ["gpt-3.5-turbo"],
                     "model_index": 0,
-                    "api_base": request.api_base
+                    "api_base": request.api_base,
+                    "provider": request.provider or "openai"
                 }
                 
                 # 设置为当前使用的API

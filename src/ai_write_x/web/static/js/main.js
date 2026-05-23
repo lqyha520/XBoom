@@ -66,6 +66,7 @@ class AIWriteXApp {
             const parts = value.split(`; ${name}=`);
             if (parts.length === 2) return parts.pop().split(';').shift();
         };
+        const getUrlToken = () => new URLSearchParams(window.location.search).get('token');
 
         window.fetch = async (...args) => {
             let [resource, config] = args;
@@ -75,9 +76,10 @@ class AIWriteXApp {
                 config = config || {};
                 config.headers = config.headers || {};
 
-                // 优先从全局变量读取，其次从 Cookie 读取
-                const token = window.APP_CLIENT_TOKEN || getCookie('app_client_token');
+                // 优先 URL 参数（每次启动的新令牌），其次全局变量，最后 Cookie
+                const token = getUrlToken() || window.APP_CLIENT_TOKEN || getCookie('app_client_token');
                 if (token) {
+                    window.APP_CLIENT_TOKEN = token;
                     if (config.headers instanceof Headers) {
                         config.headers.set('X-App-Client-Token', token);
                     } else {
@@ -97,9 +99,12 @@ class AIWriteXApp {
         this._setupKeyboardShortcuts();  // V3: 初始化键盘快捷键
         window.updateChecker = window.updateChecker || new UpdateChecker();
 
-        // V13.0: 初始加载时确保基础数据准备就绪 (各 Manager 会在 showView 时按需初始化)
+        // V13.0: 初始加载时确保基础数据准备就绪（等待客户端令牌就绪后再拉取）
         setTimeout(() => {
-            if (window.databaseManager) {
+            if (!window.databaseManager) return;
+            if (!window.databaseManager.initialized) {
+                window.databaseManager.init();
+            } else {
                 window.databaseManager.refreshAll();
             }
         }, 1000);

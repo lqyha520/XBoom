@@ -1,0 +1,6 @@
+{
+  "latest_version": "23.0.7",
+  "min_supported_version": "23.0.6",
+  "release_notes": "23.0.7: 配图张数可配置、存草稿/自动发布前同步上传正文配图、ComfyUI 封面与发布流程修复。",
+  "published_at": "2026-05-23T00:00:00Z"
+}

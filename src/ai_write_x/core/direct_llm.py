@@ -9,6 +9,7 @@
 
 import json
 import sys
+import os
 from typing import Any, Dict, List, Optional, Union, Callable
 
 from openai import OpenAI
@@ -36,6 +37,38 @@ def set_stream_callback(callback: Optional[Callable[[str], None]]):
 def get_stream_callback() -> Optional[Callable[[str], None]]:
     """获取全局流式输出回调"""
     return _stream_callback
+
+
+#region debug-point custom-api-blocked-reporter
+def _debug_report_custom_api_blocked(event: str, payload: Dict[str, Any]) -> None:
+    try:
+        env_path = os.path.join(os.getcwd(), ".dbg", "custom-api-blocked.env")
+        debug_url = ""
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as env_file:
+                for line in env_file:
+                    if line.startswith("DEBUG_SERVER_URL="):
+                        debug_url = line.split("=", 1)[1].strip()
+                        break
+        if not debug_url:
+            return
+        body = json.dumps({
+            "sessionId": "custom-api-blocked",
+            "runId": "pre",
+            "hypothesisId": "custom-api-runtime",
+            "event": event,
+            "payload": payload,
+        }, ensure_ascii=False, default=str).encode("utf-8")
+        request = urllib.request.Request(
+            debug_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(request, timeout=1).read()
+    except Exception:
+        pass
+#endregion
 
 
 class OpenAIDirectLLM(LLM):
@@ -99,11 +132,14 @@ class OpenAIDirectLLM(LLM):
 
         # 创建 API Key 列表并初始化指针
         from src.ai_write_x.config.config import Config
-        self._api_keys = Config.get_instance().get_api_keys()
+        config = Config.get_instance()
+        self._api_keys = config.get_api_keys()
         if not self._api_keys:
             self._api_keys = [api_key]
 
         self._current_key_index = 0
+        known_providers = {"OpenRouter", "Deepseek", "Grok", "Qwen", "Gemini", "Ollama", "SiliconFlow", "心流"}
+        self._compatibility_mode = config.api_type not in known_providers
 
         # 自动补全 /v1 后缀（如果用户没加完整路径）
         # 如果URL以#结尾，强制使用原始地址不添加后缀
@@ -119,11 +155,22 @@ class OpenAIDirectLLM(LLM):
                 processed_base_url = processed_base_url.rstrip('/') + "/v1"
 
         # 创建 OpenAI 客户端
-        self._openai_client = OpenAI(
-            api_key=self._api_keys[self._current_key_index],
-            base_url=processed_base_url,
-            timeout=timeout if timeout else 120.0
-        )
+        openai_kwargs = {
+            "api_key": self._api_keys[self._current_key_index],
+            "base_url": processed_base_url,
+            "timeout": timeout if timeout else 120.0,
+        }
+        if self._compatibility_mode:
+            import httpx
+            openai_kwargs["http_client"] = httpx.Client(
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                timeout=httpx.Timeout(timeout if timeout else 120.0),
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+                    "Accept": "application/json",
+                },
+            )
+        self._openai_client = OpenAI(**openai_kwargs)
 
         # 检测是否为视觉模型
         self._is_vision = VisionModelDetector.is_vision_model(model)
@@ -159,8 +206,10 @@ class OpenAIDirectLLM(LLM):
             "stream": True,  # 启用流式输出
         }
 
-        if tools:
+        if tools and not self._compatibility_mode:
             params["tools"] = tools
+        elif tools:
+            log.print_log("[DEBUG] 自定义API兼容模式: 已跳过工具调用参数", "debug")
 
         if kwargs:
             # V23.1 FIX: 过滤掉非 OpenAI 标准参数（如 CrewAI 注入的 'from_task' 等）
@@ -313,8 +362,10 @@ class OpenAIDirectLLM(LLM):
             "temperature": self.temperature,
         }
 
-        if tools:
+        if tools and not self._compatibility_mode:
             params["tools"] = tools
+        elif tools:
+            log.print_log("[DEBUG] 自定义API兼容模式: 已跳过工具调用参数", "debug")
 
         if kwargs:
             # V23.1 FIX: 过滤掉非 OpenAI 标准参数
@@ -335,8 +386,48 @@ class OpenAIDirectLLM(LLM):
         base_url_str = str(self._openai_client.base_url)
         full_api_url = base_url_str.rstrip('/') + "/chat/completions"
         log.print_log(f"[DEBUG] 发送请求到: {full_api_url}", "debug")
+        #region debug-point custom-api-blocked-request
+        _debug_report_custom_api_blocked("llm_request", {
+            "base_url": base_url_str,
+            "full_api_url": full_api_url,
+            "model": self._original_model,
+            "compatibility_mode": self._compatibility_mode,
+            "stream": False,
+            "has_tools": bool(tools),
+            "sent_param_keys": sorted(params.keys()),
+            "message_count": len(messages),
+            "message_lengths": [len(str(message.get("content", ""))) for message in messages],
+            "total_message_length": sum(len(str(message.get("content", ""))) for message in messages),
+        })
+        #endregion
 
-        response = self._openai_client.chat.completions.create(**params)
+        try:
+            response = self._openai_client.chat.completions.create(**params)
+        except Exception as e:
+            #region debug-point custom-api-blocked-error
+            response_obj = getattr(e, "response", None)
+            response_text = ""
+            response_status = None
+            response_headers = {}
+            if response_obj is not None:
+                response_status = getattr(response_obj, "status_code", None)
+                try:
+                    response_text = getattr(response_obj, "text", "") or ""
+                except Exception:
+                    response_text = ""
+                try:
+                    response_headers = dict(getattr(response_obj, "headers", {}) or {})
+                except Exception:
+                    response_headers = {}
+            _debug_report_custom_api_blocked("llm_error", {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "response_status": response_status,
+                "response_text_excerpt": response_text[:1000],
+                "response_headers": {k: v for k, v in response_headers.items() if k.lower() in {"content-type", "server", "x-request-id", "cf-ray"}},
+            })
+            #endregion
+            raise
         message = response.choices[0].message
 
         # 检查是否有工具调用
@@ -479,11 +570,22 @@ class OpenAIDirectLLM(LLM):
                     )
 
                     # 重新创建客户端以应用新 Key
-                    self._openai_client = OpenAI(
-                        api_key=new_key,
-                        base_url=self.base_url,
-                        timeout=self.timeout if self.timeout else 120.0
-                    )
+                    rebuild_kwargs = {
+                        "api_key": new_key,
+                        "base_url": self.base_url,
+                        "timeout": self.timeout if self.timeout else 120.0,
+                    }
+                    if self._compatibility_mode:
+                        import httpx
+                        rebuild_kwargs["http_client"] = httpx.Client(
+                            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                            timeout=httpx.Timeout(self.timeout if self.timeout else 120.0),
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+                                "Accept": "application/json",
+                            },
+                        )
+                    self._openai_client = OpenAI(**rebuild_kwargs)
 
                     # 稍微等待以避免立即碰撞
                     time.sleep(0.5)
@@ -540,11 +642,22 @@ class OpenAIDirectLLM(LLM):
                                     if is_fb_failover and len(self._api_keys) > 1:
                                         self._current_key_index = (
                                             self._current_key_index + 1) % len(self._api_keys)
-                                        self._openai_client = OpenAI(
-                                            api_key=self._api_keys[self._current_key_index],
-                                            base_url=self.base_url,
-                                            timeout=self.timeout if self.timeout else 120.0
-                                        )
+                                        rebuild_kwargs = {
+                                            "api_key": self._api_keys[self._current_key_index],
+                                            "base_url": self.base_url,
+                                            "timeout": self.timeout if self.timeout else 120.0,
+                                        }
+                                        if self._compatibility_mode:
+                                            import httpx
+                                            rebuild_kwargs["http_client"] = httpx.Client(
+                                                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                                                timeout=httpx.Timeout(self.timeout if self.timeout else 120.0),
+                                                headers={
+                                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+                                                    "Accept": "application/json",
+                                                },
+                                            )
+                                        self._openai_client = OpenAI(**rebuild_kwargs)
                                         log.print_log(
                                             f"[Fallback-Failover] 切换备用 Key {self._current_key_index}", "warning")
                                         continue

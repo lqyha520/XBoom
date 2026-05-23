@@ -170,6 +170,19 @@ class SchedulerService:
                     msg = f"文章 {i+1} 生成成功"
                     if results.get("publish_result"):
                         msg += f"并已发布: {results['publish_result'].get('message', '')}"
+
+                    if kwargs.get("use_ai_beautify"):
+                        art_path = results.get("save_result", {}).get("path")
+                        if art_path:
+                            try:
+                                from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                                VisualAssetsManager.auto_fix_article_images(art_path)
+                                log.print_log(
+                                    "[Scheduler] 已同步补齐配图（定时任务不自动换模板，请在文章库手动操作）",
+                                    "info",
+                                )
+                            except Exception as img_e:
+                                log.print_log(f"[Scheduler] 配图补齐失败: {img_e}", "warning")
                     
                     db_manager.log_task_execution(
                         task_id=task_id, 

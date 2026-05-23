@@ -826,7 +826,7 @@ class WeixinPublisher:
             return content
 
 
-def pub2wx(title, digest, article, appid, appsecret, author, cover_path=None):
+def pub2wx(title, digest, article, appid, appsecret, author, cover_path=None, post_mode=None):
     publisher = WeixinPublisher(appid, appsecret, author)
     config = Config.get_instance()
 
@@ -842,24 +842,42 @@ def pub2wx(title, digest, article, appid, appsecret, author, cover_path=None):
     cropped_image_path = ""
     final_image_path = None  # 最终要上传的图片路径
 
+    from src.ai_write_x.core.visual_assets import VisualAssetsManager as _VA
+
+    if cover_path and (
+        _VA.is_stock_placeholder_url(str(cover_path))
+        or not os.path.isfile(utils.resolve_image_path(cover_path) or "")
+    ):
+        log.print_log(
+            f"[发布] 封面无效或为随机占位图，将改用正文配图或重新生成: {cover_path}",
+            "warning",
+        )
+        cover_path = None
+
     if cover_path:
         # 如果明确指定了封面路径，使用指定的封面
         resolved_cover_path = utils.resolve_image_path(cover_path)
-        cropped_image_path = utils.crop_cover_image(resolved_cover_path, (900, 384))
-
-        if cropped_image_path:
-            final_image_path = cropped_image_path
+        if not resolved_cover_path or not os.path.exists(resolved_cover_path):
+            log.print_log(f"[发布] 封面文件不存在: {cover_path}", "error")
+            cover_path = None
         else:
-            final_image_path = resolved_cover_path
-    else:
-        # 默认策略：优先从正文中随机提取图片作为封面
-        import random
-        
-        article_images = utils.extract_image_urls(article)
+            cropped_image_path = utils.crop_cover_image(resolved_cover_path, (900, 384))
+
+            if cropped_image_path:
+                final_image_path = cropped_image_path
+            else:
+                final_image_path = resolved_cover_path
+
+    if not cover_path:
+        # 默认策略：从正文提取第一张有效本地配图（不用 Picsum 随机图）
+        article_images = [
+            u
+            for u in utils.extract_image_urls(article)
+            if not _VA.is_stock_placeholder_url(u)
+        ]
         if article_images:
-            # 从正文中随机选择一张图片作为封面
-            random_cover_url = random.choice(article_images)
-            log.print_log(f"从正文随机选取图片作为封面: {random_cover_url}")
+            random_cover_url = article_images[0]
+            log.print_log(f"从正文选取封面: {random_cover_url}")
             
             # 解析图片路径
             resolved_cover_path = utils.resolve_image_path(random_cover_url)
@@ -885,22 +903,19 @@ def pub2wx(title, digest, article, appid, appsecret, author, cover_path=None):
             log.print_log("正文无图片，需要生成封面...", "info")
             final_image_path = None
         
-        # 如果正文没有可用图片，尝试自动生成
+        # 如果正文没有可用图片，尝试用 ComfyUI 等已配置 API 生成封面
         if final_image_path is None:
-            image_url = publisher.generate_img(
-                "主题:" + title.split("|")[-1] + ",内容:" + digest,
-                "900*384",
-            )
-            
-            if image_url:
-                final_image_path = utils.resolve_image_path(image_url)
+            topic_label = (title.split("|")[-1] if title else digest[:40]).strip()
+            gen_path = _VA.generate_standalone_cover(topic_label, title or topic_label)
+            if gen_path and os.path.exists(gen_path):
+                temp_crop = utils.crop_cover_image(gen_path, (900, 384))
+                final_image_path = temp_crop or gen_path
                 log.print_log(f"成功生成封面图片: {final_image_path}", "success")
             else:
-                # 生成也失败，使用默认图片
-                log.print_log("生成封面失败，使用默认图片", "warning")
+                log.print_log("封面 API 生成失败，使用默认图标", "warning")
                 default_image = utils.get_res_path(
-                    os.path.join("branding", "app_icon_1024.png"), 
-                    os.path.dirname(__file__) + "/../assets/"
+                    os.path.join("branding", "app_icon_1024.png"),
+                    os.path.dirname(__file__) + "/../assets/",
                 )
                 final_image_path = utils.resolve_image_path(default_image)
 
@@ -932,6 +947,8 @@ def pub2wx(title, digest, article, appid, appsecret, author, cover_path=None):
         # 尝试从正文提取其他图片
         fallback_media_id = None
         for other_url in image_urls:
+            if _VA.is_stock_placeholder_url(other_url):
+                continue
             other_resolved = utils.resolve_image_path(other_url)
             if utils.is_local_path(other_resolved) and os.path.exists(other_resolved):
                 log.print_log(f"尝试使用正文图片作为封面: {other_resolved}", "info")
@@ -986,7 +1003,13 @@ def pub2wx(title, digest, article, appid, appsecret, author, cover_path=None):
     article = publisher._compress_html(article)
 
     # 检查是否仅保存到草稿箱
-    if config.get_draft_only_by_appid(appid):
+    save_as_draft_only = config.get_draft_only_by_appid(appid)
+    if post_mode == "draft":
+        save_as_draft_only = True
+    elif post_mode == "publish":
+        save_as_draft_only = False
+
+    if save_as_draft_only:
         add_draft_result, err_msg = publisher.add_draft(article, title, digest, media_id)
         if add_draft_result is None:
             return f"{err_msg}，无法保存草稿", article, False

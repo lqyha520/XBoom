@@ -2,6 +2,52 @@ from src.ai_write_x.core.llm_client import LLMClient
 from src.ai_write_x.utils import log
 import re
 
+# 终审报告五维标签（成稿中不应出现）
+REVIEW_DIMENSION_LABELS = (
+    "阅读连贯性",
+    "排版跳跃感",
+    "情绪价值",
+    "信息密度",
+    "读者收获",
+)
+
+# Reflexion / 毒舌主编改稿时附加约束（禁止把审稿报告当正文）
+ARTICLE_ONLY_REWRITE_SUFFIX = """
+
+【输出格式 — 必须遵守】
+- 只输出读者可见的完整正文文章（Markdown），围绕给定话题展开叙述。
+- 禁止输出：评分报告、SCORE、PASS、爆款指数、五维点评、深度文章评分与拆解、优化建议清单、主编审稿体例。
+- 禁止复述或改写上方【主编反馈】为正文；反馈仅供你内部修改参考。
+- 不要任何“综上所述”“本文评分”等元评论。"""
+
+
+def is_editorial_review_report(content: str) -> bool:
+    """判断文本是否为主编审稿/评分拆解（误当成稿）。"""
+    if not content or len(content.strip()) < 40:
+        return False
+    text = content.strip()
+    signals = 0
+    if re.search(r"\[SCORE:\s*\d+\]", text, re.IGNORECASE):
+        signals += 2
+    if re.search(r"(?:深度文章)?评分与拆解", text):
+        signals += 2
+    if re.search(r"\[PASS:\s*(?:true|false)\]", text, re.IGNORECASE):
+        signals += 2
+    if "爆款指数" in text:
+        signals += 1
+    dim_hits = sum(1 for label in REVIEW_DIMENSION_LABELS if label in text)
+    if dim_hits >= 2:
+        signals += 2
+    if dim_hits >= 3:
+        signals += 1
+    if re.search(
+        r"(?:^|\n)\s*[\d①②③④⑤][\.、）\)]\s*(?:阅读连贯性|排版跳跃感|情绪价值)",
+        text,
+    ):
+        signals += 1
+    return signals >= 3
+
+
 class FinalReviewer:
     """最终 AI 内容审查与打分器：担任主编视角对成稿进行终审"""
     
@@ -15,6 +61,8 @@ class FinalReviewer:
         
         system_prompt = f'''你是资深的新闻总编与新媒体内容操盘手。
 请对以下将要发布的文章进行严格的终裁判读。
+
+【输出范围】：你只输出内部审稿报告，供系统后台使用；读者永远不会看到这份报告。禁止把报告内容当成可发布的正文。
 
 【极其重要的前提说明 — 你必须严格遵守】：
 当前真实世界的时间是 {current_date_str}。

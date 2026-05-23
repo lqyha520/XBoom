@@ -252,47 +252,68 @@ async def optimize_with_suggestions(request: OptimizeWithSuggestionsRequest):
     import traceback
     
     try:
-        from src.ai_write_x.llm import LiteLLMClient
-        
+        from src.ai_write_x.utils.llm_service import LLMService
+
+        from src.ai_write_x.core.article_polish import (
+            extract_plain_text,
+            merge_optimized_preserving_images,
+        )
+
         log.print_log(f"[Quality] 开始基于建议优化，选中 {len(request.suggestions)} 个建议")
         log.print_log(f"[Quality] 原文长度: {len(request.content)} 字")
-        
-        # 构建优化提示词
-        suggestions_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(request.suggestions)])
-        
-        prompt = f"""你是一位专业的内容编辑和写作专家。请根据以下优化建议对原文进行改进。
 
-## 优化建议：
+        original_html = request.content
+        has_imgs = "<img" in original_html.lower()
+        llm_input = (
+            extract_plain_text(original_html, max_len=12000)
+            if has_imgs
+            else original_html
+        )
+        img_note = (
+            "\n【重要】原文含配图，请只输出优化后的纯文本段落（段与段之间空一行），"
+            "不要输出 HTML、不要描述或替换图片。"
+            if has_imgs
+            else ""
+        )
+
+        suggestions_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(request.suggestions)])
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是专业内容编辑。根据优化建议改写原文，只输出完整正文，不要解释。"
+                    + img_note
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"""请根据以下建议优化文章：
+
+【优化建议】
 {suggestions_text}
 
-## 原文：
-{request.content}
+【原文】
+{llm_input}""",
+            },
+        ]
 
-## 优化要求：
-1. 针对每条建议进行相应的改进
-2. 保持文章的核心观点和主要信息不变
-3. 确保语言流畅、自然
-4. 直接输出优化后的完整文章，不要添加解释或说明
+        log.print_log("[Quality] 调用 LLM 进行优化...")
 
-## 优化后的文章："""
-
-        log.print_log(f"[Quality] 调用LLM进行优化...")
-        
-        # 调用LLM进行优化
-        llm = LiteLLMClient()
-        response = await llm.acomplete(
-            prompt=prompt,
-            temperature=0.7,
-            max_tokens=4000
-        )
-        
-        optimized_content = response.strip()
+        llm = LLMService()
+        optimized_content = (await llm.achat(messages, temperature=0.7, max_tokens=4000) or "").strip()
         log.print_log(f"[Quality] LLM返回内容长度: {len(optimized_content)} 字")
         
         # 如果返回的内容为空或太短，返回原文
-        if len(optimized_content) < len(request.content) * 0.5:
+        if len(optimized_content) < len(llm_input) * 0.5:
             log.print_log("[Quality] 优化结果异常，使用原文", "warning")
-            optimized_content = request.content
+            optimized_content = llm_input
+
+        if has_imgs:
+            optimized_content = merge_optimized_preserving_images(
+                original_html, optimized_content
+            )
+            log.print_log("[Quality] 已合并优化正文并保留原文配图")
         
         log.print_log(f"[Quality] 优化完成，原文 {len(request.content)} 字 -> 优化后 {len(optimized_content)} 字")
         

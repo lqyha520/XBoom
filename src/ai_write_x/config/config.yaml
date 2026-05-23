@@ -37,17 +37,37 @@ wechat:
   credentials:
     - appid: ''
       appsecret: ''
-      author: 听风
+      author: 微笑
       draft_only: true
       call_sendall: false
       sendall: true
       tag_id: 0
 api:
-  api_type: 心流
+  api_type: CustomAPI_1779462899522
   OpenRouter:
     key: OPENROUTER_API_KEY
     key_index: ''
     api_key: []
+    model_index: 0
+    fallback_model_index: -1
+    model:
+      - openrouter/deepseek/deepseek-chat-v3-0324:free
+      - openrouter/deepseek/deepseek-r1-0528:free
+      - openrouter/deepseek/deepseek-prover-v2:free
+      - openrouter/deepseek/deepseek-r1:free
+      - openrouter/deepseek/deepseek-chat:free
+      - openrouter/qwen/qwen3-32b:free
+      - openrouter/qwen/qwq-32b:free
+      - openrouter/google/gemini-2.0-flash-lite-preview-02-05:free
+      - openrouter/google/gemini-2.0-flash-thinking-exp:free
+    api_base: https://openrouter.ai/api/v1
+    vision_model_index: 0
+    vision_model:
+      - google/gemini-2.0-flash-001
+      - google/gemini-2.0-pro-exp-02-05:free
+      - openai/gpt-4o-mini
+      - anthropic/claude-3.5-sonnet
+      - qwen/qwen-vl-plus:free
   Deepseek:
     key: DEEPSEEK_API_KEY
     key_index: ''
@@ -55,22 +75,20 @@ api:
     model_index: 0
     fallback_model_index: -1
     model:
-      - deepseek-chat
-      - deepseek-reasoner
+      - deepseek/deepseek-chat
+      - deepseek/deepseek-reasoner
     vision_model_index: 0
     vision_model: []
-    api_base: https://api.deepseek.com
+    api_base: https://api.deepseek.com/v1
     api_extra_params: {}
   Qwen:
-    key: QWEN_API_KEY
+    key: OPENAI_API_KEY
     key_index: ''
     api_key: []
     model_index: 0
     fallback_model_index: -1
     model:
-      - qwen-turbo
-      - qwen-plus
-      - qwen-max
+      - openai/qwen-plus
     api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
     api_extra_params: {}
   Gemini:
@@ -80,10 +98,16 @@ api:
     model_index: 0
     fallback_model_index: -1
     model:
-      - gemini-2.0-flash
-      - gemini-2.0-flash-lite
-    api_base: https://generativelanguage.googleapis.com/v1beta
+      - gemini/gemini-1.5-flash
+      - gemini/gemini-1.5-pro
+      - gemini/gemini-2.0-flash
+    api_base: https://generativelanguage.googleapis.com/v1beta/openai/
     api_extra_params: {}
+    vision_model_index: 0
+    vision_model:
+      - gemini/gemini-2.0-flash
+      - gemini/gemini-1.5-flash
+      - gemini/gemini-1.5-pro
   OpenAI:
     key: OPENAI_API_KEY
     key_index: ''
@@ -96,20 +120,26 @@ api:
     api_base: https://api.openai.com/v1
     api_extra_params: {}
   SiliconFlow:
-    key: SILICONFLOW_API_KEY
+    key: OPENAI_API_KEY
     key_index: ''
     api_key: []
     model_index: 0
     fallback_model_index: -1
     model:
-      - Qwen/Qwen2.5-7B-Instruct
-      - Qwen/Qwen2.5-32B-Instruct
-      - deepseek-ai/DeepSeek-V2-Chat
+      - openai/deepseek-ai/DeepSeek-V3
+      - openai/deepseek-ai/DeepSeek-R1
+      - openai/Qwen/QwQ-32B
+      - openai/Qwen/Qwen3-32B
     vision_model_index: 0
-    vision_model: []
+    vision_model:
+      - openai/Qwen/Qwen2-VL-72B-Instruct
+      - openai/Qwen/Qwen2-VL-7B-Instruct
+      - openai/Pro/Qwen/Qwen2-VL-7B-Instruct
+      - openai/deepseek-ai/deepseek-vl2
     api_base: https://api.siliconflow.cn/v1
     api_extra_params:
       stream: true
+    provider: openai
   XAI:
     key: XAI_API_KEY
     key_index: ''
@@ -122,38 +152,138 @@ api:
     api_base: https://api.x.ai/v1
     api_extra_params: {}
   心流:
-    key: IFLOW_API_KEY
+    key: OPENAI_API_KEY
     key_index: ''
     api_key: []
-    model_index: 1
+    model_index: 0
     fallback_model_index: -1
     model:
-      - iflow-rome-30ba3b
-      - qwen3-coder-plus
-      - qwen3-max
-      - qwen3-vl-plus
-      - kimi-k2-0905
-      - qwen3-max-preview
-      - kimi-k2
-      - deepseek-v3.2
-      - deepseek-r1
       - deepseek-v3
+      - kimi-k2
+      - glm-4.6
+      - deepseek-r1
       - qwen3-32b
-      - qwen3-235b-a22b-thinking-2507
-      - qwen3-235b-a22b-instruct
-      - qwen3-235b
     vision_model_index: 0
     vision_model:
-      - qwen3-vl-plus
+      - glm-4v
+      - qwen-vl-plus
+      - qwen-vl-max
     api_base: https://apis.iflow.cn/v1
     api_extra_params: {}
+    provider: zhipu
   deleted_providers:
-    - Deepseek
-    - Qwen
-    - Gemini
-    - OpenAI
-    - SiliconFlow
-    - XAI
+    - custom
+  custom:
+    - name: ''
+      api_base: https://token.sensenova.cn/v1
+      api_key: []
+      model: sensenova-6.7-flash-lite
+      models:
+        - sensenova-6.7-flash-lite
+        - deepseek-v4-flash
+        - sensenova-u1-fast
+      tested: true
+      isCurrent: true
+      provider_key: CustomAPI_1779462899522
+      vision_model:
+        - gpt-4o-audio-preview
+        - gpt-4o-realtime-preview
+        - google/gemini-2.5-flash-lite
+        - google/gemini-3.1-flash-lite-preview
+  gpt:
+    key: OPENAI_API_KEY
+    api_key: []
+    key_index: ''
+    model:
+      - gpt-5.5
+    model_index: 0
+    api_base: http://127.0.0.1:8787/v1
+    vision_model:
+      - gpt-4o-audio-preview
+      - gpt-4o-realtime-preview
+    provider: openai
+  Grok:
+    key: XAI_API_KEY
+    key_index: ''
+    api_key: []
+    model_index: 0
+    fallback_model_index: -1
+    model:
+      - xai/grok-3
+    api_base: https://api.x.ai/v1/chat/completions
+  Ollama:
+    key: OPENAI_API_KEY
+    model_index: 0
+    fallback_model_index: -1
+    key_index: ''
+    api_key: []
+    model:
+      - ollama/deepseek-r1:14b
+      - ollama/deepseek-r1:7b
+    api_base: http://localhost:11434
+  CustomAPI_1779395122200:
+    key: OPENAI_API_KEY
+    api_key: []
+    key_index: ''
+    model:
+      - gpt-5
+      - gpt-5.5
+      - gpt-5.4
+      - gpt-5-mini
+      - gpt-5-codex
+      - gpt-5-codex-mini
+      - gpt-5.1-codex
+      - gpt-5.1-codex-mini
+      - gpt-5.1-codex-max
+      - gpt-5.2-codex
+      - gpt-5.3-codex
+      - gpt-5.3-codex-spark
+      - gpt-image-2
+      - gpt-image-1.5
+      - gpt-image-1
+      - gpt-image-1-mini
+      - chatgpt-image-latest
+    model_index: 1
+    api_base: http://127.0.0.1:8787/v1
+    provider: openai
+  CustomAPI_1779395566797:
+    key: OPENAI_API_KEY
+    api_key: []
+    key_index: ''
+    model:
+      - gpt-5.5
+    model_index: 0
+    api_base: https://api.wenwenai.org/v1
+    provider: openai
+  CustomAPI_1779406666087:
+    key: OPENAI_API_KEY
+    api_key: []
+    key_index: ''
+    model:
+      - deepseek/deepseek-v4-flash
+      - deepseek/deepseek-v4-pro
+      - moonshotai/kimi-k2.6
+      - minimax/minimax-m2.7
+      - z-ai/glm-5.1
+      - google/gemini-2.5-flash-lite
+      - google/gemini-3.1-flash-lite-preview
+    model_index: 0
+    api_base: http://127.0.0.1:28666/v1
+    provider: openai
+    vision_model:
+      - google/gemini-2.5-flash-lite
+      - google/gemini-3.1-flash-lite-preview
+  CustomAPI_1779462899522:
+    key: OPENAI_API_KEY
+    api_key: []
+    key_index: ''
+    model:
+      - sensenova-6.7-flash-lite
+      - deepseek-v4-flash
+      - sensenova-u1-fast
+    model_index: 1
+    api_base: https://token.sensenova.cn/v1
+    provider: openai
 auto_publish: false
 format_publish: true
 auto_delete_published: false
@@ -176,9 +306,10 @@ img_api:
   settings:
     default_timeout_seconds: 60
     fast_mode_timeout_seconds: 45
-    fast_mode_prompt_count: 3
+    article_image_count: 5
+    fast_mode_prompt_count: 5
     fast_mode_prompt_excerpt_length: 120
-    allow_placeholder_fallback: true
+    allow_placeholder_fallback: false
   custom: []
   custom_index: 0
   api_type: comfyui
@@ -189,9 +320,10 @@ strict_freshness: true
 aiforge_search_max_results: 20
 aiforge_search_min_results: 10
 min_article_len: 800
-max_article_len: 3000
+max_article_len: 1500
 proxy: ''
 page_design:
+  unified_brand_style: true
   theme: default
   font_family: Microsoft YaHei, sans-serif
   font_size: 16
@@ -206,3 +338,25 @@ page_design:
   custom_css: ''
   custom_header: ''
   custom_footer: ''
+  container:
+    max_width: 750
+    margin_horizontal: 10
+    background_color: '#f5f7fa'
+  card:
+    border_radius: 12
+    box_shadow: 0 4px 16px rgba(0,0,0,0.06)
+    padding: 24
+    background_color: '#ffffff'
+  typography:
+    base_font_size: 16
+    line_height: 1.8
+    heading_scale: 1.5
+    text_color: '#333333'
+    heading_color: '#2c3e50'
+  accent:
+    primary_color: '#3a7bd5'
+    secondary_color: '#2563a8'
+    highlight_bg: '#f0f7ff'
+dimensional_creative:
+  enabled: true
+  creative_intensity: 1

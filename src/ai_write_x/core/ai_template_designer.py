@@ -132,15 +132,16 @@ class AITemplateDesigner:
             yield {"type": "log", "message": "✨ 正在构建独创色彩体系与视觉平衡..."}
             
             full_design = ""
-            async for chunk in self.llm.stream_chat([{"role": "user", "content": design_prompt}], model=model):
+            messages = [{"role": "user", "content": design_prompt}]
+            async for chunk in self.llm.client.stream_chat_async(messages=messages, model=model):
                 full_design += chunk
-                # 可以在此处提取中间状态
-            
+
+            full_design = self._clean_and_validate(full_design, title, category)
+
             yield {"type": "log", "message": "✅ 视觉容器构建完成，正在注入内容流水线..."}
-            
+
             # 提取同步暗号
             design_sync = {}
-            import re
             sync_match = re.search(r'<!-- DESIGN_SYNC: ({.*?}) -->', full_design)
             if sync_match:
                 import json
@@ -228,29 +229,52 @@ class AITemplateDesigner:
 4. **字体层级清晰**：H2 标题必须具备强大的视觉锚点（如加粗、装饰线或特殊色彩）。
 """
 
+        from src.ai_write_x.core.brand_style import get_brand_style_prompt, is_unified_brand_style
+
         style_context = f"用户偏好风格指导（参考灵感）：{user_preference}" if user_preference else "全面释放创造力，不受任何框架限制。"
         
-        mutation_seed = random.choice(visual_mutations)
+        mutation_seed = random.choice(visual_mutations) if not is_unified_brand_style() else (
+            "采用【统一公众号卡片排版】：顶部标题区 + 白色正文卡片 + 章节小标题左侧色条，布局稳定、易读"
+        )
 
-        prompt = f"""你是一位享誉全球的**顶级跨媒体艺术总监**。你的任务是为文章《{title}》定制一个**绝无仅有、充满艺术张力且极易阅读**的独立 HTML 交互容器。
+        brand_block = get_brand_style_prompt()
+
+        if is_unified_brand_style():
+            color_rules = """
+【色彩策略 — 品牌统一模式】
+1. **全站固定调色板**：严格使用下方「品牌统一视觉」中的色值，不得按话题更换主色。
+2. **允许的变化**：仅可在同一色系内调整透明度、圆角、间距；装饰 SVG 不超过 2 处。
+3. **禁止**：红绿撞色、每篇随机换一套紫/橙/绿主色。
+"""
+        else:
+            color_rules = """
+【视觉生成算法要求】
+1. **内容感知色彩 (Semantic Color Theory)**：根据内容情感重新定义色彩体系。
+2. **拒绝预设色彩**：不要使用任何常见的“蓝白”或“黑白”组合。请在 CSS 变量中定义一套专属调色板。
+3. **创造力发散**：鼓励手写复杂的 CSS 动画、SVG 物理碰撞形状、以及伪类（::before/::after）装饰。
+4. **百万分之一独特性**：每一篇文章都应拥有独特的装饰性 SVG。
+"""
+
+        prompt = f"""你是一位享誉全球的**顶级跨媒体艺术总监**。你的任务是为文章《{title}》定制一个**专业、易读**的独立 HTML 交互容器。
 
 【本次设计的灵魂指令】
 - **底层 DNA 继承与突变**：{ref_templates_str}
 - **核心布局突变种子**：{mutation_seed}
 - **用户审美锚点**：{style_context}
-
-【视觉生成算法要求】
-1. **内容感知色彩 (Semantic Color Theory)**：根据内容情感重新定义色彩体系。伊朗战争话题应使用【凛冽/外交/严肃】色系；黄金话题应使用【尊贵/财富/波动】色系。
-2. **拒绝预设色彩**：不要使用任何常见的“蓝白”或“黑白”组合。请在 CSS 变量中定义一套专属调色板。
-3. **创造力发散**：鼓励手写复杂的 CSS 动画、SVG 物理碰撞形状、以及伪类（::before/::after）装饰。
-4. **百万分之一独特性**：每一篇文章都应拥有独特的装饰性 SVG。
+{brand_block}
+{color_rules}
 
 {readability_rules}
+
+【版式策略】
+- 若话题属于生活、宠物、情感、文化类：采用简洁公众号版式（标题区 + 正文卡片），禁止电影分镜式章节结构。
+- 所有章节标题、引导语必须使用中文，禁止 Cinematic / Wide shot 等英文术语。
+- 装饰性 SVG 不超过 2 处，不以动画抢正文。
 
 【技术要求】
 - 必须包含：完整的响应式 CSS (Flex/Grid)、内联 SVG、以及移动端完美自适应。
 - 内容占位符：必须且仅为 `{{{{content}}}}`。
-- 暗号同步：<!-- DESIGN_SYNC: {{"primary": "自拟色值", "secondary": "自拟色值", "accent": "自拟色值", "bg": "自拟色值"}} -->
+- 暗号同步：<!-- DESIGN_SYNC: {{"primary": "与品牌主色一致", "secondary": "与品牌辅色一致", "accent": "同主色", "bg": "与品牌背景一致"}} -->
 
 【内容灵魂参考】
 {content[:1500]} ...

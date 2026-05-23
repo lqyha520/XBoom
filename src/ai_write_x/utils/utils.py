@@ -613,6 +613,8 @@ def get_cover_path(article_path):
     cover_path = None
 
     if article_path:
+        from src.ai_write_x.core.visual_assets import VisualAssetsManager as VA
+
         design_file = Path(article_path).with_suffix(".design.json")
         if design_file.exists():
             try:
@@ -621,5 +623,33 @@ def get_cover_path(article_path):
                     cover_path = design_data.get("cover", None)
             except Exception:
                 pass
+
+        if cover_path:
+            if VA.is_stock_placeholder_url(str(cover_path)):
+                cover_path = None
+            elif os.path.isfile(cover_path):
+                return cover_path
+            else:
+                resolved = resolve_image_path(cover_path)
+                if resolved and os.path.isfile(resolved) and not VA.is_stock_placeholder_url(resolved):
+                    return resolved
+                cover_path = None
+
+        try:
+            article_file = Path(article_path)
+            if article_file.exists():
+                html = article_file.read_text(encoding="utf-8")
+                picked = VA.pick_cover_file_from_html(html)
+                if picked and os.path.isfile(picked):
+                    return picked
+                stem = article_file.stem.replace("_", "|")
+                soup = BeautifulSoup(html, "html.parser")
+                h1 = soup.find("h1")
+                title = h1.get_text(strip=True) if h1 else stem
+                generated = VA.generate_standalone_cover(stem, title)
+                if generated and os.path.isfile(generated):
+                    return generated
+        except Exception:
+            pass
 
     return cover_path

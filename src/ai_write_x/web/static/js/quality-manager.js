@@ -8,6 +8,7 @@ class QualityManager {
         this.panelVisible = false;
         this.currentContent = '';
         this.optimizedContent = '';
+        this.currentArticleInfo = null;
         this.currentAnalysis = null;
         this.isOptimizing = false;
         this.selectedSuggestions = new Set(); // 选中的优化建议
@@ -27,6 +28,14 @@ class QualityManager {
         };
 
         this.init();
+    }
+
+    notify(message, type = 'info') {
+        if (window.app?.showNotification) {
+            window.app.showNotification(message, type);
+        } else {
+            console.log(`[Quality][${type}] ${message}`);
+        }
     }
 
     init() {
@@ -66,18 +75,49 @@ class QualityManager {
         if (applyBtn) {
             applyBtn.addEventListener('click', () => this.applyOptimized());
         }
+
+        const cleanLeaksBtn = document.getElementById('btn-clean-visual-leaks');
+        if (cleanLeaksBtn) {
+            cleanLeaksBtn.addEventListener('click', () => this.cleanVisualLeaksFromPanel());
+        }
+
+        // 建议区按钮（事件委托，避免 innerHTML 后丢失绑定）
+        if (this.panel) {
+            this.panel.addEventListener('click', (e) => {
+                const selectAllBtn = e.target.closest('#btn-select-all-suggestions');
+                const optimizeBtn = e.target.closest('#btn-optimize-selected');
+                if (selectAllBtn) {
+                    e.preventDefault();
+                    this.toggleSelectAll();
+                }
+                if (optimizeBtn && !optimizeBtn.disabled) {
+                    e.preventDefault();
+                    this.optimizeSelected();
+                }
+            });
+        }
     }
 
-    show(content = '') {
+    show(content = '', articleInfo = null) {
         this.currentContent = content;
+        this.currentArticleInfo = articleInfo
+            || window.previewPanelManager?.currentArticleInfo
+            || null;
         this.panelVisible = true;
 
         if (this.panel) {
             this.panel.style.display = 'flex';
         }
 
+        const hint = document.getElementById('quality-empty-hint');
+        if (hint) {
+            hint.style.display = content ? 'none' : 'block';
+        }
+
         if (content) {
             this.analyzeContent(content);
+        } else {
+            this.notify('请先在预览中加载文章内容，或从生成完成页打开质量检测', 'warning');
         }
     }
 
@@ -258,33 +298,21 @@ class QualityManager {
 
         if (!suggestions || suggestions.length === 0) {
             list.innerHTML = '<div class="suggestion-item">✅ 内容质量良好，暂无优化建议</div>';
+            this.updateOptimizeButton();
             return;
         }
 
-        // 添加操作按钮栏
         const actionBar = document.createElement('div');
-        actionBar.className = 'suggestion-action-bar';
+        actionBar.className = 'suggestion-action-bar suggestion-action-bar-sticky';
         actionBar.innerHTML = `
-            <button class="suggestion-btn-select-all" id="btn-select-all-suggestions">
+            <button type="button" class="suggestion-btn-select-all" id="btn-select-all-suggestions">
                 <span>☑️</span> 全选
             </button>
-            <button class="suggestion-btn-optimize" id="btn-optimize-selected">
-                <span>✨</span> 一键优化选中项
+            <button type="button" class="suggestion-btn-optimize" id="btn-optimize-selected" disabled>
+                <span>✨</span> 一键改写选中
             </button>
         `;
         list.appendChild(actionBar);
-
-        // 绑定按钮事件
-        setTimeout(() => {
-            const selectAllBtn = document.getElementById('btn-select-all-suggestions');
-            const optimizeBtn = document.getElementById('btn-optimize-selected');
-            if (selectAllBtn) {
-                selectAllBtn.addEventListener('click', () => this.toggleSelectAll());
-            }
-            if (optimizeBtn) {
-                optimizeBtn.addEventListener('click', () => this.optimizeSelected());
-            }
-        }, 0);
 
         suggestions.forEach((suggestion, index) => {
             const item = document.createElement('div');
@@ -307,23 +335,22 @@ class QualityManager {
                 item.classList.add('priority');
             }
 
-            // 点击整行切换选中
-            item.addEventListener('click', (e) => {
-                if (e.target.type !== 'checkbox') {
-                    const checkbox = item.querySelector('input[type="checkbox"]');
-                    checkbox.checked = !checkbox.checked;
-                    this.toggleSuggestion(index, checkbox.checked);
-                }
-            });
-
-            // checkbox 变化事件
             const checkbox = item.querySelector('input[type="checkbox"]');
+            checkbox.addEventListener('click', (e) => e.stopPropagation());
             checkbox.addEventListener('change', (e) => {
                 this.toggleSuggestion(index, e.target.checked);
             });
 
+            item.addEventListener('click', (e) => {
+                if (e.target.closest('label') || e.target.type === 'checkbox') return;
+                checkbox.checked = !checkbox.checked;
+                this.toggleSuggestion(index, checkbox.checked);
+            });
+
             list.appendChild(item);
         });
+
+        this.updateOptimizeButton();
     }
 
     toggleSuggestion(index, isSelected) {
@@ -371,28 +398,36 @@ class QualityManager {
         const btn = document.getElementById('btn-optimize-selected');
         if (btn) {
             const count = this.selectedSuggestions.size;
-            btn.innerHTML = `<span>✨</span> 一键优化${count > 0 ? ` (${count}项)` : ''}`;
-            btn.disabled = count === 0;
-            btn.style.opacity = count === 0 ? '0.5' : '1';
+            btn.innerHTML = count > 0
+                ? `<span>✨</span> 一键改写选中 (${count})`
+                : `<span>✨</span> 一键改写选中`;
+            btn.disabled = count === 0 || this.isOptimizing;
+            btn.classList.toggle('is-loading', this.isOptimizing);
         }
     }
 
     async optimizeSelected() {
-        if (this.selectedSuggestions.size === 0 || !this.currentContent) {
-            window.EditorApp.notifications.show('请先选择要优化的建议', 'warning');
+        if (this.isOptimizing) return;
+
+        if (!this.currentContent || !this.currentContent.trim()) {
+            this.notify('没有可优化的正文，请先生成或粘贴内容', 'warning');
+            return;
+        }
+
+        if (this.selectedSuggestions.size === 0) {
+            this.notify('请先勾选要执行的优化建议', 'warning');
             return;
         }
 
         this.isOptimizing = true;
+        this.updateOptimizeButton();
 
-        // 获取选中的建议
         const selectedTexts = Array.from(this.selectedSuggestions).map(idx => {
             let text = this.currentSuggestions[idx];
             return text.replace('【优先】', '').trim();
         });
 
-        console.log('[Quality] 开始优化，选中建议:', selectedTexts);
-        window.EditorApp.notifications.show(`正在优化 ${selectedTexts.length} 个建议，请稍候...`, 'info');
+        this.notify(`正在根据 ${selectedTexts.length} 条建议改写，请稍候…`, 'info');
 
         try {
             // 调用AI优化API，添加超时控制
@@ -434,19 +469,25 @@ class QualityManager {
                     result.data.changes || selectedTexts
                 );
 
-                window.EditorApp.notifications.show('优化完成！', 'success');
+                this.notify('改写完成，请查看对比结果', 'success');
             } else {
-                throw new Error(result.message || '优化失败');
+                throw new Error(result.detail || result.message || '优化失败');
             }
         } catch (error) {
             console.error('[Quality] 优化失败:', error);
             if (error.name === 'AbortError') {
-                window.EditorApp.notifications.show('优化超时，请稍后重试', 'error');
+                this.notify('改写超时，请稍后重试', 'error');
             } else {
-                window.EditorApp.notifications.show('优化失败: ' + error.message, 'error');
+                let msg = error.message || '未知错误';
+                try {
+                    const errJson = JSON.parse(msg.replace(/^HTTP \d+: /, ''));
+                    msg = errJson.detail || msg;
+                } catch (_) { /* keep msg */ }
+                this.notify('改写失败: ' + msg, 'error');
             }
         } finally {
             this.isOptimizing = false;
+            this.updateOptimizeButton();
         }
     }
 
@@ -494,7 +535,8 @@ class QualityManager {
         modal.querySelector('.close-btn').addEventListener('click', () => modal.remove());
         modal.querySelector('.btn-cancel').addEventListener('click', () => modal.remove());
         modal.querySelector('.btn-apply').addEventListener('click', () => {
-            this.applyOptimizedContent(optimized);
+            this.optimizedContent = optimized;
+            this.applyOptimized();
             modal.remove();
         });
 
@@ -506,21 +548,13 @@ class QualityManager {
         });
     }
 
-    applyOptimizedContent(content) {
-        // 应用到编辑器
-        const editor = window.editor;
-        if (editor) {
-            editor.setValue(content);
-            this.currentContent = content;
-            window.EditorApp.notifications.show('已应用优化内容', 'success');
-
-            // 重新分析
-            setTimeout(() => this.analyze(), 1000);
-        }
-    }
-
     async startAutoOptimize() {
-        if (this.isOptimizing || !this.currentContent) return;
+        if (this.isOptimizing || !this.currentContent) {
+            if (!this.currentContent) {
+                this.notify('没有可优化的正文', 'warning');
+            }
+            return;
+        }
 
         this.isOptimizing = true;
 
@@ -597,6 +631,7 @@ class QualityManager {
         } catch (error) {
             console.error('Auto optimize failed:', error);
             this.updateProgressStatus('❌ 优化失败: ' + error.message);
+            this.notify('自动优化失败: ' + error.message, 'error');
         } finally {
             this.isOptimizing = false;
             document.getElementById('btn-auto-optimize').disabled = false;
@@ -787,23 +822,129 @@ class QualityManager {
         }).join('');
     }
 
-    applyOptimized() {
-        if (!this.optimizedContent) return;
-
-        // 触发事件，让编辑器更新内容
-        const event = new CustomEvent('quality:apply-optimized', {
-            detail: { content: this.optimizedContent }
-        });
-        document.dispatchEvent(event);
-
-        // 更新当前内容
-        this.currentContent = this.optimizedContent;
-        this.analyzeContent(this.currentContent);
-
-        // 显示通知
-        if (window.app?.showNotification) {
-            window.app.showNotification('已应用优化后的内容', 'success');
+    async cleanVisualLeaksFromPanel() {
+        const articlePath = this.currentArticleInfo?.path;
+        if (!articlePath) {
+            this.notify('请从文章库打开文章后再清理（需关联文章文件）', 'warning');
+            return;
         }
+        try {
+            const res = await fetch('/api/articles/clean-visual-leaks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: articlePath }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+            }
+            if (data.changed) {
+                const contentRes = await fetch(
+                    `/api/articles/content?path=${encodeURIComponent(articlePath)}`
+                );
+                const html = await contentRes.text();
+                this.currentContent = html;
+                if (window.previewPanelManager) {
+                    window.previewPanelManager.setContent(html);
+                    if (window.previewPanelManager.isVisible) {
+                        window.previewPanelManager.show(html);
+                    }
+                }
+            }
+            this.notify(data.message || '清理完成', 'success');
+        } catch (e) {
+            this.notify('清理失败: ' + e.message, 'error');
+        }
+    }
+
+    async mergePreserveImages(original, optimized) {
+        if (!original || !optimized || !/<img/i.test(original)) {
+            return optimized;
+        }
+        try {
+            const res = await fetch('/api/articles/merge-optimized', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ original, optimized }),
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success' && data.data?.content) {
+                return data.data.content;
+            }
+        } catch (e) {
+            console.warn('[Quality] 合并配图失败，使用优化结果原文:', e);
+        }
+        return optimized;
+    }
+
+    async applyOptimized() {
+        if (!this.optimizedContent) {
+            this.notify('没有可应用的优化结果', 'warning');
+            return;
+        }
+
+        let content = this.optimizedContent;
+        if (this.currentContent && /<img/i.test(this.currentContent)) {
+            content = await this.mergePreserveImages(this.currentContent, content);
+            this.optimizedContent = content;
+        }
+
+        // 1. 同步到预览面板 / 创意工坊实时预览
+        if (window.previewPanelManager) {
+            window.previewPanelManager.setContent(content);
+            if (window.previewPanelManager.isVisible) {
+                window.previewPanelManager.show(content);
+            }
+        }
+        const livePreview = document.getElementById('live-preview-content');
+        if (livePreview) {
+            if (content.trim().startsWith('<')) {
+                livePreview.innerHTML = content;
+            } else if (window.marked?.parse) {
+                livePreview.innerHTML = window.marked.parse(content);
+            } else {
+                livePreview.textContent = content;
+            }
+        }
+
+        // 2. 写入磁盘（有文章路径时）
+        const articlePath = this.currentArticleInfo?.path;
+        if (articlePath) {
+            try {
+                const res = await fetch(
+                    `/api/articles/content?path=${encodeURIComponent(articlePath)}`,
+                    {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content }),
+                    }
+                );
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+            } catch (e) {
+                console.error('[Quality] 保存优化结果失败:', e);
+                this.notify('应用失败：无法保存到文章文件 - ' + e.message, 'error');
+                return;
+            }
+        }
+
+        // 3. 通知内容编辑器（若已打开）
+        document.dispatchEvent(new CustomEvent('quality:apply-optimized', {
+            detail: { content, path: articlePath || null },
+        }));
+
+        this.currentContent = content;
+        this.analyzeContent(content);
+
+        const keptImages = this.currentContent && /<img/i.test(this.currentContent);
+        const msg = articlePath
+            ? (keptImages
+                ? '已应用优化结果并保存到文章（已保留原有配图）'
+                : '已应用优化结果并保存到文章')
+            : '已应用优化结果到预览（未关联文章文件，请从文章库打开后再优化以便自动保存）';
+        this.notify(msg, 'success');
     }
 
     showError(message) {

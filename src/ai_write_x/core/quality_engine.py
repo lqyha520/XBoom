@@ -17,6 +17,8 @@ from enum import Enum
 from collections import Counter
 import hashlib
 
+from src.ai_write_x.utils import log
+
 
 class QualityMetric(Enum):
     """质量指标类型"""
@@ -1767,6 +1769,75 @@ class TitleOptimizer:
     """标题优化器 - 使用AI生成更具吸引力的标题"""
 
     @staticmethod
+    def _parse_title_response(response: str) -> List[Dict[str, Any]]:
+        """解析模型返回的标题列表（兼容「标题1」与「标题 1」等格式）"""
+        from src.ai_write_x.core.article_polish import normalize_title_candidate
+
+        titles: List[Dict[str, Any]] = []
+        current_title: Dict[str, Any] = {}
+        lines = response.strip().split("\n")
+
+        def _flush_current():
+            nonlocal current_title
+            if current_title.get("title"):
+                titles.append(current_title)
+            current_title = {}
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            title_match = None
+            if line.startswith("标题") and ("：" in line or ":" in line):
+                sep = "：" if "：" in line else ":"
+                parts = line.split(sep, 1)
+                if len(parts) == 2:
+                    num_match = re.match(r"^标题\s*(\d+)\s*$", parts[0].strip())
+                    if num_match and 1 <= int(num_match.group(1)) <= 5:
+                        title_match = parts
+
+            if title_match is None:
+                num_title_match = re.match(r"^(\d+)[\.、\s]+(.{5,})$", line)
+                if num_title_match and 1 <= int(num_title_match.group(1)) <= 5:
+                    title_match = [f"标题{num_title_match.group(1)}", num_title_match.group(2)]
+
+            if title_match and len(title_match) == 2:
+                _flush_current()
+                title_text = normalize_title_candidate(title_match[1])
+                is_recommended = "[⭐推荐]" in line or "⭐推荐" in line
+                current_title = {
+                    "type": title_match[0].strip(),
+                    "title": title_text,
+                    "explanation": "",
+                    "is_recommended": is_recommended,
+                }
+                continue
+
+            if line.startswith("说明") and ("：" in line or ":" in line) and current_title:
+                current_title["explanation"] = line.split("：" if "：" in line else ":", 1)[1].strip()
+            elif current_title and not current_title.get("explanation") and len(line) > 10:
+                if not re.match(r"^\d+[\.、\s]", line) and not line.startswith("标题"):
+                    current_title["explanation"] = line
+
+        _flush_current()
+
+        # 兜底：正则扫描整段响应
+        if not titles:
+            for m in re.finditer(r"标题\s*(\d+)\s*[：:]\s*(.+)", response):
+                if 1 <= int(m.group(1)) <= 5:
+                    text = normalize_title_candidate(m.group(2).split("\n", 1)[0])
+                    if len(text) >= 8:
+                        titles.append({
+                            "type": f"标题{m.group(1)}",
+                            "title": text,
+                            "explanation": "",
+                            "is_recommended": "推荐" in m.group(2),
+                        })
+
+        return titles
+
+    @staticmethod
     async def optimize_title(title: str, content: str, platform: str = "") -> Dict[str, Any]:
         """
         使用AI优化标题
@@ -1782,8 +1853,11 @@ class TitleOptimizer:
         try:
             from src.ai_write_x.core.llm_client import LLMClient
 
-            # 准备内容摘要（前800字）
-            content_summary = content[:800] if len(content) > 800 else content
+            from src.ai_write_x.core.article_polish import extract_plain_text
+
+            # 准备内容摘要（优先纯文本，避免 HTML 干扰标题生成）
+            plain = extract_plain_text(content, max_len=1200)
+            content_summary = plain if plain else (content[:800] if len(content) > 800 else content)
 
             # 构建平台特定的要求
             platform_requirements = {
@@ -1845,24 +1919,23 @@ class TitleOptimizer:
 5. 符合平台调性，避免低俗标题党
 6. 突出文章核心卖点
 
-## 输出格式（严格遵循）
-标题1：[悬念型标题]
-说明：[为什么这个标题能吸引点击，包含哪些爆款元素]
+## 输出格式（严格遵循，编号与冒号之间不要空格）
+标题1：悬念型标题正文（15-30字）
+说明：一句话解释
 
-标题2：[数字型标题]
-说明：[为什么这个标题能吸引点击，包含哪些爆款元素]
+标题2：数字型标题正文
+说明：一句话解释
 
-标题3：[冲突型标题]
-说明：[为什么这个标题能吸引点击，包含哪些爆款元素]
+标题3：冲突型标题正文
+说明：一句话解释
 
-标题4：[情绪型标题]
-说明：[为什么这个标题能吸引点击，包含哪些爆款元素]
+标题4：情绪型标题正文
+说明：一句话解释
 
-标题5：[实用型标题]
-说明：[为什么这个标题能吸引点击，包含哪些爆款元素]
+标题5：实用型标题正文
+说明：一句话解释
 
-## 推荐标记
-在最有吸引力的标题后面加上 [⭐推荐]
+在最有吸引力的那一行标题末尾加上 [⭐推荐]
 
 ## 开始生成"""
 
@@ -1878,15 +1951,6 @@ class TitleOptimizer:
                 max_tokens=1000,
                 use_v15=False  # 禁用V15语义缓存，确保每次生成不同结果
             )
-
-            # ===== 调试日志：打印完整AI响应到控制台 =====
-            print("=" * 80)
-            print("[TitleOptimizer] AI原始响应内容:")
-            print("=" * 80)
-            print(response)
-            print("=" * 80)
-            print(f"[TitleOptimizer] 响应长度: {len(response)} 字符")
-            print("=" * 80)
 
             # 辅助函数：移除Emoji表情符号
             def remove_emoji(text):
@@ -1908,113 +1972,21 @@ class TitleOptimizer:
                                            "]+", flags=re.UNICODE)
                 return emoji_pattern.sub(r'', text).strip()
 
-            # 解析响应
-            lines = response.strip().split('\n')
-            titles = []
-            current_title = {}
+            titles = TitleOptimizer._parse_title_response(response)
             recommended_index = 0
-
-            # 打印原始响应用于调试
-            print(f"[TitleOptimizer] AI原始响应:\n{response[:500]}...")
-
-            for i, line in enumerate(lines):
-                line = line.strip()
-                if not line:
-                    continue
-
-                # 匹配标题行（支持多种格式）
-                # 格式1: 标题1：《标题内容》
-                # 格式2: 标题1：标题内容
-                # 格式3: 1. 《标题内容》
-                # 格式4: 1、标题内容
-                title_match = None
-
-                # 优先匹配 "标题X：" 格式（最可靠）
-                if line.startswith('标题') and ('：' in line or ':' in line):
-                    sep = '：' if '：' in line else ':'
-                    parts = line.split(sep, 1)
-                    if len(parts) == 2:
-                        # 验证标题编号（必须是1-5）
-                        title_num_match = re.match(
-                            r'^标题(\d+)$', parts[0].strip())
-                        if title_num_match and 1 <= int(title_num_match.group(1)) <= 5:
-                            title_match = parts
-
-                # 备选：匹配 "X. 标题" 或 "X、标题" 格式，但只匹配1-5
-                elif title_match is None:
-                    # 只匹配标题编号1-5，且后面要有实际内容（至少5个字符）
-                    num_title_match = re.match(r'^(\d+)[\.、\s]+(.{5,})$', line)
-                    if num_title_match:
-                        num = int(num_title_match.group(1))
-                        if 1 <= num <= 5:
-                            title_match = [f"标题{num}",
-                                           num_title_match.group(2)]
-
-                if title_match and len(title_match) == 2:
-                    if current_title:
-                        titles.append(current_title)
-
-                    title_type = title_match[0].strip()
-                    title_text = title_match[1].strip()
-
-                    # ===== 调试：显示每一步处理前后的内容 =====
-                    print(
-                        f"[TitleOptimizer] 【DEBUG】分割结果: type='{title_type}', raw_text='{title_text[:50]}'")
-
-                    # 移除书名号《》
-                    title_text = re.sub(r'[《》]', '', title_text)
-                    print(
-                        f"[TitleOptimizer] 【DEBUG】移除书名号后: '{title_text[:50]}'")
-
-                    # 检查是否有推荐标记（直接在原始文本上处理，不移除emoji）
-                    is_recommended = False
-                    if '[⭐推荐]' in title_text or '⭐推荐' in title_text:
-                        title_text = title_text.replace(
-                            '[⭐推荐]', '').replace('⭐推荐', '').strip()
-                        is_recommended = True
-                        recommended_index = len(titles)
-                        print(
-                            f"[TitleOptimizer] 【DEBUG】移除推荐标记后: '{title_text[:50]}'")
-
-                    print(
-                        f"[TitleOptimizer] 解析到标题: type={title_type}, title={title_text[:30]}...")
-
-                    current_title = {
-                        'type': title_type,
-                        'title': title_text,
-                        'explanation': '',
-                        'is_recommended': is_recommended
-                    }
-
-                # 匹配说明行
-                elif line.startswith('说明') and ('：' in line or ':' in line) and current_title:
-                    explanation = line.split(
-                        '：' if '：' in line else ':', 1)[1].strip()
-                    current_title['explanation'] = explanation
-                # 如果没有说明行，但有其他描述文字，也作为说明
-                elif current_title and not current_title['explanation'] and len(line) > 10 and not line.startswith('标题'):
-                    # 可能是说明文字，但不是下一行的标题
-                    if not re.match(r'^\d+[\.、\s]', line) and not line.startswith('标题'):
-                        current_title['explanation'] = line
-
-            if current_title:
-                titles.append(current_title)
-
-            # ===== 调试日志：打印解析结果 =====
-            print("\n" + "=" * 80)
-            print(f"[TitleOptimizer] 解析完成，共 {len(titles)} 个标题:")
-            print("=" * 80)
             for idx, t in enumerate(titles):
-                print(f"  [{idx+1}] {t['type']}: {t['title']}")
-                if t.get('explanation'):
-                    print(f"      说明: {t['explanation'][:50]}...")
-                if t.get('is_recommended'):
-                    print(f"      ⭐ 推荐")
-            print("=" * 80 + "\n")
+                if t.get("is_recommended"):
+                    recommended_index = idx
+                    break
+
+            log.print_log(
+                f"[TitleOptimizer] 解析完成，共 {len(titles)} 个标题",
+                "debug" if titles else "warning",
+            )
 
             # 如果解析失败，返回原标题
             if not titles:
-                print("[TitleOptimizer] 警告: 未能解析到任何标题，返回原标题")
+                log.print_log("[TitleOptimizer] 未能解析标题，保留原标题", "warning")
                 return {
                     "original_title": title,
                     "optimized_titles": [],
@@ -2024,7 +1996,7 @@ class TitleOptimizer:
             # 返回推荐的标题（默认第一个）
             recommended = titles[recommended_index]['title'] if recommended_index < len(
                 titles) else titles[0]['title']
-            print(f"[TitleOptimizer] 推荐标题: {recommended}")
+            log.print_log(f"[TitleOptimizer] 推荐标题: {recommended[:40]}...", "info")
 
             return {
                 "original_title": title,

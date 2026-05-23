@@ -19,6 +19,10 @@
     </div>
 
     <div class="quality-content">
+        <div id="quality-empty-hint" class="quality-empty-hint" style="display: none;">
+            暂无正文。请先在创意工坊生成文章，或从预览区打开质量检测后再优化。
+        </div>
+
         <!-- 评分总览 -->
         <div class="quality-overview">
             <div class="score-circle-container">
@@ -78,7 +82,10 @@
 
         <!-- 优化建议 -->
         <div class="quality-suggestions">
-            <h4>优化建议</h4>
+            <div class="quality-section-head">
+                <h4>优化建议</h4>
+                <span class="quality-section-tip">勾选后点「一键改写选中」</span>
+            </div>
             <div class="suggestions-list" id="suggestions-list">
                 <!-- 动态生成 -->
             </div>
@@ -163,6 +170,9 @@
                 </svg>
                 应用优化结果
             </button>
+            <button id="btn-clean-visual-leaks" class="btn btn-secondary" title="移除正文中的场景描述与生图提示泄露">
+                清理场景描述
+            </button>
         </div>
     </div>
 </div>
@@ -170,10 +180,10 @@
 <style>
     .quality-panel {
         position: fixed;
-        right: 20px;
-        top: 80px;
-        width: 440px;
-        max-height: calc(100vh - 100px);
+        right: 16px;
+        top: 72px;
+        width: min(480px, calc(100vw - 32px));
+        max-height: calc(100vh - 88px);
         background: rgba(26, 26, 46, 0.85);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
@@ -211,9 +221,39 @@
     }
 
     .quality-content {
-        padding: 20px;
+        padding: 16px 20px 8px;
         overflow-y: auto;
         flex: 1;
+        scrollbar-gutter: stable;
+    }
+
+    .quality-empty-hint {
+        padding: 12px 14px;
+        margin-bottom: 16px;
+        border-radius: 10px;
+        background: rgba(234, 179, 8, 0.12);
+        border: 1px solid rgba(234, 179, 8, 0.35);
+        color: #fbbf24;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .quality-section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .quality-section-head h4 {
+        margin: 0;
+    }
+
+    .quality-section-tip {
+        font-size: 11px;
+        color: var(--text-secondary, #888);
+        white-space: nowrap;
     }
 
     /* 评分总览 */
@@ -470,6 +510,16 @@
         border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
     }
 
+    .suggestion-action-bar-sticky {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: linear-gradient(180deg, rgba(26, 26, 46, 0.98) 70%, rgba(26, 26, 46, 0.85));
+        backdrop-filter: blur(8px);
+        padding-top: 4px;
+        margin-bottom: 10px;
+    }
+
     .suggestion-btn-select-all,
     .suggestion-btn-optimize {
         display: inline-flex;
@@ -510,6 +560,24 @@
     .suggestion-btn-optimize:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+
+    .suggestion-btn-optimize.is-loading {
+        pointer-events: none;
+        opacity: 0.75;
+    }
+
+    .suggestion-btn-optimize.is-loading::after {
+        content: '';
+        width: 14px;
+        height: 14px;
+        margin-left: 6px;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
     }
 
     .suggestion-icon {
@@ -898,13 +966,39 @@
     /* 操作按钮 */
     .quality-actions-bottom {
         display: flex;
+        flex-wrap: wrap;
         gap: 10px;
-        padding-top: 16px;
+        padding: 14px 20px 18px;
         border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+        background: rgba(22, 33, 62, 0.95);
+        flex-shrink: 0;
+        position: sticky;
+        bottom: 0;
+        z-index: 3;
     }
 
     .quality-actions-bottom .btn {
         flex: 1;
+        min-width: 120px;
+    }
+
+    @media (max-width: 520px) {
+        .quality-panel {
+            right: 0;
+            top: 0;
+            width: 100%;
+            max-height: 100vh;
+            border-radius: 0;
+        }
+
+        .metrics-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .quality-overview {
+            flex-direction: column;
+            align-items: center;
+        }
     }
 
     .btn-icon {

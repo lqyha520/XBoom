@@ -58,6 +58,7 @@ class CreativeWorkshopManager {
             this.initKeyboardShortcuts();
             await this.loadTemplateCategories();
             await this.loadArticleList();  // 加载文章列表
+            await this.resetStaleGenerationState();
             this.initialized = true;
         } catch (error) {
             console.error('CreativeWorkshopManager 初始化失败:', error);
@@ -393,6 +394,29 @@ class CreativeWorkshopManager {
             });
         }
 
+        const workshopFastMode = document.getElementById('workshop-fast-mode');
+        if (workshopFastMode && autoReTemplateSwitch) {
+            const syncBeautifyWithFastMode = () => {
+                if (workshopFastMode.checked) {
+                    autoReTemplateSwitch.checked = false;
+                    autoReTemplateSwitch.disabled = true;
+                    const node = document.getElementById('wf-node-retemplate');
+                    const line = document.getElementById('wf-line-retemplate');
+                    if (node) node.style.display = 'none';
+                    if (line) line.style.display = 'none';
+                } else {
+                    autoReTemplateSwitch.disabled = false;
+                    const show = autoReTemplateSwitch.checked ? '' : 'none';
+                    const node = document.getElementById('wf-node-retemplate');
+                    const line = document.getElementById('wf-line-retemplate');
+                    if (node) node.style.display = show;
+                    if (line) line.style.display = show;
+                }
+            };
+            workshopFastMode.addEventListener('change', syncBeautifyWithFastMode);
+            syncBeautifyWithFastMode();
+        }
+
         // V15.2: 过滤已处理话题开关持久化
         const workshopFilterProcessed = document.getElementById('workshop-filter-processed');
         if (workshopFilterProcessed) {
@@ -497,28 +521,57 @@ class CreativeWorkshopManager {
         };
     }
 
+    /** 放弃上次未完成/残留的生成任务，清空前端缓存态（不续跑旧稿） */
+    async resetStaleGenerationState() {
+        try {
+            await fetch('/api/generate/reset', { method: 'POST' });
+        } catch (error) {
+            try {
+                await fetch('/api/generate/stop', { method: 'POST' });
+            } catch (e) {
+                console.error('清理中断任务状态失败:', e);
+            }
+        }
+
+        this.isGenerating = false;
+        this._generationCompleteHandled = false;
+        this.livePreviewContent = '';
+        this.isCapturingContent = false;
+        this.messageQueue = [];
+        this.isProcessingQueue = false;
+        this._hotSearchPlatform = '';
+
+        const contentEl = document.getElementById('live-preview-content');
+        if (contentEl) {
+            contentEl.innerHTML = '';
+        }
+        const statusEl = document.getElementById('live-preview-status');
+        if (statusEl) {
+            statusEl.textContent = '';
+        }
+
+        if (this.bottomProgress) {
+            this.bottomProgress.stop();
+        }
+        const progressEl = document.getElementById('bottom-progress');
+        if (progressEl) {
+            progressEl.classList.add('hidden');
+        }
+
+        this.updateGenerationUI(false);
+        this.stopStatusPolling();
+        this.disconnectLogWebSocket();
+        this._stopGenerationTimer();
+    }
+
     // ========== 内容生成流程 ==========      
 
     async startGeneration() {
         // ========== 阶段 1: 前置检查 ==========  
         if (this.isGenerating) return;
 
-        this._hotSearchPlatform = '';
-        this.messageQueue = [];
-        this.isProcessingQueue = false;
-
-        try {
-            const statusResponse = await fetch('/api/generate/status');
-            if (statusResponse.ok) {
-                const status = await statusResponse.json();
-                if (status.status === 'running') {
-                    window.app?.showNotification('已有任务正在运行,请稍后再试', 'warning');
-                    return;
-                }
-            }
-        } catch (error) {
-            console.error('检查任务状态失败:', error);
-        }
+        // 每次点击「开始生成」都放弃上次未完成任务，从零开始
+        await this.resetStaleGenerationState();
 
         // ========== 阶段 2: 系统配置校验 ==========  
         try {
@@ -637,9 +690,13 @@ class CreativeWorkshopManager {
             const postAction = document.getElementById('post-action')?.value || 'none';
 
             const autoReTemplateSwitch = document.getElementById('auto-retemplate-switch');
-            const isBeautifyOn = autoReTemplateSwitch ? autoReTemplateSwitch.checked : false;
             const fastModeSwitch = document.getElementById('workshop-fast-mode');
             const isFastModeOn = fastModeSwitch ? fastModeSwitch.checked : false;
+            let isBeautifyOn = autoReTemplateSwitch ? autoReTemplateSwitch.checked : false;
+            if (isFastModeOn && isBeautifyOn) {
+                isBeautifyOn = false;
+                this.appendLog('⚡ 极速模式已开启，已跳过「自动换模板」', 'info', false, Date.now() / 1000);
+            }
 
             const workshopFilterProcessed = document.getElementById('workshop-filter-processed');
 
@@ -926,6 +983,10 @@ class CreativeWorkshopManager {
                         this.updateLivePreview(data.message, data.type);
                     }
 
+                    if (data.article_paths?.length) {
+                        this._lastGeneratedArticlePaths = data.article_paths;
+                    }
+
                     // 检查完成状态      
                     if (data.type === 'completed' || data.type === 'failed') {
                         this._stopHeartbeat(); // v2: 停止心跳
@@ -1127,6 +1188,9 @@ class CreativeWorkshopManager {
      * 处理生成完成 (v2: 幂等性保护，防止WebSocket和轮询双重触发)  
      */
     async handleGenerationComplete(data) {
+        if (data?.article_paths?.length) {
+            this._lastGeneratedArticlePaths = data.article_paths;
+        }
         // v2: 幂等保护 - 避免被WebSocket和轮询同时触发
         if (this._generationCompleteHandled) {
             console.log('handleGenerationComplete 已处理过，跳过重复调用');
@@ -1240,35 +1304,12 @@ class CreativeWorkshopManager {
                     }
                 } catch (e) { console.warn('删除借鉴文章失败:', e); }
 
-                // ===== AI 自动美化 =====
-                const autoReTemplateSwitch = document.getElementById('auto-retemplate-switch');
-                if (autoReTemplateSwitch?.checked) {
-                    this.appendLog('🎨 AI 自动美化已开启，正在获取最新文章...', 'info', false, Date.now() / 1000);
-
-                    setTimeout(async () => {
-                        try {
-                            const res = await fetch('/api/articles');
-                            if (res.ok) {
-                                const result = await res.json();
-                                const articles = result.data || [];
-                                if (articles.length > 0) {
-                                    const latestArticle = articles[0];
-                                    this.appendLog(`🎨 开始自动美化: ${latestArticle.title}`, 'status', false, Date.now() / 1000);
-
-                                    if (window.articleManager?.triggerAutoReTemplate) {
-                                        window.articleManager.triggerAutoReTemplate(latestArticle);
-                                    } else {
-                                        this.appendLog('⚠️ 文章管理器未就绪，无法执行自动美化', 'warning', false, Date.now() / 1000);
-                                    }
-                                } else {
-                                    this.appendLog('⚠️ 未找到可美化的文章', 'warning', false, Date.now() / 1000);
-                                }
-                            }
-                        } catch (err) {
-                            console.error('自动美化失败:', err);
-                            this.appendLog(`❌ 自动美化失败: ${err.message}`, 'error', false, Date.now() / 1000);
-                        }
-                    }, 2000);
+                // ===== 生成后自动换模板 =====
+                const shouldBeautify = data.ai_beautify
+                    || document.getElementById('auto-retemplate-switch')?.checked;
+                if (shouldBeautify && !document.getElementById('workshop-fast-mode')?.checked) {
+                    const paths = data.article_paths || this._lastGeneratedArticlePaths || [];
+                    this.runAutoBeautifyAfterGenerate(paths);
                 }
 
             } else if (data.type === 'failed') {
@@ -1295,6 +1336,57 @@ class CreativeWorkshopManager {
 
         if (this.logWebSocket) {
             this.logWebSocket.close();
+        }
+    }
+
+    /**
+     * 生成完成后自动换模板（配图已在后端同步补齐）
+     */
+    async runAutoBeautifyAfterGenerate(paths) {
+        this.appendLog('🎨 已开启「自动换模板」，正在处理本次生成的文章...', 'info', false, Date.now() / 1000);
+
+        let targetPath = Array.isArray(paths) && paths.length ? paths[paths.length - 1] : null;
+
+        if (!targetPath) {
+            try {
+                const res = await fetch('/api/articles');
+                if (res.ok) {
+                    const result = await res.json();
+                    const articles = (result.data || []).sort(
+                        (a, b) => new Date(b.create_time) - new Date(a.create_time)
+                    );
+                    targetPath = articles[0]?.path;
+                }
+            } catch (e) {
+                console.warn('获取最新文章失败:', e);
+            }
+        }
+
+        if (!targetPath) {
+            this.appendLog('⚠️ 未找到可换模板的文章', 'warning', false, Date.now() / 1000);
+            return;
+        }
+
+        const baseName = targetPath.split(/[/\\]/).pop() || '';
+        const article = {
+            path: targetPath,
+            title: baseName.replace(/\.[^.]+$/, '').replace(/_/g, '|'),
+        };
+
+        if (!window.articleManager?.triggerAutoReTemplate) {
+            this.appendLog('⚠️ 文章管理器未就绪，无法自动换模板', 'warning', false, Date.now() / 1000);
+            return;
+        }
+
+        this.appendLog(`🎨 开始自动换模板: ${article.title}`, 'status', false, Date.now() / 1000);
+        try {
+            await window.articleManager.triggerAutoReTemplate(article, {
+                autoSave: true,
+                preserveImages: true,
+            });
+        } catch (err) {
+            console.error('自动换模板失败:', err);
+            this.appendLog(`❌ 自动换模板失败: ${err.message}`, 'error', false, Date.now() / 1000);
         }
     }
 
@@ -1348,7 +1440,7 @@ class CreativeWorkshopManager {
                     }
 
                     // 【新增】自动触发质量分析
-                    this.showQualityAnalysis(content, latestArticle.title);
+                    this.showQualityAnalysis(content, latestArticle.title, latestArticle);
                 }
             }
         } catch (error) {
@@ -1359,11 +1451,11 @@ class CreativeWorkshopManager {
     /**
      * 显示质量分析面板
      */
-    showQualityAnalysis(content, title = '') {
+    showQualityAnalysis(content, title = '', articleInfo = null) {
         // 延迟显示，让用户先看到预览内容
         setTimeout(() => {
             if (window.qualityManager) {
-                window.qualityManager.show(content);
+                window.qualityManager.show(content, articleInfo);
 
                 // 添加日志提示
                 this.appendLog('📊 正在分析内容质量...', 'info', false, Date.now() / 1000);
@@ -1464,7 +1556,9 @@ class CreativeWorkshopManager {
 
                         this.handleGenerationComplete({
                             type: result.status,
-                            error: result.error
+                            error: result.error,
+                            article_paths: result.article_paths,
+                            ai_beautify: result.ai_beautify,
                         });
 
                         // 关闭 WebSocket  

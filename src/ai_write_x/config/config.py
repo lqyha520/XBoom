@@ -227,6 +227,7 @@ class Config:
                 "settings": {
                     "default_timeout_seconds": 60,
                     "fast_mode_timeout_seconds": 45,
+                    "article_image_count": 3,
                     "fast_mode_prompt_count": 3,
                     "fast_mode_prompt_excerpt_length": 120,
                     "allow_placeholder_fallback": True,
@@ -1297,6 +1298,7 @@ class Config:
             },
             # 页面设计配置 - 默认不启用,使用原始HTML样式
             "page_design": {
+                "unified_brand_style": True,
                 "use_original_styles": True,  # 默认true,不应用全局样式覆盖
                 "container": {
                     "max_width": 750,
@@ -1319,7 +1321,7 @@ class Config:
                 "spacing": {"section_margin": 24, "element_margin": 16},
                 "accent": {
                     "primary_color": "#3a7bd5",
-                    "secondary_color": "#00b09b",
+                    "secondary_color": "#2563a8",
                     "highlight_bg": "#f0f7ff",
                 },
             },
@@ -1868,6 +1870,7 @@ class Config:
             default_settings = {
                 "default_timeout_seconds": 60,
                 "fast_mode_timeout_seconds": 45,
+                "article_image_count": 3,
                 "fast_mode_prompt_count": 3,
                 "fast_mode_prompt_excerpt_length": 120,
                 "allow_placeholder_fallback": True,

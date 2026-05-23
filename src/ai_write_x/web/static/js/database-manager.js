@@ -6,7 +6,25 @@ class DatabaseManager {
         this.initialized = false;
         this.stats = null;
         this.profile = null;
-        this.init();
+        this._setupDeferredInit();
+    }
+
+    _setupDeferredInit() {
+        const tryInit = () => {
+            if (this.initialized) return;
+            const token = window.APP_CLIENT_TOKEN
+                || new URLSearchParams(window.location.search).get('token')
+                || document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('app_client_token='))?.split('=')[1];
+            if (!token) return;
+            this.init();
+        };
+
+        document.addEventListener('pywebviewready', tryInit);
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', tryInit);
+        } else {
+            tryInit();
+        }
     }
 
     init() {
@@ -24,14 +42,14 @@ class DatabaseManager {
     }
 
     // 从 API 获取存储统计
-    async loadStorageStats() {
+    async loadStorageStats(silent = false) {
         try {
             const response = await fetch('/api/articles/system/storage-stats');
             if (response.ok) {
                 const result = await response.json();
                 this.stats = result.data;
                 this.renderStats(this.stats);
-            } else {
+            } else if (!silent && response.status !== 403) {
                 window.app?.showNotification('获取存储统计失败', 'error');
             }
         } catch (error) {

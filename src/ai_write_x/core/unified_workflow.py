@@ -170,6 +170,7 @@ class UnifiedContentWorkflow:
 
 **【实时抓取素材注入 (HOT MATERIAL)】**：
 此处为你提供了实时抓取到的热点素材，请**必须优先**基于此素材进行解构、价值榨取与深度创作。严禁忽略此素材。
+**素材使用纪律**：文章主旨、事实与结论必须与下列素材一致；不得擅自改成无关的摄影教程、电影分镜、营销空话或其它话题。
 ---
 {reference_content}
 ---
@@ -179,7 +180,8 @@ class UnifiedContentWorkflow:
 2. **密度优先 (Density First)**：严禁注水。爆款内容的价值在于稀缺信息与犀利逻辑，而非文字堆砌。目标区间为 **{config.min_article_len}-{config.max_article_len}字**。确保每一段话都具有独立的增量价值。
 3. **事实绝对化 (IRONCLAD)**：你即将处理的话题是基于上述素材的**绝对事实**。严禁质疑其真实性，严禁提示“信息无法核实”。你必须将其作为已知存在的真实事件或现象，进行深度解析。
 4. **视觉分镜 (V-SCENE)**：格式 `[[V-SCENE: ...]]` 独立成行。
-5. **格式规范**：使用标准的 Markdown 格式（# 标题, ## 小标题, **粗体**, > 引用 等）。专注于内容的逻辑结构，禁止输出任何 HTML 代码，排版工作将由后续专门的视觉 Agent 完成。"""
+5. **格式规范**：使用标准的 Markdown 格式（# 标题, ## 小标题, **粗体**, > 引用 等）。专注于内容的逻辑结构，禁止输出任何 HTML 代码，排版工作将由后续专门的视觉 Agent 完成。
+6. **可读性**：段落宜短（每段不超过 150 字），小标题必须用中文概括观点；禁止用 Wide shot、Cinematic 等英文镜头术语当章节名；不要写成电影分镜脚本。"""
         else:
             writer_des = f"""{persona_framework}
 {date_context}
@@ -200,6 +202,7 @@ class UnifiedContentWorkflow:
 2. **生图指令 (V-SCENE)**：标准格式独立成行，No Text，No Explanations。
 3. **事实绝对化 (IRONCLAD)**：你即将处理的话题是**绝对事实**。严禁质疑其真实性，严禁提示“信息无法核实”，严禁建议“请查证”。你必须将其作为已知存在的真实事件，进行深度解析。
 4. **格式规范**：使用标准 Markdown 格式。严禁输出 HTML，专注于内容深度。
+5. **可读性**：段落宜短，小标题用中文；禁止英文镜头术语作章节名；像公众号深度稿，不要写成分镜脚本。
 
 **【执行指令】**：
 1. 使用 news_hub_tool 获取关于'{{topic}}'的最新深度素材。如果工具未返回结果，请基于你的知识库进行深度创作。
@@ -327,6 +330,18 @@ class UnifiedContentWorkflow:
             raise ValueError(f"V4断言失败 [{stage}]: 内容过短 ({len(clean)}字 < 100字下限)")
 
     @staticmethod
+    def _topic_keyword_overlap(topic: str, content_str: str) -> float:
+        """话题关键词在正文中的命中率（用于发现严重跑题）"""
+        if not topic or not content_str:
+            return 1.0
+        keywords = list(dict.fromkeys(re.findall(r"[\u4e00-\u9fff]{2,}", topic)))
+        if not keywords:
+            return 1.0
+        sample = content_str[:8000]
+        hits = sum(1 for kw in keywords if kw in sample)
+        return hits / len(keywords)
+
+    @staticmethod
     def _is_fast_mode_off_topic(content_str: str) -> bool:
         if not content_str:
             return True
@@ -344,6 +359,28 @@ class UnifiedContentWorkflow:
             if re.search(pattern, content_str, flags=re.IGNORECASE):
                 return True
         return False
+
+    @staticmethod
+    def _is_review_report_content(content_str: str) -> bool:
+        from src.ai_write_x.core.final_reviewer import is_editorial_review_report
+
+        return is_editorial_review_report(content_str or "")
+
+    @staticmethod
+    def _ensure_publishable_article(content_str: str, fallback: str, stage: str) -> str:
+        """若内容为审稿报告体，回退到上一版可用正文。"""
+        cleaned = utils.remove_code_blocks(content_str or "").strip()
+        if not UnifiedContentWorkflow._is_review_report_content(cleaned):
+            return cleaned
+        lg.print_log(f"[{stage}] 检测到审稿/评分拆解体，已回退到上一版正文", "warning")
+        return fallback
+
+    def _stream_article_rewrite(self, client, messages: list) -> str:
+        rewritten = ""
+        for chunk in client.stream_chat(messages=messages):
+            if chunk:
+                rewritten += chunk
+        return utils.remove_code_blocks(rewritten).strip()
 
     def _fast_mode_topic_rewrite(self, topic: str, bad_content: str) -> str:
         from src.ai_write_x.core.llm_client import LLMClient
@@ -469,7 +506,24 @@ class UnifiedContentWorkflow:
                     yield {"type": "log", "message": "⚠️ 极速模式纠偏未完全达标，保留原结果继续流程"}
             yield {"type": "chunk", "message": final_content.content}
             self._assert_content(final_content.content, "Step3-大师撰稿")
+
+            off_topic_meta = self._is_fast_mode_off_topic(final_content.content)
+            overlap = self._topic_keyword_overlap(topic, final_content.content)
+            if off_topic_meta or overlap < 0.25:
+                yield {
+                    "type": "log",
+                    "message": f"🚨 检测到内容与话题「{topic[:24]}」偏离（命中率 {overlap:.0%}），正在纠偏重写...",
+                }
+                corrected = self._fast_mode_topic_rewrite(topic, final_content.content)
+                if corrected and self._topic_keyword_overlap(topic, corrected) >= max(overlap, 0.35):
+                    if not self._is_fast_mode_off_topic(corrected):
+                        final_content.content = corrected
+                        yield {"type": "log", "message": "✅ 话题纠偏完成，已回归主线"}
+                else:
+                    yield {"type": "log", "message": "⚠️ 话题纠偏未完全成功，请检查参考素材是否与话题一致"}
+
             yield {"type": "log", "message": f"📝 初稿已生成 (约 {len(final_content.content)} 字, V4断言通过)"}
+            publishable_draft = final_content.content
 
             # --- Step 3.5: Reflective Critique Agent (反思批判 - V13.0) ---
             if fast_mode:
@@ -480,26 +534,49 @@ class UnifiedContentWorkflow:
                 yield {"type": "log", "message": "🧐 Agent Step 3.5: 正在启动 V13.0 “毒舌主编”审计协议 (Context Linked)..."}
                 
                 from src.ai_write_x.core.llm_client import LLMClient
+                from src.ai_write_x.core.final_reviewer import ARTICLE_ONLY_REWRITE_SUFFIX
+
                 critique_client = LLMClient()
-                critique_protocol = "你是一位苛刻的高级主编。你的工作是对前文内容进行无情的逻辑审查与AI痕迹抹除。请直击痛点，指出啰嗦冗余或逻辑断层，并直接重写优化。\n\n【极其重要】：严禁质疑话题的真实性，你收到的 topic 就是唯一的真理。严禁进行任何形式的外部搜索验证或逻辑合理性审查。直接基于 topic 进行文学化深度创作。"
-                
-                # 将批判指令加入对话链
-                conversation_history.append({"role": "user", "content": f"{critique_protocol}\n请审计并重写。先输出 `<Critique>...</Critique>`，随后直接输出优化后的全文。"})
-                
-                critiqued_version = ""
-                for chunk in critique_client.stream_chat(messages=conversation_history):
-                    if chunk:
-                        critiqued_version += chunk
-                
-                # 记录重写后的版本到对话链
-                conversation_history.append({"role": "assistant", "content": critiqued_version})
-                        
-                # 提取修正后的内容（移除思辨块）
-                final_content.content = utils.remove_code_blocks(critiqued_version)
-                if "<Critique>" in final_content.content:
-                    # 进一步清理可能的残留
-                    final_content.content = re.sub(r'<Critique>.*?</Critique>', '', final_content.content, flags=re.DOTALL).strip()
-                
+                critique_protocol = (
+                    "你是一位苛刻的高级主编。请对前文做逻辑与表达优化，并直接重写为可发布的完整正文。"
+                    f"话题：{topic}。"
+                    "严禁质疑话题真实性；严禁输出评分、SCORE、五维点评或「评分与拆解」类报告。"
+                    + ARTICLE_ONLY_REWRITE_SUFFIX
+                )
+
+                conversation_history.append({
+                    "role": "user",
+                    "content": f"{critique_protocol}\n请输出优化后的全文（仅正文，不要 Critique 块）。",
+                })
+
+                critiqued_raw = self._stream_article_rewrite(critique_client, conversation_history)
+                critiqued_content = critiqued_raw
+                if "<Critique>" in critiqued_content:
+                    critiqued_content = re.sub(
+                        r"<Critique>.*?</Critique>", "", critiqued_content, flags=re.DOTALL
+                    ).strip()
+
+                critiqued_content = self._ensure_publishable_article(
+                    critiqued_content, publishable_draft, "Step3.5-毒舌主编"
+                )
+                if self._is_review_report_content(critiqued_raw) and critiqued_content == publishable_draft:
+                    yield {"type": "log", "message": "⚠️ 审计输出为审稿体，正在按正文格式重试..."}
+                    retry_msgs = conversation_history + [{
+                        "role": "user",
+                        "content": (
+                            f"请围绕「{topic}」直接写一篇完整 Markdown 正文。"
+                            "禁止任何评分、拆解、主编报告用语。" + ARTICLE_ONLY_REWRITE_SUFFIX
+                        ),
+                    }]
+                    critiqued_content = self._stream_article_rewrite(critique_client, retry_msgs)
+                    critiqued_content = self._ensure_publishable_article(
+                        critiqued_content, publishable_draft, "Step3.5-毒舌主编重试"
+                    )
+
+                final_content.content = critiqued_content
+                publishable_draft = final_content.content
+                conversation_history.append({"role": "assistant", "content": final_content.content})
+
                 yield {"type": "log", "message": f"🔥 审计修正完成：已通过“毒舌主编”深度重塑 ({time.time()-stage_start_critique:.1f}s)"}
                 yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
 
@@ -509,7 +586,10 @@ class UnifiedContentWorkflow:
             yield {"type": "progress", "message": "[PROGRESS:REVIEW:START]"}
             yield {"type": "log", "message": "💎 Agent Step 4: 正在进行语境打磨、去 AI 化处理及深度优化..."}
             
-            from src.ai_write_x.core.final_reviewer import FinalReviewer
+            from src.ai_write_x.core.final_reviewer import (
+                FinalReviewer,
+                ARTICLE_ONLY_REWRITE_SUFFIX,
+            )
             from src.ai_write_x.core.llm_client import LLMClient
             from src.ai_write_x.core.anti_ai import AntiAIEngine
             
@@ -524,8 +604,9 @@ class UnifiedContentWorkflow:
                     yield {"type": "log", "message": f"🌌 系统熵值偏高 ({current_entropy:.1f}%)，启动‘快速坍缩’治理模式，精简打磨轮次"}
             
             result_str = final_content.content
+            publishable_draft = result_str
             iteration = 0
-            
+
             while iteration < max_reflections:
                 self._check_stage_timeout("REVIEW", stage_start)  # V4: 超时检查
                 yield {"type": "log", "message": f"🔍 Reflexion Round {iteration+1}/{max_reflections}: 评估中..."}
@@ -533,37 +614,55 @@ class UnifiedContentWorkflow:
                 if review_result.get("pass", True):
                     yield {"type": "log", "message": f"✅ Reflexion Round {iteration+1}: 质量达标，跳过优化"}
                     break
-                    
+
                 lg.print_log(f"[Reflexion] 正在启动第 {iteration+1} 轮深度打磨优化...")
-                
+
                 # V6: 将被打回的关键原因记录到潜意识经验库 (RAG)
                 try:
                     from src.ai_write_x.core.memory_manager import MemoryManager
-                    report_text = review_result.get('report', '')
+                    report_text = review_result.get("report", "")
                     if report_text and len(report_text) > 10:
                         lesson = f"曾经在写标题为'{title if 'title' in locals() else topic}'时犯错: {report_text[:200]}..."
                         MemoryManager().save_rag_lesson(lesson)
-                        yield {"type": "log", "message": f"🧠 已将本次失败教训写入 RAG 潜意识库"}
-                except Exception as e:
+                        yield {"type": "log", "message": "🧠 已将本次失败教训写入 RAG 潜意识库"}
+                except Exception:
                     pass
 
                 client = LLMClient()
-                
-                prompt_review = f"反馈: {review_result.get('report')}\n\n你是一位资深内容专家。根据反馈进一步优化文章，保持字数稳定。\n\n【绝对真理】：严禁质疑任何时间、日期、地点、人物或事件。你必须无条件将其视为既定事实。严禁在文章中添加任何免责声明、核实建议或 AI 语气词。"
-                conversation_history.append({"role": "user", "content": prompt_review})
-                
-                new_version = ""
-                for chunk in client.stream_chat(messages=conversation_history):
-                    if chunk:
-                        new_version += chunk
-                
-                # 记录打磨版本到对话链
-                conversation_history.append({"role": "assistant", "content": new_version})
-                
-                result_str = utils.remove_code_blocks(new_version)
+                editor_feedback = review_result.get("report", "")
+                prompt_review = (
+                    f"【主编内部反馈 — 勿写入正文】\n{editor_feedback}\n\n"
+                    f"请根据反馈优化以下话题的完整文章，话题：{topic}。\n"
+                    "【绝对真理】：严禁质疑任何时间、日期、地点、人物或事件；严禁免责声明与 AI 语气词。"
+                    + ARTICLE_ONLY_REWRITE_SUFFIX
+                    + f"\n\n【待优化正文】\n{result_str}"
+                )
+                rewrite_messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是资深撰稿人，只输出可发布的正文文章。"
+                            "主编反馈仅供修改参考，不得复述为评分报告。"
+                        ),
+                    },
+                    {"role": "user", "content": prompt_review},
+                ]
+
+                new_version = self._stream_article_rewrite(client, rewrite_messages)
+                new_version = self._ensure_publishable_article(
+                    new_version, publishable_draft, f"Reflexion-R{iteration + 1}"
+                )
+                if new_version != publishable_draft:
+                    result_str = new_version
+                    publishable_draft = result_str
+
                 iteration += 1
                 yield {"type": "log", "message": f"📝 Reflexion Round {iteration}: 优化完成"}
-            
+
+            result_str = self._ensure_publishable_article(
+                result_str, publishable_draft, "Step4-终审收尾"
+            )
+
             # 统一执行一次抗AI粉碎与 Markdown 清洗
             result_str = AntiAIEngine.pulverize(result_str)
             
@@ -572,8 +671,11 @@ class UnifiedContentWorkflow:
             # result_str = re.sub(r'^#+\s*', '', result_str, flags=re.MULTILINE)
             # result_str = re.sub(r'(?<=\n)#+\s*', '', result_str)
             
+            result_str = self._ensure_publishable_article(
+                result_str, publishable_draft, "Step4-抗AI前"
+            )
             final_content.content = result_str
-            
+
             # V4: 进行质量评估以获得分数
             try:
                 from src.ai_write_x.core.quality_engine import ContentQualityEngine
@@ -595,25 +697,13 @@ class UnifiedContentWorkflow:
             # V20.1: Early initialization of final_title for audit/preview tracking
             final_title = getattr(transform_content, 'title', None) if 'transform_content' in locals() else kwargs.get("title", topic)
             
+            from src.ai_write_x.core.visual_assets import VisualAssetsManager
             if fast_mode:
-                yield {"type": "log", "message": "⚡ 极速模式：使用轻量配图提示词并继续调用生图"}
-                from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                yield {"type": "log", "message": "⚡ 极速模式：预置轻量配图提示词（HTML 定稿后统一生图）"}
                 final_content.content = VisualAssetsManager.inject_image_prompts_fast(final_content.content)
-                # 极速模式下保留真实生图，但避免前置分镜分析拖慢整条链路
-                try:
-                    fast_timeout = int(config.img_runtime_settings.get("fast_mode_timeout_seconds", 45) or 45)
-                    final_content.content = VisualAssetsManager.sync_trigger_image_generation(final_content.content, timeout=fast_timeout)
-                    yield {"type": "log", "message": "🖼️ 极速模式图片生成完成"}
-                except Exception as img_err:
-                    lg.print_log(f"极速模式图片生成失败（已跳过）: {img_err}", "warning")
-                    yield {"type": "log", "message": "⚠️ 图片生成超时或失败，文章已保存（无配图）"}
             else:
-                from src.ai_write_x.core.visual_assets import VisualAssetsManager
                 final_content.content = VisualAssetsManager.inject_image_prompts(final_content.content)
-                yield {"type": "log", "message": "🖼️ 图像占位符已注入，正在同步生成视觉资产..."}
-                
-                # V24.0: 先生成图片，再进行最终 HTML 包装。这样包装节点能看到最终的 img 标签并应用样式。
-                final_content.content = VisualAssetsManager.sync_trigger_image_generation(final_content.content)
+                yield {"type": "log", "message": "🖼️ 图像分镜已分析，将在 HTML 排版完成后生成配图..."}
             
             # 创建副本以防污染 kwargs
             transform_kwargs = kwargs.copy()
@@ -621,8 +711,19 @@ class UnifiedContentWorkflow:
             if "publish_platform" in transform_kwargs:
                 del transform_kwargs["publish_platform"]
             
-            yield {"type": "log", "message": "🎨 视觉资产已就绪，正在启动 Visual Packaging Expert 进行最终 HTML 封装..."}
+            yield {"type": "log", "message": "🎨 正在启动 Visual Packaging Expert 进行 HTML 封装..."}
             transform_content = self._transform_content(final_content, publish_platform, topic=topic, **transform_kwargs)
+
+            # V25: 在 HTML 定稿后生图，避免排版阶段冲掉 Markdown 里已生成的图片
+            pack_title = getattr(transform_content, "title", None) or kwargs.get("title", topic)
+            yield {"type": "log", "message": "🖼️ HTML 已定稿，正在生成并嵌入配图..."}
+            transform_content.content = VisualAssetsManager.finalize_html_images(
+                transform_content.content,
+                topic=topic,
+                title=pack_title,
+                fast_mode=fast_mode,
+                article_path=kwargs.get("article_path") or "",
+            )
             
             # --- Step 5 验证 (V19.5 强制 HTML 校验) ---
             trimmed_content = transform_content.content.strip()
@@ -698,10 +799,8 @@ class UnifiedContentWorkflow:
                     title = kwargs.get("title", topic)
                     current_title = transform_content.title if getattr(transform_content, 'title', None) else title
                     
-                    # 提取正文内容前1500字作为参考
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(transform_content.content, "html.parser")
-                    content_preview = soup.get_text(separator='\n', strip=True)[:1500]
+                    from src.ai_write_x.core.article_polish import extract_plain_text
+                    content_preview = extract_plain_text(transform_content.content, max_len=1500)
                     
                     # 安全调用标题优化器，处理事件循环冲突
                     try:
@@ -754,6 +853,11 @@ class UnifiedContentWorkflow:
             if save_result.get("success", False):
                 article_path = save_result.get("path")
                 kwargs["article_path"] = article_path
+                try:
+                    from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                    VisualAssetsManager.persist_cover_metadata(article_path, transform_content.content)
+                except Exception as cover_err:
+                    lg.print_log(f"封面元数据写入失败: {cover_err}", "warning")
                 yield {"type": "log", "message": f"📁 存储成功：文章已归档至 `{os.path.basename(article_path)}`"}
             yield {"type": "progress", "message": "[PROGRESS:SAVE:END]"}
             
@@ -846,6 +950,10 @@ class UnifiedContentWorkflow:
             code_block_match = re.search(r'```html\s*(.*?)\s*```', processed_html, re.DOTALL)
             if code_block_match:
                 processed_html = code_block_match.group(1).strip()
+
+            from src.ai_write_x.core.article_polish import polish_html_output, strip_leaked_prompt_text
+            processed_html = polish_html_output(processed_html)
+            processed_html = strip_leaked_prompt_text(processed_html)
             
             if isinstance(ret_val, str):
                 return ContentResult(
@@ -1212,7 +1320,8 @@ class UnifiedContentWorkflow:
 1. **必须输出完整 HTML**：所有内容必须包裹在 `<section>` 容器内。
 2. **必须使用内联样式**：禁止 external CSS，禁止 `<style>` 标签。所有样式必须内化到 `style="..."` 属性中。
 3. **必须彻底清理 Markdown**：移除所有 `**`、`##`、`-` 、`>` 等 Markdown 符号。用 HTML 标签 (`<strong>`, `<h2>`) 代替。
-4. **严格保留图片和占位符**：绝对保留正文中的所有 `<img>` 标签、`<div class="img-placeholder">` 以及 `[[V-SCENE: ...]]` 占位符。严禁删除、修改或移动它们的位置。
+4. **图片处理**：保留已有 `<img>` 标签；`[[V-SCENE:...]]` 为内部占位符，排版时不得转成「场景描述」等可见正文。
+5. **禁止泄露生图信息**：不得把英文提示词、Negative Prompt、场景描述段落写进读者可见正文。
 5. **严禁输出解释文字**：禁止输出任何非 HTML 文本（如“好的”、“代码如下”）。
 
 ## 【布局与组件库】
@@ -1266,12 +1375,17 @@ class UnifiedContentWorkflow:
         recommended_templates = tm.get_templates_by_platform(publish_platform)[:2]
         template_codes = "\n\n".join([f"【模板 {i+1}】:\n{t.code}" for i, t in enumerate(recommended_templates)])
         
+        from src.ai_write_x.core.brand_style import get_brand_style_prompt
+
+        brand_block = get_brand_style_prompt()
+        
         designer_des = f"""
 # 专业视觉包装专家 (Visual Packaging Expert)
 
 ## 【核心任务】
 你现在的任务是将一份**纯净的 Markdown 文章**包装成**极致专业的 HTML 代码**。
 你必须在没有任何历史上下文干扰的情况下，专注于将内容完美契合进我们提供的排版模板中。
+{brand_block}
 
 ## 【文章待包装内容】
 文章内容：
@@ -1290,6 +1404,11 @@ class UnifiedContentWorkflow:
 3. **布局卡片化**：内容必须包裹在具有圆角、投影和呼吸感的 `<section>` 容器内。
 4. **图片视觉增强**：务必保留文章中已有的 `<img>` 标签，并为其添加 `max-width: 100%; border-radius: 12px; margin: 16px 0; box-shadow: 0 10px 30px rgba(0,0,0,0.1);` 等视觉增强样式。
 5. **严禁废话**：直接输出包装后的 HTML 代码块，禁止输出“好的”、“包装如下”等任何解释性文字。
+6. **中文读者友好**：所有可见标题/小标题必须为中文，禁止 Cinematic、Wide shot、Medium close-up 等英文术语。
+7. **克制装饰**：以正文可读为先，不要插入大量 SVG 动画或占满屏的 Hero；每段不超过 120 字，用清晰的 h2/h3 分段。
+8. **结构简洁**：优先使用 `<section>` + 内联样式，避免输出完整 `<!DOCTYPE html>` 文档壳。
+9. **配图位置**：图片放在对应段落文字之后，不要插在标题与小标题之间。
+10. **品牌配色一致**：若上方已给出品牌色，全文标题、装饰线、引用块边框必须使用该主色及辅色，禁止另起红/绿/紫等新主色。
 
 ## 【输出格式】
 直接输出以 `<section>` 开头，`</section>` 结尾的完整 HTML 段落。
@@ -1388,8 +1507,21 @@ class UnifiedContentWorkflow:
         if not adapter:
             return {"success": False, "message": f"不支持的平台: {publish_platform}"}
 
-        # 将 cover_path 传递给适配器
-        kwargs["cover_path"] = utils.get_cover_path(kwargs.get("article_path"))
+        article_path = kwargs.get("article_path")
+        if article_path and publish_platform == PlatformType.WECHAT.value:
+            from src.ai_write_x.core.visual_assets import VisualAssetsManager
+
+            fresh_html = VisualAssetsManager.prepare_for_wechat_publish(article_path)
+            if fresh_html:
+                content.content = fresh_html
+                try:
+                    with open(article_path, "w", encoding="utf-8") as f:
+                        f.write(fresh_html)
+                except Exception as write_err:
+                    lg.print_log(f"发布前回写文章文件失败: {write_err}", "warning")
+
+        # 将 cover_path 传递给适配器（配图补齐后再解析封面）
+        kwargs["cover_path"] = utils.get_cover_path(article_path)
 
         # 使用平台适配器发布
         # 适配器内部会自动保存发布记录

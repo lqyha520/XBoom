@@ -23,6 +23,9 @@ from src.ai_write_x.core.task_distributor import TaskDistributor
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
+# 最近一次批量生成元数据（供 WebSocket completed 消息带给前端自动美化）
+_last_generation_meta = {"article_paths": [], "ai_beautify": False}
+
 # V5: 增加时间戳供前端展示生成耗时
 # V7: 状态管理由 BackgroundTaskManager 托管
 
@@ -86,10 +89,8 @@ async def validate_config():
 
 @router.post("/generate")
 async def generate_content(request: GenerateRequest):
-    # V7: 使用 TaskManager 检查状态
-    status = task_manager.get_task_status("main_generate")
-    if status["status"] == TaskStatus.RUNNING:
-        raise HTTPException(status_code=409, detail="任务正在运行中,请先停止当前任务")
+    # 放弃上次未完成/已中断的任务，始终启动全新创作（不续跑）
+    task_manager.prepare_for_new_task("main_generate")
 
     try:
         config = Config.get_instance()
@@ -152,6 +153,7 @@ async def generate_content(request: GenerateRequest):
                 
             article_count = getattr(cfg, "article_count", 1)
             success_count = 0
+            generated_article_paths = []
             
             # 设置当前线程(主进程的一个线程)的日志队列已由 task_manager 处理，无需重复调用
             # lg.set_process_queue(log_q)
@@ -528,20 +530,29 @@ async def generate_content(request: GenerateRequest):
                                 try:
                                     save_res = final_result.get("save_result", {})
                                     article_path = save_res.get("path")
-                                    if article_path and ai_beautify:
-                                            
+                                    if article_path:
+                                        generated_article_paths.append(article_path)
                                         from src.ai_write_x.core.visual_assets import VisualAssetsManager
-                                        lg.print_log(f"🎨 正在后台检测并自动补齐文章图片...", "info")
-                                        # 异步触发补图，避免阻塞日志流
-                                        import threading
-                                        img_thread = threading.Thread(
-                                            target=VisualAssetsManager.auto_fix_article_images,
-                                            args=(article_path,),
-                                            daemon=True
+                                        need_sync_images = (
+                                            ai_beautify
+                                            or cfg.auto_publish
+                                            or post_action in ("publish", "save")
                                         )
-                                        img_thread.start()
-                                    elif article_path and not ai_beautify:
-                                        lg.print_log(f"⏭️ AI美化开关未开启，跳过自动补齐图片步骤...", "info")
+                                        if need_sync_images:
+                                            lg.print_log(
+                                                "🎨 正在同步补齐文章配图与封面（发布前需等待生图完成）...",
+                                                "info",
+                                            )
+                                            VisualAssetsManager.auto_fix_article_images(article_path)
+                                        else:
+                                            lg.print_log("🎨 正在检测并补齐文章配图与封面...", "info")
+                                            import threading
+                                            img_thread = threading.Thread(
+                                                target=VisualAssetsManager.auto_fix_article_images,
+                                                args=(article_path,),
+                                                daemon=True,
+                                            )
+                                            img_thread.start()
                                 except Exception as img_fix_e:
                                     lg.print_log(f"自动补图过程出现异常: {img_fix_e}", "warning")
 
@@ -552,7 +563,22 @@ async def generate_content(request: GenerateRequest):
                                             save_res = final_result.get("save_result", {})
                                             title = save_res.get("title", "未命名文章")
                                             article_path = save_res.get("path")
-                                            content_html = final_result.get("formatted_content", "")
+
+                                            from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                                            from pathlib import Path
+                                            if article_path:
+                                                content_html = VisualAssetsManager.prepare_for_wechat_publish(
+                                                    article_path
+                                                ) or final_result.get("formatted_content", "")
+                                                if content_html:
+                                                    try:
+                                                        Path(article_path).write_text(
+                                                            content_html, encoding="utf-8"
+                                                        )
+                                                    except Exception:
+                                                        pass
+                                            else:
+                                                content_html = final_result.get("formatted_content", "")
                                             
                                             import re
                                             pure_text = re.sub(r'<[^>]+>', '', content_html)
@@ -560,6 +586,11 @@ async def generate_content(request: GenerateRequest):
                                             
                                             import src.ai_write_x.utils.utils as _utils
                                             cover_path = _utils.get_cover_path(article_path) or ""
+                                            if not cover_path:
+                                                lg.print_log(
+                                                    "未找到文章封面图，将尝试默认封面；请确认图片 API 已配置且生图成功",
+                                                    "warning",
+                                                )
                                             
                                             wechat_creds = cfg.config.get("wechat", {}).get("credentials", [{}])
                                             if wechat_creds:
@@ -574,33 +605,27 @@ async def generate_content(request: GenerateRequest):
                                             if not appid or not appsecret:
                                                 lg.print_log("无法执行自动化动作: 未配置微信公众号 AppID 和 AppSecret", "warning")
                                             else:
-                                                from src.ai_write_x.tools.wx_publisher import WeixinPublisher
-                                                publisher = WeixinPublisher(appid, appsecret, author)
-                                                lg.print_log("正在上传封面图到微信素材库...", "info")
-                                                media_id, _, err = publisher.upload_image(cover_path)
-                                                
-                                                if err:
-                                                    lg.print_log(f"封面图上传失败: {err}，将使用默认封面", "warning")
-                                                    media_id = "SwCSRjrdGJNaWioRQUHzgF68BHFkSlb_f5xlTquvsOSA6Yy0ZRjFo0aW9eS3JJu_"
-                                                    
-                                                if post_action == "save":
-                                                    lg.print_log("正在上传文章到草稿箱...", "info")
-                                                    res, err = publisher.add_draft(content_html, title, digest, media_id)
-                                                    if err:
-                                                        lg.print_log(f"保存到草稿箱失败: {err}", "error")
-                                                    else:
-                                                        lg.print_log(f"✅ 成功保存到草稿箱!", "success")
-                                                elif post_action == "publish":
-                                                    lg.print_log("正在上传并发布文章...", "info")
-                                                    res, err = publisher.add_draft(content_html, title, digest, media_id)
-                                                    if err:
-                                                        lg.print_log(f"上传草稿失败，无法发布: {err}", "error")
-                                                    else:
-                                                        pub_res, pub_err = publisher.publish(res.publishId)
-                                                        if pub_err:
-                                                            lg.print_log(f"草稿发布失败: {pub_err}", "error")
-                                                        else:
-                                                            lg.print_log(f"✅ 文章发布任务已提交!", "success")
+                                                from src.ai_write_x.tools.wx_publisher import pub2wx
+
+                                                wx_mode = "draft" if post_action == "save" else "publish"
+                                                lg.print_log(
+                                                    f"正在上传正文配图并{'保存草稿' if wx_mode == 'draft' else '发布'}...",
+                                                    "info",
+                                                )
+                                                message, _, success = pub2wx(
+                                                    title=title,
+                                                    digest=digest,
+                                                    article=content_html,
+                                                    appid=appid,
+                                                    appsecret=appsecret,
+                                                    author=author,
+                                                    cover_path=cover_path or None,
+                                                    post_mode=wx_mode,
+                                                )
+                                                if success:
+                                                    lg.print_log(f"✅ {message}", "success")
+                                                else:
+                                                    lg.print_log(f"自动化动作失败: {message}", "error")
                                         except Exception as we:
                                             lg.print_log(f"自动化动作执行异常: {we}", "error")
                         else:
@@ -637,6 +662,11 @@ async def generate_content(request: GenerateRequest):
                     "timestamp": time.time()
                 })
             finally:
+                global _last_generation_meta
+                _last_generation_meta = {
+                    "article_paths": list(generated_article_paths),
+                    "ai_beautify": bool(ai_beautify),
+                }
                 # 确保发送完成消息给前端
                 lg.print_log(f"🏁 任务执行结束，success_count={success_count}", "info")
                 log_q.put({"type": "internal", "message": "任务执行完成", "timestamp": time.time(), "success": success_count > 0})
@@ -723,16 +753,26 @@ async def generate_content(request: GenerateRequest):
 
 @router.post("/generate/stop")
 async def stop_generation():
-    """停止当前生成任务"""
-    success, msg = task_manager.stop_task("main_generate")
-    if success:
-        return {"status": "success", "message": "任务已停止"}
-    return {"status": "info", "message": msg}
+    """停止并放弃当前/残留的生成任务（不续跑）"""
+    task_manager.prepare_for_new_task("main_generate")
+    return {"status": "success", "message": "已放弃未完成任务，可开始新创作"}
+
+
+@router.post("/generate/reset")
+async def reset_generation_state():
+    """清理中断或已结束的任务登记，确保下次创作从零开始"""
+    _, msg = task_manager.prepare_for_new_task("main_generate")
+    return {"status": "success", "message": msg}
 
 
 @router.get("/generate/status")
 async def get_generation_status():
-    return task_manager.get_task_status("main_generate")
+    status = task_manager.get_task_status("main_generate")
+    if status.get("status") == TaskStatus.COMPLETED:
+        meta = dict(_last_generation_meta)
+        status["article_paths"] = meta.get("article_paths") or []
+        status["ai_beautify"] = bool(meta.get("ai_beautify"))
+    return status
 
 
 @router.websocket("/ws/generate/logs")
@@ -793,12 +833,15 @@ async def websocket_logs(websocket: WebSocket):
                                 except queue.Empty:
                                     break
 
-                            # 最后发送完成消息
+                            # 最后发送完成消息（附带本次生成的文章路径，供自动换模板）
+                            meta = dict(_last_generation_meta)
                             await websocket.send_json(
                                 {
                                     "type": "completed",
                                     "message": "任务执行完成",
                                     "timestamp": time.time(),
+                                    "article_paths": meta.get("article_paths") or [],
+                                    "ai_beautify": bool(meta.get("ai_beautify")),
                                 }
                             )
                             break
@@ -1113,10 +1156,26 @@ async def optimize_content(request: OptimizeContentRequest):
     使用AI重写内容以降低AI检测概率、提高原创性
     """
     try:
-        from src.ai_write_x.core.llm_client import get_llm_instance
-        from src.ai_write_x.config.config import Config
-        
-        config = Config.get_instance()
+        from src.ai_write_x.core.llm_client import get_llm_client
+        from src.ai_write_x.core.article_polish import (
+            extract_plain_text,
+            merge_optimized_preserving_images,
+        )
+
+        Config.get_instance()
+
+        original_html = request.content
+        has_imgs = "<img" in original_html.lower()
+        llm_input = (
+            extract_plain_text(original_html, max_len=12000)
+            if has_imgs
+            else original_html
+        )
+        img_rule = (
+            "6. 原文含配图：只输出纯文本段落（段间空一行），不要输出 HTML 或图片相关描述\n"
+            if has_imgs
+            else ""
+        )
         
         # 构建优化提示
         suggestions_text = "\n".join([f"- {s}" for s in request.suggestions]) if request.suggestions else ""
@@ -1128,25 +1187,26 @@ async def optimize_content(request: OptimizeContentRequest):
 3. 保持原文的核心观点和信息不变
 4. 丰富词汇表达，避免重复用词
 5. 调整句式结构，增加变化性
-
+{img_rule}
 优化建议：
 {suggestions_text}
 
 原文内容：
-{request.content}
+{llm_input}
 
 请直接输出优化后的内容，不要添加任何解释或说明。"""
 
-        # 获取LLM实例
-        llm = get_llm_instance()
-        
-        # 调用AI生成优化内容
-        response = llm.call([
+        llm = get_llm_client()
+        response = llm.chat([
             {"role": "system", "content": "你是一位专业的内容优化专家，擅长将AI生成的内容改写为更自然、更人性化的表达。"},
-            {"role": "user", "content": optimize_prompt}
+            {"role": "user", "content": optimize_prompt},
         ])
         
-        optimized_content = response.strip() if response else request.content
+        optimized_content = response.strip() if response else llm_input
+        if has_imgs and optimized_content:
+            optimized_content = merge_optimized_preserving_images(
+                original_html, optimized_content
+            )
         
         return {
             "status": "success",

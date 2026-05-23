@@ -343,6 +343,13 @@ class ArticleManager {
                         <circle cx="8.5" cy="8.5" r="1.5"/>  
                         <polyline points="21 15 16 10 5 21"/>  
                     </svg>  
+                </button>
+                <button class="btn-icon" data-action="clean-visual-leaks" title="清理场景描述">  
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">  
+                        <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>  
+                        <line x1="10" y1="11" x2="10" y2="17"/>  
+                        <line x1="14" y1="11" x2="14" y2="17"/>  
+                    </svg>  
                 </button>  
                 <button class="btn-icon" data-action="illustration" title="设计">  
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
@@ -635,6 +642,9 @@ class ArticleManager {
                     await this.generateImages(article);
                 }
                 break;
+            case 'clean-visual-leaks':
+                await this.cleanVisualLeaks(article);
+                break;
             case 'illustration':
                 await this.openImageDesigner(article)
                 break;
@@ -661,6 +671,30 @@ class ArticleManager {
                     window.app?.showNotification('投票管理器未加载', 'error');
                 }
                 break;
+        }
+    }
+
+    async cleanVisualLeaks(article) {
+        try {
+            const res = await fetch('/api/articles/clean-visual-leaks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: article.path }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+            }
+            window.app?.showNotification(data.message || '清理完成', 'success');
+            if (data.changed) {
+                const card = document.querySelector(`.article-card[data-path="${CSS.escape(article.path)}"]`);
+                const iframe = card?.querySelector('iframe');
+                if (iframe) {
+                    iframe.src = iframe.src.split('?')[0] + '?t=' + Date.now();
+                }
+            }
+        } catch (e) {
+            window.app?.showNotification('清理失败: ' + e.message, 'error');
         }
     }
 
@@ -2036,13 +2070,22 @@ class ArticleManager {
     }
 
     /**
-     * 自动美化入口 — 由创意工坊生成完成后自动调用
-     * 自动切换到文章管理视图并打开换模板弹窗
+     * 自动换模板入口 — 由创意工坊生成完成后自动调用
+     * @param {object} article - { path, title }
+     * @param {{ autoSave?: boolean, preserveImages?: boolean }} options
      */
-    async triggerAutoReTemplate(article) {
+    async triggerAutoReTemplate(article, options = {}) {
         if (!article) return;
 
-        window.app?.showNotification('🎨 AI 自动美化启动中...', 'info');
+        this._reTemplateOptions = {
+            autoSave: Boolean(options.autoSave),
+            preserveImages: options.preserveImages !== false,
+        };
+
+        window.app?.showNotification(
+            options.autoSave ? '🎨 自动换模板中（完成后将自动保存）...' : '🎨 自动换模板启动中...',
+            'info'
+        );
 
         // 切换到文章管理视图（确保 modal 容器存在）
         const articleViewLink = document.querySelector('[data-view="article-manager"]');
@@ -2224,6 +2267,18 @@ class ArticleManager {
         if (insightsContent) insightsContent.innerHTML = '<div style="color: #999; text-align: center; margin-top: 50px;">正在深度分析文章结构...</div>';
         this.currentReTemplateHtml = null;
 
+        this._reTemplateOriginalHtml = null;
+        try {
+            const origRes = await fetch(
+                `/api/articles/content?path=${encodeURIComponent(this.currentReTemplateArticle.path)}`
+            );
+            if (origRes.ok) {
+                this._reTemplateOriginalHtml = await origRes.text();
+            }
+        } catch (e) {
+            console.warn('读取原文失败，保存时将无法合并配图:', e);
+        }
+
         addStatus('🚀 正在建立 AI 设计实验室流式连接...', '#3a7bd5');
         addStatus('📡 正在发送模型推理请求，请稍候 (Seed: ' + Math.floor(Math.random() * 9999) + ')...', '#666');
 
@@ -2380,6 +2435,21 @@ class ArticleManager {
                                 this.updateTask('current-re-template', { progress: 100, status: 'done' });
                                 setTimeout(() => this.removeTask('current-re-template'), 3000);
                                 this.reTemplateAbortController = null;
+
+                                if (this._reTemplateOptions?.autoSave) {
+                                    addStatus('💾 正在自动保存并合并原有配图...', '#3a7bd5');
+                                    const saved = await this.saveReTemplate({
+                                        preserveImages: this._reTemplateOptions.preserveImages,
+                                        silent: true,
+                                        runImageFix: true,
+                                    });
+                                    if (saved) {
+                                        addStatus('✅ 已自动保存到文章（已尽量保留原配图）', '#28a745');
+                                        window.app?.showNotification('自动换模板已保存', 'success');
+                                    }
+                                    this._reTemplateOptions = null;
+                                }
+
                                 resolve(true); // 成功完成
                             } else if (data.type === 'done') {
                                 if (this.currentReTemplateHtml) saveBtn.disabled = false;
@@ -2490,14 +2560,39 @@ class ArticleManager {
         }
     }
 
-    async saveReTemplate() {
-        if (!this.currentReTemplateArticle || !this.currentReTemplateHtml) return;
+    async saveReTemplate(options = {}) {
+        const { preserveImages = false, silent = false } = options;
+        if (!this.currentReTemplateArticle || !this.currentReTemplateHtml) return false;
 
         const saveBtn = document.getElementById('re-template-save-btn');
-        if (!saveBtn) return;
-        const originalText = saveBtn.innerHTML;
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<div class="spinner-small"></div> 正在保存...';
+        const originalText = saveBtn?.innerHTML;
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<div class="spinner-small"></div> 正在保存...';
+        }
+
+        let contentToSave = this.currentReTemplateHtml;
+        const originalHtml = this._reTemplateOriginalHtml || '';
+
+        if (preserveImages && originalHtml && /<img/i.test(originalHtml)) {
+            try {
+                const mergeRes = await fetch('/api/articles/merge-optimized', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        original: originalHtml,
+                        optimized: contentToSave,
+                    }),
+                });
+                const mergeData = await mergeRes.json();
+                if (mergeRes.ok && mergeData.data?.content) {
+                    contentToSave = mergeData.data.content;
+                    this.currentReTemplateHtml = contentToSave;
+                }
+            } catch (e) {
+                console.warn('合并配图失败，将保存未合并版本:', e);
+            }
+        }
 
         try {
             const response = await fetch('/api/articles/content', {
@@ -2505,12 +2600,14 @@ class ArticleManager {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     path: this.currentReTemplateArticle.path,
-                    content: this.currentReTemplateHtml
+                    content: contentToSave
                 })
             });
 
             if (response.ok) {
-                window.app?.showNotification('模板已永久保存至文章本尊', 'success');
+                if (!silent) {
+                    window.app?.showNotification('模板已永久保存至文章本尊', 'success');
+                }
                 // 更新内存中的数据
                 const article = this.articles.find(a => a.path === this.currentReTemplateArticle.path);
                 if (article) article.content = this.currentReTemplateHtml;
@@ -2533,15 +2630,35 @@ class ArticleManager {
                     this.updateGlobalTaskAgent(true, task.name, task.progress);
                 }
 
-                this.closeReTemplateModal();
+                if (options.runImageFix !== false) {
+                    try {
+                        await fetch('/api/articles/generate-images', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: this.currentReTemplateArticle.path }),
+                        });
+                    } catch (imgErr) {
+                        console.warn('换模板后补图失败:', imgErr);
+                    }
+                }
+
+                if (!silent) {
+                    this.closeReTemplateModal();
+                }
+                return true;
             } else {
                 const err = await response.json();
                 throw new Error(err.detail || '保存失败');
             }
         } catch (error) {
-            window.app?.showNotification('保存失败: ' + error.message, 'error');
-            saveBtn.innerHTML = originalText;
-            saveBtn.disabled = false;
+            if (!silent) {
+                window.app?.showNotification('保存失败: ' + error.message, 'error');
+            }
+            if (saveBtn) {
+                saveBtn.innerHTML = originalText;
+                saveBtn.disabled = false;
+            }
+            return false;
         }
     }
 

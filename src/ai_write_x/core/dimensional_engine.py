@@ -102,6 +102,10 @@ class DimensionalCreativeEngine:
         """
         text = (title + " " + content).lower()
         
+        pet_keywords = ['狗', '犬', '猫', '宠物', '田园犬', '土狗', '动物', '养宠', '萌宠']
+        if any(kw in text for kw in pet_keywords):
+            return 'lifestyle'
+
         # 政治/军事/国际类关键词
         politics_keywords = ['军事', '国防', '导弹', '战争', '冲突', '制裁', '外交', '峰会',
                            '联合国', '北约', 'NATO', '核武', '军演', '领土', '主权',
@@ -408,6 +412,9 @@ class DimensionalCreativeEngine:
         prompt_parts.append("如果基础内容中已经包含图片（如 <img> 标签、Markdown 图片格式 `![...]` 或占位符 `[图片解析: ...]`），你必须在生成的内容中**原样保留**这些图片，不得删除或更改其位置，且绝对禁止再次生成重复的图片占位符。")
 
         prompt_parts.append("\n请根据以上要求对基础内容进行创意变换，生成富有创意的文章。")
+        prompt_parts.append(
+            "\n【语言规范】：全文中文叙事；禁止用英文镜头/电影术语作章节标题；不要写成分镜脚本。"
+        )
 
         return "\n".join(prompt_parts)
 
@@ -557,7 +564,13 @@ class DimensionalCreativeEngine:
 - 保持商业分析的理性客观
 - 数据和结论要准确可靠
 - 可以适当使用激励性语言，但要基于事实
-- 确保专业性和可读性的平衡"""
+- 确保专业性和可读性的平衡""",
+            'lifestyle': """
+【重要约束-生活/宠物/文化类】
+- 使用自然流畅的中文叙事，像公众号深度稿
+- 禁止使用 Wide shot、Cinematic、Medium close-up 等英文镜头术语作为小标题
+- 不要写成电影分镜脚本或摄影教程
+- 段落控制在 150 字以内，每段至少包含一个具体场景或观点""",
         }
         
         type_constraint = content_constraints.get(content_type, "")

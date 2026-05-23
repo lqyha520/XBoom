@@ -169,8 +169,19 @@ async def get_storage_stats():
             db_file = possible_db_paths[0]
         
         def get_dir_size(path):
-            if not path.exists(): return 0
-            return sum(f.stat().st_size for f in path.glob('**/*') if f.is_file())
+            if not path.exists():
+                return 0
+            total = 0
+            try:
+                for f in path.rglob("*"):
+                    if f.is_file():
+                        try:
+                            total += f.stat().st_size
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+            return total
 
         articles_size = get_dir_size(articles_dir)
         images_size = get_dir_size(images_dir)
@@ -412,7 +423,12 @@ async def publish_articles(request: PublishRequest):
                 error_details.append(f"{article_path}: 文件不存在")
                 continue
 
-            content = file_path.read_text(encoding="utf-8")
+            try:
+                from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                VisualAssetsManager.prepare_for_wechat_publish(article_path)
+                content = file_path.read_text(encoding="utf-8")
+            except Exception as prep_e:
+                log.print_log(f"发布前配图准备失败: {prep_e}", "warning")
 
             ext = file_path.suffix.lower()
 
@@ -781,6 +797,60 @@ async def delete_image(filename: str):
 
 class GenerateImagesRequest(BaseModel):
     path: str
+
+
+class MergeOptimizedRequest(BaseModel):
+    original: str
+    optimized: str
+
+
+@router.post("/merge-optimized")
+async def merge_optimized_content(request: MergeOptimizedRequest):
+    """将优化正文写回 HTML 并保留原有配图（供质量面板一键应用）"""
+    from src.ai_write_x.core.article_polish import merge_optimized_preserving_images
+
+    try:
+        merged = merge_optimized_preserving_images(
+            request.original, request.optimized
+        )
+        return {
+            "status": "success",
+            "data": {"content": merged},
+        }
+    except Exception as e:
+        log.print_log(f"合并优化内容失败: {e}", "error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/clean-visual-leaks")
+async def clean_visual_leaks(request: GenerateImagesRequest):
+    """清理正文中的场景描述、泄露生图提示与未处理占位符（保留已有配图）"""
+    from src.ai_write_x.core.article_polish import clean_article_visual_leaks
+
+    try:
+        file_path = Path(request.path)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="文章不存在")
+        if file_path.suffix.lower() not in (".html", ".htm", ".md"):
+            raise HTTPException(status_code=400, detail="仅支持 HTML/Markdown 文章")
+
+        raw = file_path.read_text(encoding="utf-8")
+        cleaned = clean_article_visual_leaks(raw)
+        changed = cleaned != raw
+        if changed:
+            file_path.write_text(cleaned, encoding="utf-8")
+
+        return {
+            "status": "success",
+            "message": "已清理场景描述与泄露提示词" if changed else "未发现需清理的内容",
+            "changed": changed,
+            "path": str(file_path),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.print_log(f"清理场景描述失败: {e}", "error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/generate-images")

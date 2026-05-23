@@ -152,19 +152,28 @@ class LLMClient:
         
         # V13.0: Predictive Token Cache - 系统指令哈希缓存
         self._system_prompt_cache = {} # {hash: full_text}
-        
+
+    def _is_custom_api_provider(self) -> bool:
+        known_providers = {"OpenRouter", "Deepseek", "Grok", "Qwen", "Gemini", "Ollama", "SiliconFlow", "心流"}
+        return self._config.api_type not in known_providers
+
     def _get_client(self, api_key: str, base_url: str) -> OpenAI:
         """获取或创建OpenAI客户端 (V3: 连接池限制10连接/provider防泄露)"""
         import httpx
-        # V14.1: 使用哈希处理缓存键，避免API密钥泄露
         key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
-        cache_key = f"{key_hash}_{base_url}"
+        is_custom = self._is_custom_api_provider()
+        cache_key = f"{key_hash}_{base_url}_{'custom' if is_custom else 'std'}"
         if cache_key not in self._client_cache:
-            # V3: 降低max_connections到10/provider防止连接泄露，keepalive降到5
-            http_client = httpx.Client(
-                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-                timeout=httpx.Timeout(120.0)
-            )
+            httpx_kwargs = {
+                "limits": httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                "timeout": httpx.Timeout(120.0),
+            }
+            if is_custom:
+                httpx_kwargs["headers"] = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+                    "Accept": "application/json",
+                }
+            http_client = httpx.Client(**httpx_kwargs)
             self._client_cache[cache_key] = OpenAI(
                 api_key=api_key,
                 base_url=base_url,
@@ -911,3 +920,8 @@ def create_llm_for_crewai(
 def get_llm_client() -> LLMClient:
     """获取全局LLM客户端实例"""
     return LLMClient()
+
+
+def get_llm_instance() -> LLMClient:
+    """兼容旧代码别名"""
+    return get_llm_client()
