@@ -1,8 +1,8 @@
 {
-  "latest_version": "23.0.8",
-  "min_supported_version": "23.0.7",
+  "latest_version": "23.0.9",
+  "min_supported_version": "23.0.8",
   "auto_update_on_startup": true,
   "auto_update_silent": true,
-  "release_notes": "23.0.8: 启动时自动检测新版本并静默下载安装，无需用户确认。23.0.7 用户需手动更新一次，之后版本将全自动升级。",
+  "release_notes": "23.0.9: 下载完成后自动重启并安装，无需再点按钮；修复重启脚本与旧版更新界面状态码不匹配问题。",
   "published_at": "2026-05-23T00:00:00Z"
 }

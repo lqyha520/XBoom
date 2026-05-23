@@ -469,13 +469,11 @@
                     progressBarInner.style.width = progressData.progress + '%';
                     progressPercent.innerText = progressData.progress + '%';
 
-                    if (progressData.status === 'ready_to_restart') {
+                    if (progressData.status === 'ready_to_install') {
                         clearInterval(pollInterval);
-                        console.log("Update ready to restart.");
-                        footerRight.innerHTML = `
-                            <button class="modal-btn secondary-btn" onclick="closeUpdateModal()">后台同步</button>
-                            <button id="restart-btn" class="modal-btn primary-btn" onclick="executeRestart()">🚀 重启应用同步</button>
-                        `;
+                        console.log("Update ready to install.");
+                        footerRight.innerHTML = '<button class="modal-btn secondary-btn" disabled>正在重启并安装...</button>';
+                        executeRestart(true);
                     } else if (progressData.status === 'error') {
                         clearInterval(pollInterval);
                         console.error("Update error:", progressData.error);
@@ -536,11 +534,13 @@
         });
     }
 
-    async function executeRestart() {
+    async function executeRestart(exitingAfterRequest = false) {
         console.log("Executing restart...");
         const restartBtn = document.getElementById('restart-btn');
-        restartBtn.disabled = true;
-        restartBtn.innerText = '正在调起 一键更新.bat...';
+        if (restartBtn) {
+            restartBtn.disabled = true;
+            restartBtn.innerText = '正在重启并安装...';
+        }
         const token = getAppToken();
         try {
             await fetch('/api/system/restart-and-update', {
@@ -549,9 +549,15 @@
             });
             console.log("Restart command sent.");
         } catch (e) {
+            if (exitingAfterRequest) {
+                console.log("Restart request sent; app is exiting.");
+                return;
+            }
             console.error("Restart command failed:", e);
             alert('重启指令发送失败，请手动在根目录运行 一键更新.bat');
-            restartBtn.disabled = false;
+            if (restartBtn) {
+                restartBtn.disabled = false;
+            }
         }
     }
 </script>

@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -326,13 +327,17 @@ for ($i = 0; $i -lt 180; $i++) {{
     Start-Sleep -Milliseconds 500
 }}
 
+Get-Process -Name 'AIWriteX' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 800
+
 $argumentList = @()
 if ($installerArgs) {{
     $argumentList = $installerArgs.Split(' ') | Where-Object {{ $_ -and $_.Trim() -ne '' }}
 }}
 
-Start-Process -FilePath $installerPath -ArgumentList $argumentList -Verb RunAs -Wait
+Start-Process -FilePath $installerPath -ArgumentList $argumentList -Wait
 
+Start-Sleep -Seconds 2
 if (Test-Path $appExe) {{
     Start-Process -FilePath $appExe
 }}
@@ -408,7 +413,7 @@ async def prepare_update(request: UpdateRequest):
             "helper_script": str(helper_script),
         })
         _append_log("更新助手已生成")
-        _append_log("请点击“立即重启并安装”继续")
+        _append_log("下载完成，即将自动重启并安装...")
         return {"status": "success", "message": "更新准备完成"}
     except Exception as exc:
         _update_progress.update({
@@ -441,7 +446,8 @@ async def restart_and_update():
             ],
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        os._exit(0)
+        threading.Timer(0.6, os._exit, args=(0,)).start()
+        return {"status": "restarting", "message": "正在退出并安装更新"}
     except Exception as exc:
         log.print_log(f"[Updater] 启动更新助手失败: {exc}", "error")
         raise HTTPException(status_code=500, detail=f"启动更新助手失败: {exc}")

@@ -129,6 +129,29 @@ class UpdateChecker {
         }
     }
 
+    shouldAutoRestart() {
+        if (this.policy?.auto_update_silent === false) {
+            return false;
+        }
+        return Boolean(
+            this.silentAutoMode
+            || this.forceMode
+            || this.policy?.auto_update_silent
+            || this.policy?.should_auto_update
+            || this.policy?.is_release_build
+        );
+    }
+
+    async triggerAutoRestart() {
+        if (this.autoRestartTriggered) {
+            return;
+        }
+        this.autoRestartTriggered = true;
+        this.appendLog('下载完成，即将自动重启并安装...', '#52c41a');
+        this.renderFooter('<button class="modal-btn secondary-btn" disabled>正在重启并安装...</button>');
+        await this.restartAndInstall(true);
+    }
+
     async runSilentAutoUpdate(policy) {
         this.policy = policy;
         this.silentAutoMode = true;
@@ -343,11 +366,8 @@ class UpdateChecker {
 
             if (data.status === 'ready_to_install') {
                 clearInterval(this.progressTimer);
-                if (this.silentAutoMode && !this.autoRestartTriggered) {
-                    this.autoRestartTriggered = true;
-                    this.appendLog('下载完成，即将自动重启并安装...', '#52c41a');
-                    this.renderFooter('<button class="modal-btn secondary-btn" disabled>正在重启并安装...</button>');
-                    await this.restartAndInstall();
+                if (this.shouldAutoRestart()) {
+                    await this.triggerAutoRestart();
                     return;
                 }
                 this.renderFooter(`
@@ -363,7 +383,7 @@ class UpdateChecker {
         }
     }
 
-    async restartAndInstall() {
+    async restartAndInstall(exitingAfterRequest = false) {
         const button = document.getElementById('restart-btn');
         if (button) {
             button.disabled = true;
@@ -379,7 +399,14 @@ class UpdateChecker {
                 const data = await response.json();
                 throw new Error(data.detail || '启动安装失败');
             }
+            if (exitingAfterRequest) {
+                this.appendLog('已发送重启指令，程序即将退出并完成安装...', '#52c41a');
+            }
         } catch (error) {
+            if (exitingAfterRequest) {
+                this.appendLog('已发送重启指令，程序即将退出并完成安装...', '#52c41a');
+                return;
+            }
             if (button) {
                 button.disabled = false;
                 button.textContent = '立即重启并安装';
