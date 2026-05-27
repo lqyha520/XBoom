@@ -155,6 +155,22 @@ async def aggregate_news(request: AggregateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/cache")
+async def get_cache(limit: int = Query(200, ge=1, le=500)):
+    """读取上次聚合缓存（快速展示，不触发全网抓取）"""
+    try:
+        manager = get_hub_manager()
+        snap = manager.get_cache_snapshot(limit=limit)
+        return {
+            "status": "success",
+            "data": snap.get("contents", []),
+            "trends": snap.get("trends", []),
+            "generated_at": snap.get("generated_at"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/trends")
 async def get_trends(
     category: str = Query("", description="分类筛选"),
@@ -166,21 +182,44 @@ async def get_trends(
     try:
         manager = get_hub_manager()
         trends = manager.get_realtime_trends(top_n=limit)
-        
+
+        if trends:
+            return {
+                "status": "success",
+                "data": [
+                    {
+                        "keyword": t,
+                        "rank": i + 1,
+                        "hot_score": max(0, 10 - i * 0.5),
+                        "growth_rate": 0,
+                    }
+                    for i, t in enumerate(trends)
+                ],
+                "generated_at": datetime.now(),
+            }
+
+        snap = manager.get_cache_snapshot(limit=50)
+        cached_trends = snap.get("trends", [])[:limit]
         return {
             "status": "success",
             "data": [
-                {"keyword": t, "rank": i+1}
-                for i, t in enumerate(trends)
+                {
+                    "keyword": t.get("keyword", ""),
+                    "rank": i + 1,
+                    "hot_score": float(t.get("score", 0) or 0),
+                    "growth_rate": 0,
+                }
+                for i, t in enumerate(cached_trends)
+                if t.get("keyword")
             ],
-            "generated_at": datetime.now(),
+            "generated_at": snap.get("generated_at") or datetime.now(),
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/sources", response_model=SourcesResponse)
+@router.get("/sources")
 async def get_sources():
     """
     获取所有数据源信息
@@ -189,11 +228,16 @@ async def get_sources():
         manager = get_hub_manager()
         sources = manager.get_sources_info()
         
-        return SourcesResponse(
+        payload = SourcesResponse(
             sources=sources,
             total=len(sources),
             enabled=sum(1 for s in sources if s.get("enabled", False)),
         )
+        try:
+            body = payload.model_dump()
+        except AttributeError:
+            body = payload.dict()
+        return {"status": "success", **body}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -249,7 +293,7 @@ async def add_source(request: SourceAddRequest):
             enabled=True
         )
         
-        manager.registry.register_custom_source(new_source)
+        manager.source_registry.register_custom_source(new_source)
         return {"status": "success", "message": f"数据源 {request.name} 已添加", "id": source_id}
     except HTTPException:
         raise
@@ -262,7 +306,7 @@ async def remove_source_api(source_id: str):
     """删除数据源"""
     try:
         manager = get_hub_manager()
-        manager.registry.remove_source(source_id)
+        manager.source_registry.remove_source(source_id)
         return {"status": "success", "message": f"数据源 {source_id} 已删除"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

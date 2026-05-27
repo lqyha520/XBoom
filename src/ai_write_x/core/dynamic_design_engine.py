@@ -41,7 +41,18 @@ class DynamicDesignEngine:
             lg.print_log(f"DynamicDesignEngine config load failed: {e}", "error")
 
     def select_palette(self, content: str, topic: str = "") -> Dict[str, str]:
-        """根据内容和话题选择最佳色彩方案"""
+        """根据内容和话题选择色彩方案；统一品牌模式下固定为配置中的品牌色。"""
+        from src.ai_write_x.core.brand_style import get_brand_colors, is_unified_brand_style
+
+        if is_unified_brand_style():
+            brand = get_brand_colors()
+            return {
+                "primary": brand["primary"],
+                "accent": brand["secondary"],
+                "background": brand["bg"],
+                "text": brand["text"],
+            }
+
         if not self.color_system:
             return {}
             
@@ -72,7 +83,10 @@ class DynamicDesignEngine:
 
     def get_wechat_system_template(self, content: str, topic: str = "") -> str:
         """生成微信公众号专用的系统提示词"""
+        from src.ai_write_x.core.brand_style import get_brand_style_prompt, is_unified_brand_style
+
         palette = self.select_palette(content, topic)
+        unified = is_unified_brand_style()
         
         # 提取颜色变量
         p_color = palette.get("primary", "#4a5568")
@@ -106,12 +120,44 @@ class DynamicDesignEngine:
                                        .replace("{{primary_rgb}}", p_rgb)
                     elements_desc += f"- **{name}**: `{html_preview}` ({desc})\n"
 
+        brand_block = get_brand_style_prompt() if unified else ""
+
+        if unified:
+            layout_rules = """
+## 【排版逻辑 — 统一公众号版式】
+1. **固定母体框架**：全文统一使用 `gold_price_v1` 或 `card` 类白色正文卡片结构，**禁止**因话题切换为 `golden_intro_v2`、`magazine_style` 等其他 DNA。
+2. **布局稳定**：顶部标题区 + 白色正文卡片 + 章节小标题左侧色条（使用品牌主色），各篇文章版式保持一致。
+3. **黄金开头**：正文第一行必须是纯文本金句；第一段文字前禁止放配图占位符。
+4. **视觉节奏**：每 300-500 字使用 `<h2>`；金句用 `quote_highlight` 或 `quote_box`。
+5. **禁止**：红绿撞色、每篇随机换紫/橙/绿主色、负数 margin 导致文字压图。
+"""
+            task_core = "本次任务核心：**统一品牌公众号排版**（全站版式一致，仅允许间距/圆角微调）。"
+        else:
+            layout_rules = """
+## 【排版逻辑与突变指令 (V20.2 绝不越界)】
+1. **DNA 继承与多样化**：
+   - 严肃/财经话题：优先使用 `gold_price_v1`。
+   - 情感/爆款话题：**必须使用** `golden_intro_v2`。
+   - 文艺/生活话题：尝试 `magazine_style`。
+2. **黄金开头极致前置 (绝对命令)**：
+   - **正文第一行必须是纯文本金句**。
+   - **严禁在第一段文字前放置任何 `<img>`、`div.img-placeholder` 或 `V-SCENE` 占位符**。
+3. **视觉布局严禁重叠**：
+   - **严禁使用负数 margin**，所有元素保持正常文档流。
+4. **色彩与对比度优先**：
+   - 浅色背景上文字使用 `#333333` 或 `#000000`。
+5. **视觉节奏 (Rhythm)**：
+   - 每 300-500 字必须使用一次 `<h2>` 标题装饰。
+"""
+            task_core = "本次任务核心：**基底 DNA 继承与视觉突变**。"
+
         template = f"""<|start_header_id|>system<|end_header_id|>
 # 微信公众号动态排版设计规范 - 元素积木系统 (V19.6 V-TEMPLATE)
 
 ## 【核心任务】
 你是一位顶级视觉艺术总监。你的任务是将文章内容转换为**可直接发布**的精美 HTML。
-本次任务核心：**基底 DNA 继承与视觉突变**。
+{task_core}
+{brand_block}
 
 ## 【本次选定的色彩方案】
 - **主色调 (Primary)**: `{p_color}`
@@ -122,25 +168,7 @@ class DynamicDesignEngine:
 ## 【设计元素库】
 重点参考 `STRUCTURAL_DNA` 类别的组件，将其作为整篇文章的母体框架：
 {elements_desc}
-
-## 【排版逻辑与突变指令 (V20.2 绝不越界)】
-1. **DNA 继承与多样化**：
-   - 严肃/财经话题：优先使用 `gold_price_v1`。
-   - 情感/爆款话题：**必须使用** `golden_intro_v2`。
-   - 文艺/生活话题：尝试 `magazine_style`。
-2. **黄金开头极致前置 (绝对命令)**：
-   - **正文第一行必须是纯文本金句**。
-   - **严禁在第一段文字前放置任何 `<img>`、`div.img-placeholder` 或 `V-SCENE` 占位符**。
-   - 即使是 `gold_price_v1` 的头部下方，也必须先出文字金句，再出第一张配图。
-3. **视觉布局严禁重叠**：
-   - **严禁使用负数 margin (如 `margin-top: -20px`)**，这会导致文字覆盖在图片上，造成阅读障碍。
-   - 所有元素必须保持正常的文档流（Block 流），确保文字在图片下方清晰排版。
-4. **色彩与对比度优先**：
-   - 除非背景是深色，否则文字必须使用 `#333333` 或 `#000000`。
-   - 严禁在浅色背景上使用白色文字。
-5. **视觉节奏 (Rhythm)**：
-   - 每 300-500 字必须使用一次 `<h2>` 标题装饰。
-   - 关键金句必须使用 `quote_highlight` 或 `quote_box` 容器。
+{layout_rules}
 
 ## 【强制规范】
 - **100% 内联样式**：严禁使用 `class` 或 `<style>` 标签。

@@ -1,5 +1,5 @@
 /* ========== 共享管理器样式 ========== */
-/* 此文件包含文章管理和模板管理的共享样式 */
+/* 此文件包含文章库和模板库的共享样式 */
 
 /* 视图容器样式集成到 main.css 中统一管理 */
 
@@ -900,5 +900,243 @@
 
     50% {
         opacity: 1;
+    }
+}
+
+/* —— 自动化任务（定时发布）—— */
+#scheduler-view.active {
+    display: flex !important;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.scheduler-layout {
+    flex: 1;
+    min-height: 0;
+    background:
+        radial-gradient(900px 300px at 90% -10%, rgba(59, 130, 246, 0.08), transparent 60%),
+        radial-gradient(800px 260px at -10% 120%, rgba(14, 165, 233, 0.08), transparent 65%);
+}
+
+.scheduler-main {
+    background: transparent;
+}
+
+.scheduler-sidebar-glass {
+    background: color-mix(in srgb, var(--surface-color) 88%, transparent);
+    border-right: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+    backdrop-filter: blur(8px);
+}
+
+.scheduler-side-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 16px 0;
+}
+
+.scheduler-stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.09), rgba(59, 130, 246, 0.02));
+    font-size: 13px;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
+}
+
+.scheduler-stat-item strong {
+    font-size: 18px;
+    color: var(--primary-color);
+}
+
+.scheduler-panels {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 12px 24px;
+}
+
+.scheduler-panel.section-card,
+.scheduler-panel {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.04);
+}
+
+.scheduler-panel .section-header {
+    margin-bottom: 12px;
+}
+
+.scheduler-panel .section-header h3 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.scheduler-log-scroll {
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.scheduler-form-row {
+    display: grid;
+    grid-template-columns: 1fr 120px;
+    gap: 16px;
+}
+
+.scheduler-count-field input {
+    text-align: center;
+}
+
+.scheduler-time-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.scheduler-time-row .form-control {
+    flex: 1;
+    min-width: 200px;
+}
+
+.scheduler-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin: 12px 0;
+}
+
+.scheduler-verify-tip {
+    font-size: 12px;
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.scheduler-modal {
+    max-width: 520px;
+    width: 92%;
+}
+
+.scheduler-toolbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    border-radius: 14px;
+    margin: 12px 12px 0;
+    border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+    background: color-mix(in srgb, var(--surface-color) 92%, transparent);
+}
+
+.scheduler-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.scheduler-last-refresh {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.scheduler-banner-error {
+    margin: 12px 12px 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: rgba(220, 38, 38, 0.08);
+    border: 1px solid rgba(220, 38, 38, 0.25);
+    color: var(--error-color, #dc2626);
+}
+
+.scheduler-sidebar-tasks-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.scheduler-sidebar-task-list {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-bottom: 8px;
+}
+
+.scheduler-sidebar-task-item {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.scheduler-sidebar-task-item:hover,
+.scheduler-sidebar-task-item.is-new {
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+}
+
+.scheduler-sidebar-task-title {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+
+.scheduler-sidebar-task-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.scheduler-sidebar-task-id {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    font-family: ui-monospace, monospace;
+}
+
+.scheduler-id-cell {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.scheduler-row-new td {
+    background: rgba(var(--primary-rgb, 59, 130, 246), 0.06);
+}
+
+#scheduler-task-list tr {
+    transition: background 0.15s ease;
+}
+
+#scheduler-task-list tr:hover td {
+    background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+
+.scheduler-row-highlight td {
+    animation: schedulerRowPulse 2s ease;
+}
+
+@keyframes schedulerRowPulse {
+    0%,
+    100% {
+        background: transparent;
+    }
+    30% {
+        background: rgba(var(--primary-rgb, 59, 130, 246), 0.12);
     }
 }

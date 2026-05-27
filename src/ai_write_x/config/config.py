@@ -249,19 +249,38 @@ class Config:
                 "github_owner": "lqyha520",
                 "github_repo": "AIWriteX-main",
                 "allow_prerelease": False,
-                "manifest_url": "https://gitee.com/lqyha520/AIWriteX-main/raw/master/releases/version-policy.json",
+                "manifest_url": "https://updates.bcxtech.cn/updates/version-policy.json",
+                "update_mirror_base": "https://updates.bcxtech.cn/updates",
                 "manifest_asset_name": "version-policy.json",
-                "installer_asset_name": "AIWriteX-Setup.exe",
-                "installer_silent_args": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-                "restart_executable": "AIWriteX.exe",
+                "installer_asset_name": "XBoom-Setup.exe",
+                "installer_silent_args": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /FORCECLOSEAPPLICATIONS",
+                "restart_executable": "XBoom.exe",
                 "check_timeout_seconds": 15,
                 "download_timeout_seconds": 600,
                 "min_supported_version": "",
                 "latest_version": "",
                 "manual_download_url": "",
-                "update_mirror_base": "",
                 "prefer_mirror": True,
-                "fallback_github": True,
+                "fallback_github": False,
+            },
+            "usage_stats": {
+                "enabled": True,
+                "report_url": "https://updates.bcxtech.cn/stats/report.php",
+                "report_token": "",
+                "timeout_seconds": 8,
+                "release_only": False,
+            },
+            # 受限菜单白名单：启动时连 MySQL（可与 MaxScale 地址）读取 menu_ip_whitelist 表
+            "menu_access": {
+                "enabled": True,
+                "mysql": {
+                    "host": "",
+                    "port": 3306,
+                    "database": "XBoom",
+                    "user": "",
+                    "password": "",
+                    "connect_timeout": 5,
+                },
             },
             "proxy": "",  # 全局代理 (e.g., http://127.0.0.1:7890)
             "use_template": True,
@@ -2263,10 +2282,7 @@ class Config:
 
             # 合并 LLM API 密钥
             if "api" in secrets:
-                for provider, provider_secrets in secrets["api"].items():
-                    if provider in self.config.get("api", {}):
-                        if "api_key" in provider_secrets and provider_secrets["api_key"]:
-                            self.config["api"][provider]["api_key"] = provider_secrets["api_key"]
+                self._merge_llm_api_secrets_from_file(secrets["api"])
 
             # 合并图片 API 密钥
             if "img_api" in secrets:
@@ -2300,6 +2316,42 @@ class Config:
             log.print_log("[Config] 🔐 已从 secrets/api_keys.yaml 加载密钥覆盖", "info")
         except Exception as e:
             log.print_log(f"[Config] secrets 加载失败(非致命): {e}", "warning")
+
+    def _merge_llm_api_secrets_from_file(self, api_secrets: dict) -> None:
+        """将 secrets 中的 LLM 密钥合并回运行时配置（含 api.custom 列表）。"""
+        if not api_secrets or not isinstance(api_secrets, dict):
+            return
+        api_root = self.config.setdefault("api", {})
+
+        # 自定义 API 列表（前端主要把 Key 存在 api.custom）
+        custom_secrets = api_secrets.get("custom")
+        if isinstance(custom_secrets, list):
+            custom_list = api_root.setdefault("custom", [])
+            for i, sec in enumerate(custom_secrets):
+                if not isinstance(sec, dict) or not sec.get("api_key"):
+                    continue
+                pk = sec.get("provider_key") or ""
+                target = None
+                if pk:
+                    for item in custom_list:
+                        if isinstance(item, dict) and item.get("provider_key") == pk:
+                            target = item
+                            break
+                    if pk in api_root and isinstance(api_root.get(pk), dict):
+                        api_root[pk]["api_key"] = sec["api_key"]
+                if target is None and i < len(custom_list) and isinstance(custom_list[i], dict):
+                    target = custom_list[i]
+                if target is not None:
+                    target["api_key"] = sec["api_key"]
+
+        reserved = {"api_type", "deleted_providers", "custom"}
+        for provider, provider_secrets in api_secrets.items():
+            if provider in reserved:
+                continue
+            if provider not in api_root or not isinstance(api_root.get(provider), dict):
+                continue
+            if isinstance(provider_secrets, dict) and provider_secrets.get("api_key"):
+                api_root[provider]["api_key"] = provider_secrets["api_key"]
 
     def _strip_secrets(self, config: Dict[Any, Any]) -> Dict[Any, Any]:
         """递归剥离配置中的所有敏感密钥，防止泄漏到 config.yaml"""
@@ -2363,11 +2415,31 @@ class Config:
         # 提取 API 密钥
         if "api" in config:
             new_secrets["api"] = {}
-            for provider, provider_config in config["api"].items():
+            api_block = config["api"]
+            reserved = {"api_type", "deleted_providers", "custom"}
+            for provider, provider_config in api_block.items():
+                if provider in reserved:
+                    continue
                 if isinstance(provider_config, dict) and provider_config.get("api_key"):
-                    # 跳过只有默认值的情况
-                    if provider_config["api_key"]:
-                        new_secrets["api"][provider] = {"api_key": provider_config["api_key"]}
+                    new_secrets["api"][provider] = {"api_key": provider_config["api_key"]}
+
+            custom_list = api_block.get("custom")
+            if isinstance(custom_list, list):
+                custom_secrets = []
+                for item in custom_list:
+                    if not isinstance(item, dict):
+                        continue
+                    keys = item.get("api_key")
+                    if not keys or (isinstance(keys, list) and not any(keys)):
+                        continue
+                    sec_item = {"api_key": keys}
+                    if item.get("provider_key"):
+                        sec_item["provider_key"] = item["provider_key"]
+                    if item.get("name"):
+                        sec_item["name"] = item["name"]
+                    custom_secrets.append(sec_item)
+                if custom_secrets:
+                    new_secrets["api"]["custom"] = custom_secrets
         
         # 提取图片 API 密钥
         if "img_api" in config:
@@ -2387,6 +2459,14 @@ class Config:
                             new_secrets["img_api"]["custom"] = custom_with_keys
         
         # 合并: 保留现有 secrets 中不在新配置中的内容
+        if "api" in new_secrets and isinstance(existing_secrets.get("api"), dict):
+            ex_api = existing_secrets["api"]
+            if "custom" not in new_secrets["api"] and ex_api.get("custom"):
+                new_secrets["api"]["custom"] = ex_api["custom"]
+            for prov, prov_sec in ex_api.items():
+                if prov not in new_secrets["api"] and prov not in ("custom",):
+                    new_secrets["api"][prov] = prov_sec
+
         for key in ["wechat", "api", "img_api"]:
             if key not in new_secrets:
                 new_secrets[key] = existing_secrets.get(key, {})

@@ -1,150 +1,230 @@
-<div class="config-panel" id="config-image-design">   
-    <div class="config-header">  
-        <h2>页面设计</h2>  
-        <p class="config-description">配置HTML页面的全局外观样式</p>  
-    </div>  
-      
-    <div class="config-form">  
-        <!-- 全局开关 -->  
-        <div class="config-section">
-            <div class="form-group">  
-                <label class="checkbox-label">  
-                    <input type="checkbox" id="unified-brand-style" checked>  
-                    <span class="checkbox-custom"></span>  
-                    统一品牌配色（推荐）
-                </label>  
-                <p class="form-hint" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">  
-                    开启后，新生成的文章将共用下方主色/辅色，避免有的文章偏红、有的偏绿。关闭则恢复 AI 按话题自由配色。
-                </p>  
-            </div>  
-            <div class="form-group">  
-                <label class="checkbox-label">  
-                    <input type="checkbox" id="use-original-styles">  
-                    <span class="checkbox-custom"></span>  
-                    使用原始HTML样式(不应用以下配置)  
-                </label>  
-                <p class="form-hint" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">  
-                    勾选后，页面设计器将直接使用HTML文件的内联样式，不应用下方的全局样式配置（页面设计参数为实验性功能，请谨慎使用）  
-                </p>  
-            </div>  
-        </div>  
-          
-        <!-- 页面容器 -->  
-        <div class="config-section" id="page-design-settings">  
-            <h3 class="section-title">页面容器</h3>  
-            <div class="form-row">  
-                <div class="form-group form-group-third">  
-                    <label>最大宽度(px)</label>  
-                    <input type="number" id="container-max-width" class="form-control" value="750" min="320" max="1200">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>左右外边距(px)</label>  
-                    <input type="number" id="container-margin-h" class="form-control" value="10" min="0" max="50">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>页面背景色</label>  
-                    <input type="color" id="container-bg-color" class="form-control" value="#f8f9fa">  
-                </div>  
-            </div>  
-        </div>  
-          
-        <!-- 卡片样式 -->  
-        <div class="config-section" id="card-design-settings">  
-            <h3 class="section-title">卡片样式</h3>  
-            <div class="form-row">  
-                <div class="form-group form-group-third">  
-                    <label>圆角(px)</label>  
-                    <input type="number" id="card-border-radius" class="form-control" value="12" min="0" max="50">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>内边距(px)</label>  
-                    <input type="number" id="card-padding" class="form-control" value="24" min="8" max="50">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>背景色</label>  
-                    <input type="color" id="card-bg-color" class="form-control" value="#ffffff">  
-                </div>  
-            </div>  
-            <div class="form-row">  
-                <div class="form-group">  
-                    <label>阴影</label>  
-                    <input type="text" id="card-box-shadow" class="form-control" value="0 4px 16px rgba(0,0,0,0.06)">  
-                </div>  
-            </div>  
-        </div>  
-          
-        <!-- 排版 -->  
-        <div class="config-section" id="typography-design-settings">  
-            <h3 class="section-title">排版</h3>  
-            <div class="form-row">  
-                <div class="form-group form-group-third">  
-                    <label>基础字号(px)</label>  
-                    <input type="number" id="typography-font-size" class="form-control" value="16" min="12" max="24">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>行高倍数</label>  
-                    <input type="number" id="typography-line-height" class="form-control" value="1.6" min="1.2" max="2.5" step="0.1">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>标题字号倍数</label>  
-                    <input type="number" id="typography-heading-scale" class="form-control" value="1.5" min="1.2" max="2.0" step="0.1">  
-                </div>  
-            </div>  
-            <div class="form-row">  
-                <div class="form-group form-group-half">  
-                    <label>文本颜色</label>  
-                    <input type="color" id="typography-text-color" class="form-control" value="#333333">  
-                </div>  
-                <div class="form-group form-group-half">  
-                    <label>标题颜色</label>  
-                    <input type="color" id="typography-heading-color" class="form-control" value="#333333">  
-                </div>  
-            </div>  
-        </div>  
-          
-        <!-- 间距 -->  
-        <div class="config-section" id="spacing-design-settings">  
-            <h3 class="section-title">间距</h3>  
-            <div class="form-row">  
-                <div class="form-group form-group-half">  
-                    <label>Section间距(px)</label>  
-                    <input type="number" id="spacing-section-margin" class="form-control" value="24" min="8" max="50">  
-                </div>  
-                <div class="form-group form-group-half">  
-                    <label>元素间距(px)</label>  
-                    <input type="number" id="spacing-element-margin" class="form-control" value="16" min="8" max="32">  
-                </div>  
-            </div>  
-        </div>  
-          
-        <!-- 色彩强调 -->  
-        <div class="config-section" id="accent-design-settings">  
-            <h3 class="section-title">色彩强调</h3>  
-            <div class="form-row">  
-                <div class="form-group form-group-third">  
-                    <label>主色调</label>  
-                    <input type="color" id="accent-primary-color" class="form-control" value="#3a7bd5">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>辅助色</label>  
-                    <input type="color" id="accent-secondary-color" class="form-control" value="#00b09b">  
-                </div>  
-                <div class="form-group form-group-third">  
-                    <label>高亮背景色</label>  
-                    <input type="color" id="accent-highlight-bg" class="form-control" value="#f0f7ff">  
-                </div>  
-            </div>  
-        </div>  
-    </div>  
-      
-    <div class="config-actions">  
-        <button type="button" class="btn btn-primary" id="save-page-design-config">  
-            <i class="icon-save"></i>  
-            保存设置  
-        </button>  
-        <button type="button" class="btn btn-secondary" id="reset-page-design-config">  
-            <i class="icon-reset"></i>  
-            恢复默认  
-        </button>  
-    </div>  
+<div id="config-image-design" class="config-panel page-design-panel">
+    <div class="config-header">
+        <div class="header-content">
+            <div>
+                <h2>页面设计</h2>
+                <p class="config-description">控制生成文章 HTML 的全局排版与品牌色，作用于自动排版与页面设计器</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="btn btn-secondary" id="reset-page-design-config">恢复默认</button>
+            <button type="button" class="btn btn-primary" id="save-page-design-config">保存设置</button>
+        </div>
+    </div>
+
+    <div class="config-form page-design-form">
+        <div class="page-design-mode-bar" id="page-design-mode-bar" role="status">
+            <span class="page-design-mode-icon" aria-hidden="true">📄</span>
+            <div class="page-design-mode-copy">
+                <strong id="page-design-mode-title">应用全局样式</strong>
+                <span id="page-design-mode-desc">下方参数将注入新生成文章的 HTML 排版</span>
+            </div>
+            <span class="page-design-mode-pill" id="page-design-brand-pill">统一配色</span>
+        </div>
+
+        <details class="page-design-settings-panel" open>
+            <summary class="page-design-settings-summary">
+                <span class="page-design-settings-summary-title">全局策略</span>
+                <span class="page-design-settings-summary-desc">品牌色与是否使用内联样式</span>
+            </summary>
+            <div class="page-design-settings-body">
+                <label class="page-design-toggle-card page-design-toggle-card-primary">
+                    <input type="checkbox" id="unified-brand-style" checked>
+                    <span class="checkbox-custom"></span>
+                    <span class="page-design-toggle-text">
+                        <strong>统一品牌配色</strong>
+                        <small>推荐开启，多篇文章主色/辅色一致，避免有的偏红、有的偏绿</small>
+                    </span>
+                </label>
+                <label class="page-design-toggle-card">
+                    <input type="checkbox" id="use-original-styles">
+                    <span class="checkbox-custom"></span>
+                    <span class="page-design-toggle-text">
+                        <strong>使用原始 HTML 样式</strong>
+                        <small>勾选后不应用下方全局参数，直接保留文件内联样式（实验性）</small>
+                    </span>
+                </label>
+            </div>
+        </details>
+
+        <div id="page-design-styles-wrap" class="page-design-styles-wrap">
+            <details class="page-design-settings-panel page-design-style-section" id="page-design-settings" open>
+                <summary class="page-design-settings-summary">
+                    <span class="page-design-settings-summary-title">页面容器</span>
+                    <span class="page-design-settings-summary-desc">宽度、边距与页面底色</span>
+                </summary>
+                <div class="page-design-settings-body">
+                    <div class="page-design-field-grid page-design-field-grid-3">
+                        <div class="form-group">
+                            <label for="container-max-width">最大宽度 (px)</label>
+                            <input type="number" id="container-max-width" class="form-control" value="750" min="320" max="1200">
+                        </div>
+                        <div class="form-group">
+                            <label for="container-margin-h">左右外边距 (px)</label>
+                            <input type="number" id="container-margin-h" class="form-control" value="10" min="0" max="50">
+                        </div>
+                        <div class="form-group page-design-color-field">
+                            <label for="container-bg-color">页面背景色</label>
+                            <div class="page-design-color-input">
+                                <input type="color" id="container-bg-color" value="#f8f9fa">
+                                <span class="page-design-color-hex" data-color-for="container-bg-color">#f8f9fa</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <details class="page-design-settings-panel page-design-style-section" id="card-design-settings" open>
+                <summary class="page-design-settings-summary">
+                    <span class="page-design-settings-summary-title">卡片样式</span>
+                    <span class="page-design-settings-summary-desc">圆角、内边距与阴影</span>
+                </summary>
+                <div class="page-design-settings-body">
+                    <div class="page-design-field-grid page-design-field-grid-3">
+                        <div class="form-group">
+                            <label for="card-border-radius">圆角 (px)</label>
+                            <input type="number" id="card-border-radius" class="form-control" value="12" min="0" max="50">
+                        </div>
+                        <div class="form-group">
+                            <label for="card-padding">内边距 (px)</label>
+                            <input type="number" id="card-padding" class="form-control" value="24" min="8" max="50">
+                        </div>
+                        <div class="form-group page-design-color-field">
+                            <label for="card-bg-color">卡片背景色</label>
+                            <div class="page-design-color-input">
+                                <input type="color" id="card-bg-color" value="#ffffff">
+                                <span class="page-design-color-hex" data-color-for="card-bg-color">#ffffff</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="card-box-shadow">阴影 CSS</label>
+                        <input type="text" id="card-box-shadow" class="form-control" value="0 4px 16px rgba(0,0,0,0.06)" placeholder="如 0 4px 16px rgba(0,0,0,0.06)">
+                        <p class="form-help">标准 CSS box-shadow 语法</p>
+                    </div>
+                </div>
+            </details>
+
+            <details class="page-design-settings-panel page-design-style-section" id="typography-design-settings">
+                <summary class="page-design-settings-summary">
+                    <span class="page-design-settings-summary-title">排版</span>
+                    <span class="page-design-settings-summary-desc">字号、行高与文字颜色</span>
+                </summary>
+                <div class="page-design-settings-body">
+                    <div class="page-design-field-grid page-design-field-grid-3">
+                        <div class="form-group">
+                            <label for="typography-font-size">基础字号 (px)</label>
+                            <input type="number" id="typography-font-size" class="form-control" value="16" min="12" max="24">
+                        </div>
+                        <div class="form-group">
+                            <label for="typography-line-height">行高倍数</label>
+                            <input type="number" id="typography-line-height" class="form-control" value="1.6" min="1.2" max="2.5" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label for="typography-heading-scale">标题字号倍数</label>
+                            <input type="number" id="typography-heading-scale" class="form-control" value="1.5" min="1.2" max="2.0" step="0.1">
+                        </div>
+                    </div>
+                    <div class="page-design-field-grid page-design-field-grid-2">
+                        <div class="form-group page-design-color-field">
+                            <label for="typography-text-color">正文颜色</label>
+                            <div class="page-design-color-input">
+                                <input type="color" id="typography-text-color" value="#333333">
+                                <span class="page-design-color-hex" data-color-for="typography-text-color">#333333</span>
+                            </div>
+                        </div>
+                        <div class="form-group page-design-color-field">
+                            <label for="typography-heading-color">标题颜色</label>
+                            <div class="page-design-color-input">
+                                <input type="color" id="typography-heading-color" value="#333333">
+                                <span class="page-design-color-hex" data-color-for="typography-heading-color">#333333</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <details class="page-design-settings-panel page-design-style-section" id="spacing-design-settings">
+                <summary class="page-design-settings-summary">
+                    <span class="page-design-settings-summary-title">间距</span>
+                    <span class="page-design-settings-summary-desc">区块与元素之间的留白</span>
+                </summary>
+                <div class="page-design-settings-body">
+                    <div class="page-design-field-grid page-design-field-grid-2">
+                        <div class="form-group">
+                            <label for="spacing-section-margin">Section 间距 (px)</label>
+                            <input type="number" id="spacing-section-margin" class="form-control" value="24" min="8" max="50">
+                        </div>
+                        <div class="form-group">
+                            <label for="spacing-element-margin">元素间距 (px)</label>
+                            <input type="number" id="spacing-element-margin" class="form-control" value="16" min="8" max="32">
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <details class="page-design-settings-panel page-design-style-section" id="accent-design-settings" open>
+                <summary class="page-design-settings-summary">
+                    <span class="page-design-settings-summary-title">色彩强调</span>
+                    <span class="page-design-settings-summary-desc">主色、辅色与高亮背景</span>
+                </summary>
+                <div class="page-design-settings-body" id="accent-design-body">
+                    <div class="page-design-accent-preview" id="page-design-accent-preview">
+                        <div class="page-design-swatch-item">
+                            <span class="page-design-swatch" id="preview-primary"></span>
+                            <small>主色</small>
+                        </div>
+                        <div class="page-design-swatch-item">
+                            <span class="page-design-swatch" id="preview-secondary"></span>
+                            <small>辅色</small>
+                        </div>
+                        <div class="page-design-swatch-item">
+                            <span class="page-design-swatch" id="preview-highlight"></span>
+                            <small>高亮底</small>
+                        </div>
+                    </div>
+                    <div class="page-design-field-grid page-design-field-grid-3">
+                        <div class="form-group page-design-color-field">
+                            <label for="accent-primary-color">主色调</label>
+                            <div class="page-design-color-input">
+                                <input type="color" id="accent-primary-color" value="#3a7bd5">
+                                <span class="page-design-color-hex" data-color-for="accent-primary-color">#3a7bd5</span>
+                            </div>
+                        </div>
+                        <div class="form-group page-design-color-field">
+                            <label for="accent-secondary-color">辅助色</label>
+                            <div class="page-design-color-input">
+                                <input type="color" id="accent-secondary-color" value="#00b09b">
+                                <span class="page-design-color-hex" data-color-for="accent-secondary-color">#00b09b</span>
+                            </div>
+                        </div>
+                        <div class="form-group page-design-color-field">
+                            <label for="accent-highlight-bg">高亮背景</label>
+                            <div class="page-design-color-input">
+                                <input type="color" id="accent-highlight-bg" value="#f0f7ff">
+                                <span class="page-design-color-hex" data-color-for="accent-highlight-bg">#f0f7ff</span>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="page-design-accent-hint" id="page-design-accent-hint" hidden>
+                        已关闭「统一品牌配色」时，AI 可能按话题自由选色，下方色值仅作参考或回退。
+                    </p>
+                </div>
+            </details>
+        </div>
+
+        <details class="page-design-settings-panel page-design-help-panel">
+            <summary class="page-design-settings-summary">
+                <span class="page-design-settings-summary-title">使用说明</span>
+            </summary>
+            <div class="page-design-settings-body page-design-help-body">
+                <ul>
+                    <li>修改后需点击右上角<strong>保存设置</strong>才会写入配置文件。</li>
+                    <li>「设计器主题」在 <strong>常规设置 → 应用外观</strong> 中配置，与本页 HTML 样式无关。</li>
+                    <li>勾选「原始 HTML 样式」后，下方参数仅保留备查，不会参与生成。</li>
+                    <li>文章库中可用「页面设计」单独微调单篇，仍以本页为默认基准。</li>
+                </ul>
+            </div>
+        </details>
+    </div>
 </div>

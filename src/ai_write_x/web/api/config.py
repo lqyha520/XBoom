@@ -212,12 +212,12 @@ async def get_system_messages():
     # 如果配置中没有,返回默认消息
     if not system_messages:
         system_messages = [
-            {"text": "欢迎使用 AIWriteX 智能内容创作平台", "type": "info"},
+            {"text": "欢迎使用 小爆来咯 智能内容创作平台", "type": "info"},
             {
-                "text": "AIWriteX 重新定义 AI 辅助内容创作的边界，融合搜索+借鉴+AI+创意四重能力，多种玩法让内容创作充满无限可能",
+                "text": "小爆来咯 融合搜索+借鉴+AI+创意四重能力，多种玩法让内容创作充满无限可能",
                 "type": "info",
             },
-            {"text": "更多 AIWriteX 功能持续进化中，敬请期待", "type": "info"},
+            {"text": "更多 小爆来咯 功能持续进化中，敬请期待", "type": "info"},
         ]
 
     return {"status": "success", "data": system_messages}
@@ -251,7 +251,7 @@ async def get_help_manual():
         content="""
         <div style="padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.7;">
             <h2 style="margin:0 0 12px;">使用手册暂未内置</h2>
-            <p style="margin:0;">当前版本未找到帮助文档模板文件，请前往系统设置、模板管理和定时任务模块查看具体配置项。</p>
+            <p style="margin:0;">当前版本未找到帮助文档模板文件，请前往设置、模板库和自动化任务模块查看具体配置项。</p>
         </div>
         """
     )

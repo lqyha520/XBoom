@@ -9,7 +9,15 @@ class UpdateChecker {
         this.forceMode = false;
         this.silentAutoMode = false;
         this.autoRestartTriggered = false;
+        this.currentStepId = 'check';
         this.elements = {};
+
+        this.STEPS = [
+            { id: 'check', label: '检查版本', desc: '正在连接更新服务器…' },
+            { id: 'download', label: '下载安装包', desc: '准备下载…' },
+            { id: 'install', label: '安装更新', desc: '静默解压安装包（约 1～3 分钟）' },
+            { id: 'restart', label: '重启应用', desc: '窗口关闭后请稍候，正在启动新版本' },
+        ];
 
         window.__aiwritexUpdateCheckerInstance = this;
 
@@ -22,18 +30,107 @@ class UpdateChecker {
 
     init() {
         this.cacheElements();
+        this.renderStepList();
         this.ensureForceOverlay();
-        this.checkStartupPolicy();
+        this.scheduleStartupPolicyCheck();
+    }
+
+    scheduleStartupPolicyCheck() {
+        const run = () => this.checkStartupPolicy();
+        if (window.APP_CLIENT_TOKEN || this.getCookie('app_client_token')) {
+            run();
+            return;
+        }
+        document.addEventListener('pywebviewready', run, { once: true });
+        setTimeout(run, 2500);
     }
 
     cacheElements() {
         this.elements.modal = document.getElementById('update-modal-overlay');
-        this.elements.logTerminal = document.getElementById('update-log-terminal');
+        this.elements.stepList = document.getElementById('update-step-list');
+        this.elements.versionRow = document.getElementById('update-version-row');
+        this.elements.currentVersion = document.getElementById('update-current-version');
+        this.elements.latestVersion = document.getElementById('update-latest-version');
+        this.elements.releaseNotes = document.getElementById('update-release-notes');
+        this.elements.progressBlock = document.getElementById('update-progress-block');
         this.elements.progressBar = document.getElementById('update-progress-inner');
         this.elements.progressText = document.getElementById('update-progress-percent');
-        this.elements.footerRight = document.querySelector('#update-modal-overlay .footer-right');
-        this.elements.closeButton = document.querySelector('#update-modal-overlay .close-btn');
-        this.elements.updateButtonText = document.getElementById('update-btn-text');
+        this.elements.progressLabel = document.getElementById('update-progress-label');
+        this.elements.logTerminal = document.getElementById('update-log-terminal');
+        this.elements.logToggle = document.getElementById('update-log-toggle');
+        this.elements.footerHint = document.getElementById('update-footer-hint');
+        this.elements.footerRight = document.querySelector('#update-modal-overlay .update-footer-actions');
+        this.elements.closeButton = document.querySelector('#update-modal-overlay .update-close-btn');
+    }
+
+    renderStepList() {
+        if (!this.elements.stepList) return;
+        this.elements.stepList.innerHTML = this.STEPS.map((step, index) => `
+            <li class="update-step-item is-pending" data-step="${step.id}" id="update-step-${step.id}">
+                <div class="update-step-icon">${index + 1}</div>
+                <div class="update-step-content">
+                    <div class="update-step-label">${step.label}</div>
+                    <div class="update-step-desc" id="update-step-desc-${step.id}">${step.desc}</div>
+                </div>
+            </li>
+        `).join('');
+    }
+
+    setStep(stepId, state, desc) {
+        this.currentStepId = stepId;
+        const order = this.STEPS.map((s) => s.id);
+        const activeIndex = order.indexOf(stepId);
+
+        order.forEach((id, index) => {
+            const el = document.getElementById(`update-step-${id}`);
+            const descEl = document.getElementById(`update-step-desc-${id}`);
+            if (!el) return;
+
+            el.classList.remove('is-pending', 'is-active', 'is-done', 'is-error');
+            if (state === 'error' && id === stepId) {
+                el.classList.add('is-error');
+                if (descEl && desc) descEl.textContent = desc;
+                return;
+            }
+            if (index < activeIndex) {
+                el.classList.add('is-done');
+                const icon = el.querySelector('.update-step-icon');
+                if (icon) icon.textContent = '✓';
+            } else if (index === activeIndex) {
+                el.classList.add(state === 'done' ? 'is-done' : 'is-active');
+                if (state === 'done') {
+                    const icon = el.querySelector('.update-step-icon');
+                    if (icon) icon.textContent = '✓';
+                }
+                if (descEl && desc) descEl.textContent = desc;
+            } else {
+                el.classList.add('is-pending');
+            }
+        });
+    }
+
+    setFooterHint(text) {
+        if (this.elements.footerHint) {
+            this.elements.footerHint.textContent = text;
+        }
+    }
+
+    showProgressBlock(show) {
+        if (this.elements.progressBlock) {
+            this.elements.progressBlock.classList.toggle('is-hidden', !show);
+        }
+    }
+
+    showVersionRow(show) {
+        if (this.elements.versionRow) {
+            this.elements.versionRow.style.display = show ? 'flex' : 'none';
+        }
+    }
+
+    showReleaseNotes(show) {
+        if (this.elements.releaseNotes) {
+            this.elements.releaseNotes.classList.toggle('is-hidden', !show);
+        }
     }
 
     ensureForceOverlay() {
@@ -41,35 +138,76 @@ class UpdateChecker {
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.id = 'force-update-overlay';
-            overlay.style.cssText = [
-                'position:fixed',
-                'inset:0',
-                'z-index:20000',
-                'display:none',
-                'align-items:center',
-                'justify-content:center',
-                'background:rgba(8,10,18,0.92)',
-                'backdrop-filter:blur(8px)',
-                'padding:24px',
-            ].join(';');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:20000;display:none;align-items:center;justify-content:center;background:rgba(15,10,30,0.5);backdrop-filter:blur(8px);padding:24px;';
             overlay.innerHTML = `
-                <div style="width:min(520px, 100%); background:#111827; border:1px solid rgba(255,255,255,0.08); border-radius:12px; box-shadow:0 20px 80px rgba(0,0,0,0.35); padding:28px; color:#f3f4f6;">
-                    <div style="font-size:20px; font-weight:700; margin-bottom:10px;">需要先更新 AIWriteX</div>
-                    <div id="force-update-message" style="font-size:14px; line-height:1.7; color:#cbd5e1; margin-bottom:18px;"></div>
-                    <div id="force-update-notes" style="max-height:180px; overflow:auto; padding:12px; border-radius:8px; background:rgba(255,255,255,0.04); color:#cbd5e1; white-space:pre-wrap; font-size:13px; line-height:1.6; margin-bottom:18px;"></div>
-                    <div style="display:flex; gap:12px; justify-content:flex-end;">
-                        <button id="force-update-button" style="border:none; border-radius:8px; padding:10px 18px; cursor:pointer; background:#22c55e; color:#08110a; font-size:14px; font-weight:700;">立即更新</button>
-                    </div>
+                <div class="force-card">
+                    <div class="force-title">需要更新 小爆来咯</div>
+                    <div id="force-update-message" class="force-msg"></div>
+                    <div id="force-update-notes" class="force-notes"></div>
+                    <button id="force-update-button" type="button">立即更新（自动安装并重启）</button>
                 </div>
             `;
             document.body.appendChild(overlay);
         }
-
         this.elements.forceOverlay = overlay;
         this.elements.forceMessage = document.getElementById('force-update-message');
         this.elements.forceNotes = document.getElementById('force-update-notes');
         this.elements.forceButton = document.getElementById('force-update-button');
-        this.elements.forceButton.onclick = () => this.openManualCheck(true);
+        this.elements.forceButton.onclick = () => this.beginAutoUpdateFlow(true);
+    }
+
+    normalizeError(message) {
+        let text = String(message || '').trim();
+        text = text.replace(/^检查更新失败[:：]\s*/i, '');
+        text = text.replace(/^更新失败[:：]\s*/i, '');
+        if (/all connection attempts failed/i.test(text)) {
+            return '无法连接更新服务器，请检查网络或配置系统代理后重试';
+        }
+        return text || '未知错误';
+    }
+
+    fillVersionInfo(policy) {
+        if (this.elements.currentVersion) {
+            this.elements.currentVersion.textContent = `v${policy.current_version || '--'}`;
+        }
+        if (this.elements.latestVersion) {
+            this.elements.latestVersion.textContent = `v${policy.latest_version || '--'}`;
+        }
+        if (this.elements.releaseNotes) {
+            this.elements.releaseNotes.textContent = policy.release_notes || '暂无更新说明';
+        }
+    }
+
+    renderFooter(buttonsHtml) {
+        if (this.elements.footerRight) {
+            this.elements.footerRight.innerHTML = buttonsHtml;
+        }
+    }
+
+    bindLogToggle() {
+        if (!this.elements.logToggle || this.elements.logToggle.dataset.bound) return;
+        this.elements.logToggle.dataset.bound = '1';
+        this.elements.logToggle.addEventListener('click', () => {
+            this.elements.logTerminal?.classList.toggle('is-visible');
+            this.elements.logToggle.textContent = this.elements.logTerminal?.classList.contains('is-visible')
+                ? '▲ 收起日志'
+                : '▼ 查看详细日志';
+        });
+    }
+
+    appendLog(message) {
+        if (!this.elements.logTerminal) return;
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        line.textContent = message;
+        this.elements.logTerminal.appendChild(line);
+        this.elements.logTerminal.scrollTop = this.elements.logTerminal.scrollHeight;
+    }
+
+    renderLogs(lines = []) {
+        if (!this.elements.logTerminal) return;
+        this.elements.logTerminal.innerHTML = '';
+        lines.forEach((line) => this.appendLog(line));
     }
 
     getHeaders(extra = {}) {
@@ -83,8 +221,7 @@ class UpdateChecker {
 
     getCookie(name) {
         const key = `${name}=`;
-        const parts = decodeURIComponent(document.cookie).split(';');
-        for (const part of parts) {
+        for (const part of decodeURIComponent(document.cookie).split(';')) {
             const trimmed = part.trim();
             if (trimmed.startsWith(key)) {
                 return trimmed.substring(key.length);
@@ -93,16 +230,36 @@ class UpdateChecker {
         return '';
     }
 
-    async fetchPolicy() {
+    async fetchPolicy(retries = 3) {
         const response = await fetch('/api/system/update-policy', {
             headers: this.getHeaders(),
         });
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 403 && retries > 0) {
+            await new Promise((r) => setTimeout(r, 600));
+            return this.fetchPolicy(retries - 1);
+        }
         if (!response.ok) {
-            throw new Error(data.detail || '检查更新失败');
+            throw new Error(this.normalizeError(data.detail || '检查更新失败'));
         }
         this.policy = data;
         return data;
+    }
+
+    resetUiForFlow() {
+        this.autoRestartTriggered = false;
+        this.renderStepList();
+        this.showProgressBlock(false);
+        this.showVersionRow(true);
+        this.showReleaseNotes(true);
+        this.resetProgress();
+        this.bindLogToggle();
+        if (this.elements.logTerminal) {
+            this.elements.logTerminal.classList.remove('is-visible');
+        }
+        if (this.elements.logToggle) {
+            this.elements.logToggle.textContent = '▼ 查看详细日志';
+        }
     }
 
     async checkStartupPolicy() {
@@ -111,35 +268,30 @@ class UpdateChecker {
             if (!policy.enabled || !policy.startup_check) {
                 return;
             }
-
             if (policy.should_auto_update) {
-                await this.runSilentAutoUpdate(policy);
+                this.policy = policy;
+                await this.beginAutoUpdateFlow(true);
                 return;
             }
-
+            if (policy.has_update && policy.can_update && policy.auto_update_silent) {
+                this.policy = policy;
+                await this.beginAutoUpdateFlow(true);
+                return;
+            }
             if (policy.force_update) {
                 if (policy.auto_update_silent && policy.can_update) {
-                    await this.runSilentAutoUpdate(policy);
+                    this.policy = policy;
+                    await this.beginAutoUpdateFlow(true);
                 } else {
                     this.showForceOverlay(policy);
                 }
             }
         } catch (error) {
             console.error('Startup update check failed:', error);
+            if (window.footerMarquee?.addMessage) {
+                window.footerMarquee.addMessage(`检查更新失败：${this.normalizeError(error.message)}`, 'warning', false, 1);
+            }
         }
-    }
-
-    shouldAutoRestart() {
-        if (this.policy?.auto_update_silent === false) {
-            return false;
-        }
-        return Boolean(
-            this.silentAutoMode
-            || this.forceMode
-            || this.policy?.auto_update_silent
-            || this.policy?.should_auto_update
-            || this.policy?.is_release_build
-        );
     }
 
     async triggerAutoRestart() {
@@ -147,42 +299,38 @@ class UpdateChecker {
             return;
         }
         this.autoRestartTriggered = true;
-        this.appendLog('下载完成，即将自动重启并安装...', '#52c41a');
-        this.renderFooter('<button class="modal-btn secondary-btn" disabled>正在重启并安装...</button>');
+        this.setStep('install', 'done', '安装包已就绪');
+        this.setStep('restart', 'active', '正在退出并静默安装…');
+        this.setFooterHint(
+            '窗口会关闭 1～3 分钟属正常（安装包约 128MB 需解压）。若弹出 UAC 请点「是」；完成后会自动打开新版本。'
+        );
+        this.renderFooter('');
         await this.restartAndInstall(true);
     }
 
-    async runSilentAutoUpdate(policy) {
-        this.policy = policy;
-        this.silentAutoMode = true;
-        this.forceMode = true;
-        this.autoRestartTriggered = false;
-
-        this.openModal(true);
-        this.resetProgress();
-        this.renderLogs([
-            `检测到新版本 v${policy.latest_version}（当前 v${policy.current_version}）`,
-            '正在自动下载并安装，请勿关闭程序...',
-            '',
-            policy.release_notes || '暂无更新说明',
-        ]);
-        this.renderFooter('<button class="modal-btn secondary-btn" disabled>自动更新中...</button>');
-
+    async beginAutoUpdateFlow(forceMode = false) {
+        this.forceMode = forceMode;
+        this.silentAutoMode = forceMode;
+        this.openModal(forceMode);
+        this.resetUiForFlow();
+        this.fillVersionInfo(this.policy);
+        this.setStep('check', 'done', '已发现新版本');
+        this.setFooterHint('正在自动更新，请勿关闭程序');
+        this.renderFooter('');
         await this.startUpdate(true);
     }
 
     showForceOverlay(policy) {
+        this.policy = policy;
         this.forceMode = true;
         this.elements.forceOverlay.style.display = 'flex';
         this.elements.forceMessage.textContent =
-            `当前版本 v${policy.current_version} 低于最低支持版本 v${policy.min_supported_version || policy.latest_version}，更新完成前不能继续使用。`;
-        this.elements.forceNotes.textContent = policy.release_notes || '请先更新到最新版本。';
+            `当前 v${policy.current_version} 需升级至 v${policy.latest_version} 后才能继续使用。`;
+        this.elements.forceNotes.textContent = policy.release_notes || '';
         this.elements.forceButton.disabled = !policy.can_update;
-        this.elements.forceButton.textContent = policy.can_update ? '立即更新' : '当前无法自动更新';
     }
 
     hideForceOverlay() {
-        this.forceMode = false;
         if (this.elements.forceOverlay) {
             this.elements.forceOverlay.style.display = 'none';
         }
@@ -214,138 +362,121 @@ class UpdateChecker {
         if (this.elements.progressText) {
             this.elements.progressText.textContent = '0%';
         }
-    }
-
-    renderFooter(buttonsHtml) {
-        if (this.elements.footerRight) {
-            this.elements.footerRight.innerHTML = buttonsHtml;
+        if (this.elements.progressLabel) {
+            this.elements.progressLabel.textContent = '下载进度';
         }
-    }
-
-    appendLog(message, color = '') {
-        if (!this.elements.logTerminal) return;
-        const line = document.createElement('div');
-        line.className = 'log-line';
-        if (color) {
-            line.style.color = color;
-        }
-        line.textContent = message;
-        this.elements.logTerminal.appendChild(line);
-        this.elements.logTerminal.scrollTop = this.elements.logTerminal.scrollHeight;
-    }
-
-    renderLogs(lines = []) {
-        if (!this.elements.logTerminal) return;
-        this.elements.logTerminal.innerHTML = '';
-        lines.forEach(line => this.appendLog(line));
     }
 
     async openManualCheck(forceMode = false) {
         this.openModal(forceMode);
-        this.resetProgress();
-        this.renderLogs(['正在检查版本策略...', '正在获取服务器上的最新发布信息...']);
-        this.renderFooter('<button class="modal-btn secondary-btn" disabled>检查中...</button>');
+        this.resetUiForFlow();
+        this.setStep('check', 'active', '正在检查更新…');
+        this.setFooterHint('');
+        this.fillVersionInfo({ current_version: '--', latest_version: '--', release_notes: '' });
+        this.showReleaseNotes(false);
+        this.renderFooter('<button type="button" class="update-btn update-btn-ghost" disabled>检查中…</button>');
 
         try {
             const policy = await this.fetchPolicy();
+            this.policy = policy;
+            this.fillVersionInfo(policy);
+            this.showReleaseNotes(true);
+            this.setStep('check', 'done', `当前 v${policy.current_version}，最新 v${policy.latest_version}`);
+
             if (policy.force_update) {
                 this.showForceOverlay(policy);
             }
 
-            if (policy.has_update) {
-                this.renderUpdateAvailable(policy, forceMode || policy.force_update);
+            if (policy.has_update && policy.can_update) {
+                this.setFooterHint('点击更新后将自动下载、安装并重启');
+                const cancelBtn = forceMode
+                    ? ''
+                    : '<button type="button" class="update-btn update-btn-ghost" onclick="window.updateChecker.closeModal()">稍后再说</button>';
+                this.renderFooter(`
+                    ${cancelBtn}
+                    <button type="button" class="update-btn update-btn-primary" onclick="window.updateChecker.beginAutoUpdateFlow(false)">立即更新</button>
+                `);
+            } else if (policy.has_update) {
+                this.setStep('download', 'error', '无法获取安装包地址');
+                this.setFooterHint('');
+                this.renderFooter('<button type="button" class="update-btn update-btn-ghost" onclick="window.updateChecker.closeModal()">关闭</button>');
             } else {
-                this.renderUpToDate(policy);
+                this.setFooterHint('已是最新版本');
+                this.renderFooter('<button type="button" class="update-btn update-btn-ghost" onclick="window.updateChecker.closeModal()">关闭</button>');
             }
         } catch (error) {
-            this.renderError(error.message || '检查更新失败');
-        }
-    }
-
-    renderUpdateAvailable(policy, forceMode) {
-        const minVersionText = policy.min_supported_version
-            ? `最低支持版本: v${policy.min_supported_version}`
-            : '未设置最低支持版本';
-
-        this.renderLogs([
-            `当前版本: v${policy.current_version}`,
-            `最新版本: v${policy.latest_version}`,
-            minVersionText,
-            '',
-            policy.release_notes || '暂无更新说明',
-        ]);
-
-        if (!policy.can_update) {
-            this.renderFooter('<button class="modal-btn secondary-btn" onclick="window.updateChecker.closeModal()">关闭</button>');
-            if (forceMode) {
-                this.renderFooter('<button class="modal-btn secondary-btn" disabled>当前无法自动更新</button>');
-            }
-            return;
-        }
-
-        const cancelButton = forceMode
-            ? ''
-            : '<button class="modal-btn secondary-btn" onclick="window.updateChecker.closeModal()">稍后再说</button>';
-        this.renderFooter(`
-            ${cancelButton}
-            <button class="modal-btn primary-btn" onclick="window.updateChecker.startUpdate()">立即更新</button>
-        `);
-    }
-
-    renderUpToDate(policy) {
-        this.renderLogs([
-            `当前版本: v${policy.current_version}`,
-            '已是最新版本。',
-        ]);
-        this.renderFooter('<button class="modal-btn secondary-btn" onclick="window.updateChecker.closeModal()">关闭</button>');
-        if (window.app?.showNotification) {
-            window.app.showNotification(`当前已是最新版本 v${policy.current_version}`, 'success');
+            this.renderError(error.message);
         }
     }
 
     renderError(message) {
-        this.renderLogs([`检查更新失败: ${message}`]);
-        if (this.forceMode) {
-            this.renderFooter('<button class="modal-btn secondary-btn" disabled>请联系管理员处理更新源</button>');
-            return;
-        }
-        this.renderFooter('<button class="modal-btn secondary-btn" onclick="window.updateChecker.closeModal()">关闭</button>');
+        const detail = this.normalizeError(message);
+        this.setStep(this.currentStepId, 'error', detail);
+        this.showProgressBlock(false);
+        this.setFooterHint('');
+        this.appendLog(detail);
+        this.elements.logTerminal?.classList.add('is-visible');
+
+        const manualUrl = this.policy?.download_url || '';
+        const manualBtn = manualUrl
+            ? `<a class="update-btn update-btn-link" href="${manualUrl}" target="_blank" rel="noopener">浏览器下载</a>`
+            : '';
+        const retryBtn = '<button type="button" class="update-btn update-btn-primary" onclick="window.updateChecker.openManualCheck(false)">重试</button>';
+        const closeBtn = this.forceMode
+            ? ''
+            : '<button type="button" class="update-btn update-btn-ghost" onclick="window.updateChecker.closeModal()">关闭</button>';
+
+        this.renderFooter(`${closeBtn}${manualBtn}${retryBtn}`);
     }
 
     async startUpdate(silentAuto = false) {
         if (silentAuto) {
             this.silentAutoMode = true;
-            this.forceMode = true;
         }
-        this.openModal(this.forceMode);
-        if (!silentAuto) {
-            this.renderLogs(['正在准备更新...', '开始下载安装包，请稍候。']);
-        }
-        this.resetProgress();
-        if (!this.silentAutoMode) {
-            this.renderFooter('<button class="modal-btn secondary-btn" disabled>下载中...</button>');
-        }
+        this.forceMode = true;
+        this.hideForceOverlay();
+        this.openModal(true);
+        this.showProgressBlock(true);
+        this.setStep('download', 'active', '正在连接下载服务器…');
+        this.setFooterHint('下载完成后将自动安装并重启；若弹出 UAC 请点「是」');
+        this.renderFooter('');
 
         if (this.progressTimer) {
             clearInterval(this.progressTimer);
         }
-        this.progressTimer = setInterval(() => this.pollProgress(), 800);
+        this.progressTimer = setInterval(() => this.pollProgress(), 300);
 
         try {
             const response = await fetch('/api/system/update', {
                 method: 'POST',
                 headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({
-                    download_url: this.policy?.download_url || '',
-                }),
+                body: JSON.stringify({ download_url: this.policy?.download_url || '' }),
             });
+            const body = await response.json().catch(() => ({}));
             if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || '更新准备失败');
+                throw new Error(body.detail || '更新准备失败');
+            }
+            if (body.status === 'ready_to_install') {
+                await this.pollProgress();
             }
         } catch (error) {
             clearInterval(this.progressTimer);
-            this.renderError(error.message || '更新失败');
+            this.progressTimer = null;
+            this.renderError(error.message);
+        }
+    }
+
+    applyProgressUi(progress, status) {
+        const raw = Number(progress) || 0;
+        const display = status === 'downloading' ? Math.max(raw, raw > 0 ? raw : 4) : raw;
+        if (this.elements.progressBar) {
+            this.elements.progressBar.style.width = `${display}%`;
+            this.elements.progressBar.classList.toggle('is-indeterminate', status === 'downloading' && raw <= 1);
+        }
+        if (this.elements.progressText) {
+            this.elements.progressText.textContent = status === 'downloading' && raw <= 1
+                ? '下载中…'
+                : `${raw}%`;
         }
     }
 
@@ -355,28 +486,35 @@ class UpdateChecker {
                 headers: this.getHeaders(),
             });
             const data = await response.json();
-            this.renderLogs(data.logs || []);
 
-            if (this.elements.progressBar) {
-                this.elements.progressBar.style.width = `${data.progress || 0}%`;
-            }
-            if (this.elements.progressText) {
-                this.elements.progressText.textContent = `${data.progress || 0}%`;
+            if (Array.isArray(data.logs) && data.logs.length) {
+                this.renderLogs(data.logs);
             }
 
-            if (data.status === 'ready_to_install') {
-                clearInterval(this.progressTimer);
-                if (this.shouldAutoRestart()) {
-                    await this.triggerAutoRestart();
-                    return;
+            const progress = data.progress || 0;
+            this.applyProgressUi(progress, data.status);
+
+            if (data.status === 'downloading') {
+                this.setStep('download', 'active', data.message || `正在下载… ${progress}%`);
+                if (this.elements.progressLabel) {
+                    this.elements.progressLabel.textContent = '下载安装包';
                 }
-                this.renderFooter(`
-                    ${this.forceMode ? '' : '<button class="modal-btn secondary-btn" onclick="window.updateChecker.closeModal()">后台等待</button>'}
-                    <button class="modal-btn primary-btn" id="restart-btn" onclick="window.updateChecker.restartAndInstall()">立即重启并安装</button>
-                `);
+            } else if (data.status === 'ready_to_install') {
+                if (this.progressTimer) {
+                    clearInterval(this.progressTimer);
+                    this.progressTimer = null;
+                }
+                this.applyProgressUi(100, 'ready_to_install');
+                this.setStep('download', 'done', '下载完成');
+                this.setStep('install', 'active', '准备安装…');
+                this.showProgressBlock(false);
+                await this.triggerAutoRestart();
             } else if (data.status === 'error') {
-                clearInterval(this.progressTimer);
-                this.renderError(data.error || '更新失败');
+                if (this.progressTimer) {
+                    clearInterval(this.progressTimer);
+                    this.progressTimer = null;
+                }
+                this.renderError(data.error || data.message || '更新失败');
             }
         } catch (error) {
             console.error('Poll update progress failed:', error);
@@ -384,41 +522,43 @@ class UpdateChecker {
     }
 
     async restartAndInstall(exitingAfterRequest = false) {
-        const button = document.getElementById('restart-btn');
-        if (button) {
-            button.disabled = true;
-            button.textContent = '正在重启并安装...';
-        }
+        this.setStep('restart', 'active', '正在启动安装助手…');
 
         try {
             const response = await fetch('/api/system/restart-and-update', {
                 method: 'POST',
                 headers: this.getHeaders(),
             });
+            const data = await response.json().catch(() => ({}));
             if (!response.ok) {
-                const data = await response.json();
                 throw new Error(data.detail || '启动安装失败');
             }
-            if (exitingAfterRequest) {
-                this.appendLog('已发送重启指令，程序即将退出并完成安装...', '#52c41a');
-            }
+            this.setStep('restart', 'done', '已发送安装指令');
+            const logHint = data.log_file ? `（日志：${data.log_file}）` : '';
+            this.setFooterHint(
+                `程序即将关闭并完成安装（约 1～3 分钟，请勿重复打开）。完成后会自动启动。${logHint}`
+            );
         } catch (error) {
             if (exitingAfterRequest) {
-                this.appendLog('已发送重启指令，程序即将退出并完成安装...', '#52c41a');
+                this.setFooterHint('程序即将关闭并完成安装…');
                 return;
             }
-            if (button) {
-                button.disabled = false;
-                button.textContent = '立即重启并安装';
-            }
-            this.appendLog(`启动安装失败: ${error.message}`, '#ff4d4f');
+            this.renderError(error.message);
         }
     }
 
     copyLogs() {
-        if (!this.elements.logTerminal) return;
-        const logs = this.elements.logTerminal.innerText || '';
-        navigator.clipboard.writeText(logs);
+        const text = this.elements.logTerminal?.innerText || '';
+        if (text) {
+            navigator.clipboard.writeText(text);
+        }
+    }
+
+    startUpdateWithUrl(downloadUrl) {
+        if (downloadUrl) {
+            this.policy = { ...(this.policy || {}), download_url: downloadUrl };
+        }
+        return this.beginAutoUpdateFlow(false);
     }
 }
 

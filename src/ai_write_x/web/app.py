@@ -44,6 +44,7 @@ from .api.mcp import router as mcp_router
 from .api.newshub import router as newshub_router
 from .api.scheduler import router as scheduler_router
 from .api.updater import router as updater_router
+from .api.menu_ip_whitelist import router as menu_ip_whitelist_router
 
 # 添加全局状态
 app_shutdown_event = asyncio.Event()
@@ -71,6 +72,14 @@ async def lifespan(app: FastAPI):
         if not app_state.config.load_config():
             log.print_log("配置加载失败，使用默认配置", "warning")
 
+        # 注册 CrewAI 工具（含 news_hub_tool），自动化任务与内容生成共用
+        try:
+            from src.ai_write_x.core.system_init import initialize_global_tools
+            initialize_global_tools()
+            log.print_log("全局工具注册完成（含 news_hub_tool）", "success")
+        except Exception as tool_err:
+            log.print_log(f"全局工具注册失败: {tool_err}", "error")
+
         # 服务启动时清掉上次未跑完的生成任务登记（不自动续跑）
         try:
             from src.ai_write_x.core.task_manager import task_manager
@@ -86,6 +95,20 @@ async def lifespan(app: FastAPI):
         # 启动定时任务调度服务 (V6 Scheduler)
         from src.ai_write_x.core.scheduler import scheduler_service
         scheduler_service.start()
+
+        # 使用统计：后台上报启动（IP 由统计服务端记录）
+        try:
+            from src.ai_write_x.core.usage_stats import schedule_usage_report
+            schedule_usage_report()
+        except Exception as stats_err:
+            log.print_log(f"[使用统计] 初始化跳过: {stats_err}", "warning")
+
+        # 受限菜单白名单：启动时从 MySQL 拉取 menu_ip_whitelist 表
+        try:
+            from src.ai_write_x.core.menu_ip_access import refresh_menu_ip_access_on_startup
+            refresh_menu_ip_access_on_startup()
+        except Exception as menu_ip_err:
+            log.print_log(f"[菜单白名单] 初始化跳过: {menu_ip_err}", "warning")
         
         # V15.0: 初始化量子优化组件
         try:
@@ -323,10 +346,24 @@ app.include_router(mcp_router)
 app.include_router(newshub_router)
 app.include_router(scheduler_router)
 app.include_router(updater_router)
+app.include_router(menu_ip_whitelist_router)
 
 
 # 全局允许的客户端令牌集合
 allowed_tokens = set()
+
+
+def _is_restricted_menu_visible(request: Request) -> bool:
+    """
+    受限菜单可见性（工作台/知识库/任务监控/素材中心）：
+    启动时已从 MySQL menu_ip_whitelist 表加载并比对本机公网 IP。
+    """
+    try:
+        from src.ai_write_x.core.menu_ip_access import is_restricted_menu_visible
+        return is_restricted_menu_visible()
+    except Exception:
+        return False
+
 
 @app.middleware("http")
 async def structured_request_logging(request: Request, call_next):
@@ -381,7 +418,13 @@ async def verify_client_token(request: Request, call_next):
     is_dev_mode = os.environ.get("APP_ENV", "production") != "production"
     is_localhost = request.client.host in ["127.0.0.1", "::1", "localhost"]
     
-    if path.startswith("/static") or path.startswith("/images") or path == "/health" or (is_dev_mode and is_localhost):
+    if (
+        path.startswith("/static")
+        or path.startswith("/images")
+        or path == "/health"
+        or path.startswith("/api/system/update")
+        or (is_dev_mode and is_localhost)
+    ):
         return await call_next(request)
     
     # 获取查询参数中的token（用于首次加载同步到allowed_tokens）
@@ -411,8 +454,14 @@ async def verify_client_token(request: Request, call_next):
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """返回主界面"""
+    show_restricted_menu = _is_restricted_menu_visible(request)
     return templates.TemplateResponse(
-        "index.html", {"request": request, "version": get_version_with_prefix()}  # 传递版本号
+        request,
+        "index.html",
+        context={
+            "version": get_version_with_prefix(),
+            "show_restricted_menu": show_restricted_menu,
+        },
     )
 
 

@@ -33,11 +33,11 @@ class FooterMarqueeManager {
                 });  
             } else {  
                 // 降级:使用默认消息  
-                this.addMessage('欢迎使用AIWriteX智能内容创作平台', 'info', true);  
+                this.addMessage('欢迎使用小爆来咯智能内容创作平台', 'info', true);  
             }  
         } catch (error) {  
             console.error('加载系统消息失败:', error);  
-            this.addMessage('欢迎使用AIWriteX智能内容创作平台', 'info', true);  
+            this.addMessage('欢迎使用小爆来咯智能内容创作平台', 'info', true);  
         }  
     }  
       

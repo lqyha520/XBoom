@@ -64,14 +64,15 @@ class SchedulerService:
             return
 
         for task in active_tasks:
-            log.print_log(f"🕒 发现到期任务: {task.topic} ({task.platform})", "info")
-            
-            # 使用独立线程执行任务，避免阻塞调度循环和内存堆积
+            if not db_manager.claim_task_for_execution(str(task.id)):
+                continue
+            log.print_log(f"🕒 发现到期任务: {task.topic or '(自动热点)'} ({task.platform})", "info")
+
             t = threading.Thread(
-                target=self._execute_single_task, 
-                args=(task.id,), 
-                name=f"TaskExecutor-{task.id[:8]}",
-                daemon=True
+                target=self._execute_single_task,
+                args=(str(task.id),),
+                name=f"TaskExecutor-{str(task.id)[:8]}",
+                daemon=True,
             )
             t.start()
 
@@ -83,11 +84,7 @@ class SchedulerService:
         try:
             # 重新获取任务对象确保状态最新
             task = ScheduledTask.get_by_id(task_id)
-            if task.status != 'enabled':
-                return
 
-            # 更新状态为运行中
-            db_manager.update_task_status(task_id, 'running')
             db_manager.log_task_execution(task_id, 'running', "任务开始执行...")
 
             # 初始化工作流

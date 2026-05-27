@@ -1,9 +1,10 @@
-# 发布到 Gitee Release（安装包 + version-policy.json）
+﻿# 发布到 Gitee / GitHub，并可选自动上传到宝塔服务器
 # 用法:
-#   1. 在 Gitee 创建与 GitHub 同名仓库（或改 gitee-release.env）
-#   2. 复制 gitee-release.env.example -> gitee-release.env，填写 GITEE_TOKEN
+#   1. 复制 gitee-release.env.example -> gitee-release.env，填写 GITEE_TOKEN
+#   2. （推荐）复制 update-mirror.env.example -> update-mirror.env，填 IP/目录 → 发版自动 scp
 #   3. 先 build: .\build_windows_installer.ps1
 #   4. powershell -ExecutionPolicy Bypass -File .\scripts\publish-gitee-release.ps1
+#   或一键: .\scripts\publish-all.ps1
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -25,24 +26,50 @@ if (-not $GITEE_TOKEN) {
     exit 1
 }
 
+$MirrorEnvFile = Join-Path $Root 'scripts\update-mirror.env'
+if (Test-Path $MirrorEnvFile) {
+    Get-Content $MirrorEnvFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith('#') -and $line -match '^([^=]+)=(.*)$') {
+            $name = $matches[1].Trim()
+            if (-not (Get-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue)) {
+                Set-Variable -Name $name -Value $matches[2].Trim() -Scope Script
+            }
+        }
+    }
+}
+
 $Owner = if ($GITEE_OWNER) { $GITEE_OWNER } else { 'lqyha520' }
 $Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'AIWriteX-main' }
 $Branch = if ($GITEE_BRANCH) { $GITEE_BRANCH } else { 'master' }
 
 $Version = (python -c "from src.ai_write_x.version import get_version; print(get_version())").Trim()
 $Tag = "v$Version"
-$Setup = Join-Path $Root "dist\installer\AIWriteX-Setup.exe"
+$SetupDir = Join-Path $Root 'dist\installer'
+$SetupItem = Get-ChildItem -Path $SetupDir -Filter '*-Setup.exe' -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if (-not $SetupItem) {
+    Write-Host "未找到安装包，请先运行 build_windows_installer.ps1" -ForegroundColor Red
+    exit 1
+}
+$Setup = $SetupItem.FullName
+$InstallerName = $SetupItem.Name
 $PolicyPath = Join-Path $Root 'version-policy.json'
 $SkipExeUpload = $false
 
-$DownloadUrl = "https://gitee.com/$Owner/$Repo/releases/download/$Tag/AIWriteX-Setup.exe"
-if ($INSTALLER_URL) {
-    $DownloadUrl = $INSTALLER_URL
-} elseif ((Get-Item $Setup).Length -gt 100MB) {
-    $DownloadUrl = "https://ghfast.top/https://github.com/$Owner/$Repo/releases/download/$Tag/AIWriteX-Setup.exe"
-    Write-Host "Installer > 100MB, use GitHub mirror in version-policy:" -ForegroundColor Yellow
+$EncodedInstaller = [uri]::EscapeDataString($InstallerName)
+$DownloadUrl = "https://gitee.com/$Owner/$Repo/releases/download/$Tag/$EncodedInstaller"
+if ($MIRROR_BASE_URL) {
+    $DownloadUrl = "$($MIRROR_BASE_URL.TrimEnd('/'))/$InstallerName"
+    Write-Host "使用腾讯云镜像下载地址 (update-mirror.env):" -ForegroundColor Cyan
     Write-Host "  $DownloadUrl"
-    $SkipExeUpload = $true
+    if ($SetupItem.Length -gt 100MB) {
+        $SkipExeUpload = $true
+    }
+} elseif ($SetupItem.Length -gt 100MB) {
+    Write-Host "安装包超过 100MB，请在 scripts\update-mirror.env 配置 MIRROR_BASE_URL 与 SSH 后重试。" -ForegroundColor Red
+    exit 1
 }
 
 if (-not (Test-Path $Setup)) {
@@ -52,14 +79,15 @@ if (-not (Test-Path $Setup)) {
 
 $Policy = @{
     latest_version = $Version
-    min_supported_version = '23.0.8'
+    min_supported_version = $Version
     auto_update_on_startup = $true
     auto_update_silent = $true
     download_url = $DownloadUrl
-    release_notes = "AIWriteX v$Version（Gitee 国内源）"
+    release_notes = "小爆来咯 v${Version} 正式版"
     published_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 }
-$Policy | ConvertTo-Json -Depth 5 | Set-Content -Path $PolicyPath -Encoding UTF8
+$json = $Policy | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($PolicyPath, $json + "`n", [System.Text.UTF8Encoding]::new($false))
 
 $Base = "https://gitee.com/api/v5/repos/$Owner/$Repo"
 $Headers = @{ 'User-Agent' = 'AIWriteX-Publisher' }
@@ -67,7 +95,7 @@ $Headers = @{ 'User-Agent' = 'AIWriteX-Publisher' }
 Write-Host "Create Gitee Release $Tag ..."
 $body = @{
     tag_name = $Tag
-    name = "AIWriteX $Tag"
+    name = "小爆来咯 $Tag"
     body = $Policy.release_notes
     target_commitish = $Branch
     prerelease = $false
@@ -82,7 +110,9 @@ try {
             break
         }
     }
-} catch {}
+} catch {
+    # ignore list failures
+}
 
 if ($existing -and $existing.id) {
     Write-Host "Release $Tag exists, delete and recreate..."
@@ -134,12 +164,72 @@ function Upload-Attach($FilePath, $Label) {
 
 Upload-Attach $PolicyPath 'version-policy.json'
 if (-not $SkipExeUpload) {
-    Upload-Attach $Setup 'AIWriteX-Setup.exe'
+    Upload-Attach $Setup $InstallerName
 } else {
     Write-Host "Skip exe upload (Gitee 100MB limit). Users download via download_url in version-policy.json"
+}
+
+# 只保留最新 Release，避免旧 tag 排在 API 前列导致客户端误判版本
+try {
+    $all = Invoke-RestMethod -Method Get -Uri "$Base/releases?access_token=$GITEE_TOKEN&per_page=50" -Headers $Headers
+    foreach ($item in @($all)) {
+        if ($item.tag_name -and $item.tag_name -ne $Tag -and $item.id) {
+            Write-Host "Delete old release $($item.tag_name) ..."
+            Invoke-RestMethod -Method Delete -Uri "$Base/releases/$($item.id)?access_token=$GITEE_TOKEN" -Headers $Headers | Out-Null
+        }
+    }
+} catch {
+    Write-Host "Cleanup old releases skipped: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 Write-Host ""
 Write-Host "完成。Gitee Release:" -ForegroundColor Green
 Write-Host "  https://gitee.com/$Owner/$Repo/releases/tag/$Tag"
 Write-Host "  安装包: $DownloadUrl"
+
+if ($MIRROR_BASE_URL -and $SSH_HOST) {
+    Write-Host ""
+    Write-Host "Upload to mirror server..." -ForegroundColor Cyan
+    $deployScript = Join-Path $Root 'scripts\deploy-update-mirror.ps1'
+    & powershell.exe -ExecutionPolicy Bypass -File $deployScript -PolicyFile $PolicyPath -SetupFile $Setup
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Mirror upload failed. Check update-mirror.env and SSH." -ForegroundColor Yellow
+        exit $LASTEXITCODE
+    }
+} elseif ($MIRROR_BASE_URL -and -not $SSH_HOST) {
+    Write-Host ""
+    Write-Host "Mirror URL set but SSH_HOST missing. Upload manually:" -ForegroundColor Yellow
+    Write-Host "  $Setup  ->  $InstallerName"
+    Write-Host "  $PolicyPath  ->  version-policy.json"
+    Write-Host "  Target: $MIRROR_BASE_URL"
+}
+
+try {
+    $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
+    if ($gh -and (Test-Path $Setup) -and (Test-Path $PolicyPath)) {
+        Write-Host ""
+        Write-Host "同步 GitHub Release $Tag ..." -ForegroundColor Cyan
+        gh release view $Tag --repo "$Owner/$Repo" 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            gh release create $Tag $Setup $PolicyPath --repo "$Owner/$Repo" `
+                --title "小爆来咯 $Tag" --notes $Policy.release_notes --latest
+        } else {
+            gh release upload $Tag $Setup $PolicyPath --repo "$Owner/$Repo" --clobber
+        }
+        $listed = gh release list --repo "$Owner/$Repo" --limit 20 2>$null
+        if ($listed) {
+            foreach ($line in ($listed -split "`n")) {
+                if ($line -match '\tv([0-9.]+)\t') {
+                    $oldTag = 'v' + $Matches[1]
+                    if ($oldTag -ne $Tag) {
+                        Write-Host "Delete old GitHub release $oldTag ..."
+                        gh release delete $oldTag --repo "$Owner/$Repo" --yes 2>$null
+                    }
+                }
+            }
+        }
+        Write-Host "GitHub: https://github.com/$Owner/$Repo/releases/tag/$Tag" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "GitHub publish skipped: $($_.Exception.Message)" -ForegroundColor Yellow
+}

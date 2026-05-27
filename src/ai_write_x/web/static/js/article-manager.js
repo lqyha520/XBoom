@@ -1,4 +1,4 @@
-// 文章管理器类
+// 文章库管理器类
 class ArticleManager {
     // 查看文章原始热点内容
     async showArticleSource(article) {
@@ -147,7 +147,7 @@ class ArticleManager {
             const response = await fetch('/api/articles');
             if (response.ok) {
                 const result = await response.json();
-                // 与模板管理保持一致,提取 data 字段  
+                // 与模板库保持一致,提取 data 字段
                 this.articles = result.data || [];
                 this.filterArticles();
             }
@@ -1041,7 +1041,7 @@ class ArticleManager {
         if (articleView) {
             articleView.querySelectorAll('.view-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
-                    // 只移除文章管理视图内的active状态    
+                    // 只移除文章库视图内的active状态
                     articleView.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     this.currentLayout = btn.dataset.layout;
@@ -1244,6 +1244,29 @@ class ArticleManager {
             batchDelete.style.display = 'none';
             batchPublish.style.display = 'none';
         }
+    }
+
+    /** 从路径打开文章（定时任务日志等场景） */
+    async viewArticle(path) {
+        if (!path) return;
+        const norm = (p) => String(p).replace(/\\/g, '/');
+        if (window.app && typeof window.app.showView === 'function') {
+            window.app.showView('article-manager');
+        }
+        if (!this.articles?.length) {
+            await this.loadArticles();
+        }
+        let article = this.articles.find((a) => norm(a.path) === norm(path));
+        if (!article) {
+            await this.loadArticles();
+            article = this.articles.find((a) => norm(a.path) === norm(path));
+        }
+        if (article) {
+            await this.previewArticle(article);
+            return;
+        }
+        const name = path.split(/[\\/]/).pop() || path;
+        await this.previewArticle({ path, title: name.replace(/\.[^.]+$/, '') });
     }
 
     // 预览文章  
@@ -1519,7 +1542,7 @@ class ArticleManager {
     // 前往设置  
     goToSettings() {
         this.closePublishDialog();
-        // 切换到系统设置-微信公众号  
+        // 切换到设置-微信公众号
         const settingsLink = document.querySelector('[data-view="config-manager"]');
         if (settingsLink) {
             settingsLink.click();
@@ -2070,7 +2093,7 @@ class ArticleManager {
     }
 
     /**
-     * 自动换模板入口 — 由创意工坊生成完成后自动调用
+     * 自动换模板入口 — 由内容生成完成后自动调用
      * @param {object} article - { path, title }
      * @param {{ autoSave?: boolean, preserveImages?: boolean }} options
      */
@@ -2087,7 +2110,7 @@ class ArticleManager {
             'info'
         );
 
-        // 切换到文章管理视图（确保 modal 容器存在）
+        // 切换到文章库视图（确保 modal 容器存在）
         const articleViewLink = document.querySelector('[data-view="article-manager"]');
         if (articleViewLink) {
             articleViewLink.click();
@@ -3361,7 +3384,7 @@ class ArticleManager {
         );
     }
 
-    /* V19.6 & 13: 数据库智理与存储统计 */
+    /* V19.6 & 13: 知识库与存储统计 */
 
     // 更新磁盘占用与路径信息
     async updateStorageStats() {

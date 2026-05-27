@@ -34,6 +34,14 @@
     overflow: hidden;
 }
 
+.nav-link span {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .nav-link:hover {
     background: rgba(var(--primary-color-rgb, 108, 92, 231), 0.06);
     color: var(--text-primary);
@@ -95,6 +103,10 @@
     padding: 8px 0;
 }
 
+.nav-item-expandable.expanded .nav-submenu {
+    border: 1px solid rgba(var(--primary-color-rgb, 108, 92, 231), 0.08);
+}
+
 .nav-sublink {
     display: flex;
     align-items: center;
@@ -105,6 +117,50 @@
     transition: all 0.25s ease;
     border-radius: 8px;
     margin: 2px 8px;
+}
+
+/* 视图型二级菜单（用于「选题中心/运行中心」等） */
+.nav-view-sublink {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px 10px 24px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 13.5px;
+    transition: all 0.25s ease;
+    border-radius: 8px;
+    margin: 2px 8px;
+}
+
+.nav-view-sublink:hover {
+    background: rgba(var(--primary-color-rgb, 108, 92, 231), 0.08);
+    color: var(--primary-color);
+}
+
+.nav-view-sublink.active {
+    background: rgba(var(--primary-color-rgb, 108, 92, 231), 0.12);
+    color: var(--primary-color);
+    font-weight: 700;
+    position: relative;
+}
+
+.nav-view-sublink.active::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    width: 4px;
+    height: 4px;
+    background: var(--primary-color);
+    border-radius: 50%;
+}
+
+.nav-submenu .nav-subitem + .nav-subitem {
+    margin-top: 2px;
+}
+
+/* 可展开菜单：避免主项 hover 时把子菜单整体横移得太厉害 */
+.nav-item-expandable.expanded > .nav-link:hover {
+    transform: translateX(2px);
 }
 
 .nav-sublink:hover {

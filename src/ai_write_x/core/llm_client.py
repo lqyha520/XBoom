@@ -324,6 +324,7 @@ class LLMClient:
         max_tokens: int = 4096,
         timeout: Optional[float] = None,
         use_v15: bool = True,  # V15.0: 是否使用 V15 优化
+        max_retries_override: Optional[int] = None,
         **kwargs
     ) -> str:
         """
@@ -392,7 +393,12 @@ class LLMClient:
             optimized_messages.append(msg)
         
         # V4/V15: 重试逻辑 — 指数退避 + 随机抖动(Jitter) + 扩展网络异常捕获
-        max_retries = 3  # V14.1: 减少重试次数到3次，添加快速失败机制
+        max_retries = 3  # V14.1: 默认最多重试 3 次
+        if max_retries_override is not None:
+            try:
+                max_retries = max(0, int(max_retries_override))
+            except Exception:
+                max_retries = 3
         for attempt in range(max_retries + 1):
             try:
                 # V23.1: 记录请求载荷 (仅在终端美化展示，完整内容存入文件)
@@ -407,9 +413,31 @@ class LLMClient:
                     **kwargs
                 )
                 elapsed_ms = int((time.time() - t0) * 1000)
-                self._track_token_usage(response.usage)
+                # 某些第三方兼容端在超载/风控时可能返回非标准结构（choices 为空/None）
+                choices = getattr(response, "choices", None)
+                if not choices or not isinstance(choices, (list, tuple)):
+                    raise RuntimeError(
+                        "LLM返回了非标准响应：choices 为空。"
+                        f" model={model_name}, elapsed_ms={elapsed_ms}, "
+                        f"response_type={type(response).__name__}"
+                    )
+                first = choices[0]
+                msg = getattr(first, "message", None)
+                content = getattr(msg, "content", None) if msg is not None else None
+                if content is None:
+                    # 兼容少数实现：可能把内容塞在 delta/content 等字段
+                    delta = getattr(first, "delta", None)
+                    content = getattr(delta, "content", None) if delta is not None else None
+                if not content or not str(content).strip():
+                    raise RuntimeError(
+                        "LLM返回了空内容。"
+                        f" model={model_name}, elapsed_ms={elapsed_ms}, "
+                        f"finish_reason={getattr(first, 'finish_reason', None)}"
+                    )
+
+                self._track_token_usage(getattr(response, "usage", None))
                 self._track_model_performance(model_name, True, elapsed_ms)
-                result = response.choices[0].message.content
+                result = str(content)
                 _response_cache.put(messages, model_name, temperature, result, max_tokens)
                 
                 # V23.1: 记录详细响应内容

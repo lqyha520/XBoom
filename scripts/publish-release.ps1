@@ -8,7 +8,10 @@ Set-Location $Root
 
 $Version = (python -c "from src.ai_write_x.version import get_version; print(get_version())").Trim()
 $Tag = "v$Version"
-$Setup = Join-Path $Root "dist\installer\AIWriteX-Setup.exe"
+$SetupItem = Get-ChildItem -Path (Join-Path $Root 'dist\installer') -Filter '*-Setup.exe' -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+$Setup = if ($SetupItem) { $SetupItem.FullName } else { $null }
 $Policy = Join-Path $Root "version-policy.json"
 
 if (-not (Test-Path $Setup)) {
@@ -30,7 +33,7 @@ try {
 
 if (-not $uploadOk) {
     gh release create $Tag $Setup $Policy `
-        --title "AIWriteX $Tag" `
+        --title "小爆来咯 $Tag" `
         --notes-file $Policy `
         --latest
 }

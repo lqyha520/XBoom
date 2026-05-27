@@ -66,8 +66,24 @@ def _looks_like_image_prompt(text: str) -> bool:
     return hits >= 2 or ("|" in text and "bad" in lower)
 
 
+_CONTENT_CONTAINER_RE = re.compile(r"rich|article|content|post|media", re.I)
+
+
+def _is_protected_content_tag(tag) -> bool:
+    """正文容器或其内部段落，避免被误删"""
+    if tag.name in {"article", "section", "main", "body"}:
+        return True
+    for node in [tag, *list(tag.parents)]:
+        if getattr(node, "name", None) in {"article", "section", "main", "body"}:
+            return True
+        classes = " ".join(node.get("class") or []) if hasattr(node, "get") else ""
+        if classes and _CONTENT_CONTAINER_RE.search(classes):
+            return True
+    return False
+
+
 def strip_leaked_prompt_text(html: str) -> str:
-    """移除正文中误展示的生图提示（保留 img 标签与待生成占位符）"""
+    """移除正文中误展示的生图提示（保留正文与 img-placeholder）"""
     if not html or not html.strip():
         return html
 
@@ -91,13 +107,16 @@ def strip_leaked_prompt_text(html: str) -> str:
 
     soup = BeautifulSoup(html, "html.parser")
     for tag in list(soup.find_all(["p", "em", "i", "blockquote", "div", "span", "section"])):
+        if _is_protected_content_tag(tag):
+            continue
         text = tag.get_text(" ", strip=True)
         if not text:
             continue
         if _SCENE_LABEL_RE.match(text) or text.startswith("场景描述"):
             tag.decompose()
             continue
-        if _looks_like_image_prompt(text) and "img-placeholder" not in (tag.get("class") or []):
+        # 仅删除“纯提示词泄漏”的短块；长正文块即使含英文技术词也保留
+        if _looks_like_image_prompt(text) and len(text) < 120 and "img-placeholder" not in (tag.get("class") or []):
             tag.decompose()
 
     return soup.decode(formatter=None)

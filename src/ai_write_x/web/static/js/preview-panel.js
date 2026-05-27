@@ -10,9 +10,9 @@ class PreviewPanelManager {
         this.isSourceView = false;
         this.currentHtml = '';
         this.sizePresets = {
-            mobile: { width: 375, label: '375×667 (iPhone)' },
-            tablet: { width: 768, label: '768×1024 (iPad)' },
-            desktop: { width: 1024, label: '1024×768 (Desktop)' }
+            mobile: { width: 375, label: '375px · 手机' },
+            tablet: { width: 768, label: '768px · 平板' },
+            desktop: { width: 1024, label: '宽屏 · 桌面' }
         };
 
         this.currentArticleInfo = null;
@@ -179,7 +179,8 @@ class PreviewPanelManager {
             this.setContent(content);
         }
 
-        // 确保移除active类,重置状态    
+        this.setSize('desktop');
+
         this.overlay.classList.remove('active');
         this.overlay.style.display = 'flex';
 
@@ -506,7 +507,7 @@ class PreviewPanelManager {
         this.show(content);
     }
 
-    // 创意工坊专用:显示预览并启用操作按钮  
+    // 内容生成专用:显示预览并启用操作按钮  
     showWithActions(content, articleInfo) {
         this.currentArticleInfo = articleInfo;
         this.showActions = true;
@@ -526,8 +527,8 @@ class PreviewPanelManager {
             previewArea.innerHTML = '<p class="preview-placeholder">内容预览将在这里显示</p>';
         }
 
-        // 重置尺寸为默认(mobile)  
-        this.setSize('mobile');
+        // 重置尺寸为默认(桌面阅读)
+        this.setSize('desktop');
 
         // 清空文章信息  
         this.currentArticleInfo = null;

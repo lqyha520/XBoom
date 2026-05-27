@@ -1,5 +1,5 @@
 /**        
- * 创意工坊管理器        
+ * 内容生成管理器        
  * 职责:话题输入、内容生成、配置面板管理、日志流式传输        
  */
 const ErrorType = {
@@ -235,51 +235,63 @@ class CreativeWorkshopManager {
         const logProgressBtn = document.getElementById('log-progress-btn');
         if (logProgressBtn) {
             logProgressBtn.addEventListener('click', () => {
-                const logPanel = document.getElementById('generation-progress');
                 const refPanel = document.getElementById('reference-mode-panel');
                 const referenceModeBtn = document.getElementById('reference-mode-btn');
 
-                if (logPanel) {
-                    // 展开日志面板前,先关闭借鉴面板  
-                    if (refPanel && !refPanel.classList.contains('collapsed')) {
-                        refPanel.classList.add('collapsed');
-
-                        // 只有在非生成状态下才移除 active 类  
-                        if (referenceModeBtn && !this.isGenerating) {
-                            referenceModeBtn.classList.remove('active');
-                        }
+                if (refPanel && !refPanel.classList.contains('collapsed')) {
+                    refPanel.classList.add('collapsed');
+                    if (referenceModeBtn && !this.isGenerating) {
+                        referenceModeBtn.classList.remove('active');
                     }
-
-                    logPanel.classList.toggle('collapsed');
                 }
+
+                this.switchOutputTab('logs');
+                logProgressBtn.classList.add('active');
+                document.getElementById('live-preview-btn')?.classList.remove('active');
             });
         }
 
-        // 实时预览按钮
         const livePreviewBtn = document.getElementById('live-preview-btn');
         if (livePreviewBtn) {
             livePreviewBtn.addEventListener('click', () => {
-                this.toggleLivePreview();
+                this.switchOutputTab('preview');
             });
         }
+
+        document.getElementById('tab-preview-btn')?.addEventListener('click', () => {
+            this.switchOutputTab('preview');
+        });
+        document.getElementById('tab-logs-btn')?.addEventListener('click', () => {
+            this.switchOutputTab('logs');
+        });
+
+        document.getElementById('open-sidebar-preview-btn')?.addEventListener('click', () => {
+            this.openSidebarPreview();
+        });
 
         // 预览面板控制按钮
         const scrollBtn = document.getElementById('live-preview-scroll-btn');
         if (scrollBtn) {
             scrollBtn.addEventListener('click', () => {
                 const content = document.getElementById('live-preview-content');
-                const container = content?.parentElement;
-                if (container) container.scrollTop = container.scrollHeight;
+                if (content) content.scrollTop = content.scrollHeight;
             });
         }
         const clearPreviewBtn = document.getElementById('live-preview-clear-btn');
         if (clearPreviewBtn) {
             clearPreviewBtn.addEventListener('click', () => {
                 this.livePreviewContent = '';
+                this.isCapturingContent = false;
                 const contentEl = document.getElementById('live-preview-content');
                 if (contentEl) {
-                    contentEl.innerHTML = '<div id="live-preview-placeholder" style="text-align:center;padding:32px;color:var(--text-tertiary)"><div style="font-size:36px;margin-bottom:8px">📄</div><p>已清空</p></div>';
+                    contentEl.innerHTML = `<div id="live-preview-placeholder" class="live-preview-placeholder">
+                        <div class="placeholder-icon" aria-hidden="true">📝</div>
+                        <p class="placeholder-title">已清空</p>
+                        <p class="placeholder-hint">再次生成后将显示新内容</p>
+                    </div>`;
                 }
+                this.setPreviewStatus('等待生成', 'idle');
+                this.setPreviewMeta('');
             });
         }
 
@@ -583,7 +595,7 @@ class CreativeWorkshopManager {
             }
         } catch (error) {
             console.error('配置验证失败:', error);
-            this.showConfigErrorDialog('无法验证配置,请检查系统设置');
+            this.showConfigErrorDialog('无法验证配置,请检查设置');
             return;
         }
 
@@ -1280,13 +1292,24 @@ class CreativeWorkshopManager {
 
             // 完成后的通知和后续操作
             if (data.type === 'completed') {
-                window.app?.showNotification('🎉 生成完成', 'success');
+                const duration = this._generationStartTime
+                    ? Math.floor((Date.now() - this._generationStartTime) / 1000)
+                    : 0;
+                const durationText = duration >= 60
+                    ? `${Math.floor(duration / 60)}分${duration % 60}秒`
+                    : `${duration}秒`;
+
+                window.app?.showNotification(`生成完成（耗时 ${durationText}）`, 'success');
+                try {
+                    this.appendLog(`✅ 本次生成总耗时：${durationText}`, 'success', false, Date.now() / 1000);
+                } catch (e) {
+                    console.warn('写入耗时日志失败:', e);
+                }
 
                 // V5: 触发前端增强体验
                 window.app?.playSuccessSound();
                 window.app?.triggerCelebration();
 
-                const duration = this._generationStartTime ? Math.floor((Date.now() - this._generationStartTime) / 1000) : 0;
                 window.app?.trackPerformance('article_generation_completed', { duration_sec: duration, topic: this.currentTopic });
 
                 // 自动刷新文章列表 + 侧栏状态计数
@@ -1374,7 +1397,7 @@ class CreativeWorkshopManager {
         };
 
         if (!window.articleManager?.triggerAutoReTemplate) {
-            this.appendLog('⚠️ 文章管理器未就绪，无法自动换模板', 'warning', false, Date.now() / 1000);
+            this.appendLog('⚠️ 文章库管理器未就绪，无法自动换模板', 'warning', false, Date.now() / 1000);
             return;
         }
 
@@ -1431,15 +1454,17 @@ class CreativeWorkshopManager {
                         htmlContent = window.markdownRenderer.renderWithStyles(content, isDark);
                     }
 
-                    // 【关键修改】使用 showWithActions 并传递文章信息  
-                    if (window.previewPanelManager) {
-                        window.previewPanelManager.showWithActions(htmlContent, {
-                            path: latestArticle.path,
-                            title: latestArticle.title
-                        });
+                    this.livePreviewContent = htmlContent;
+                    const contentEl = document.getElementById('live-preview-content');
+                    if (contentEl) {
+                        contentEl.innerHTML = `<div class="preview-article-body">${htmlContent}</div>`;
                     }
+                    const charCount = htmlContent.replace(/<[^>]+>/g, '').length;
+                    this.setPreviewStatus('✅ 生成完成', 'done');
+                    this.setPreviewMeta(charCount > 0 ? `约 ${charCount} 字` : '');
+                    this.switchOutputTab('preview');
 
-                    // 【新增】自动触发质量分析
+                    // 质量分析仍使用正文
                     this.showQualityAnalysis(content, latestArticle.title, latestArticle);
                 }
             }
@@ -1870,25 +1895,77 @@ class CreativeWorkshopManager {
 
     // ==================== 实时预览 ====================
 
+    // ==================== 输出区 Tab ====================
+
+    switchOutputTab(tab) {
+        const isPreview = tab === 'preview';
+        const previewPanel = document.getElementById('live-preview-panel');
+        const logPanel = document.getElementById('generation-progress');
+        const tabPreview = document.getElementById('tab-preview-btn');
+        const tabLogs = document.getElementById('tab-logs-btn');
+        const livePreviewBtn = document.getElementById('live-preview-btn');
+        const logProgressBtn = document.getElementById('log-progress-btn');
+
+        if (previewPanel) {
+            previewPanel.classList.toggle('collapsed', !isPreview);
+        }
+        if (logPanel) {
+            logPanel.classList.toggle('collapsed', isPreview);
+        }
+        tabPreview?.classList.toggle('is-active', isPreview);
+        tabLogs?.classList.toggle('is-active', !isPreview);
+        tabPreview?.setAttribute('aria-selected', isPreview ? 'true' : 'false');
+        tabLogs?.setAttribute('aria-selected', !isPreview ? 'true' : 'false');
+        livePreviewBtn?.classList.toggle('active', isPreview);
+        logProgressBtn?.classList.toggle('active', !isPreview);
+    }
+
+    setPreviewStatus(text, state = 'idle') {
+        const statusEl = document.getElementById('live-preview-status');
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.className = `live-preview-status status-${state}`;
+    }
+
+    setPreviewMeta(text) {
+        const metaEl = document.getElementById('live-preview-meta');
+        if (metaEl) {
+            metaEl.textContent = text || '';
+        }
+    }
+
+    openSidebarPreview() {
+        const html = this.livePreviewContent
+            || document.getElementById('live-preview-content')?.querySelector('.preview-article-body')?.innerHTML
+            || '';
+        if (!html || !html.trim()) {
+            window.app?.showNotification('暂无内容可预览，请先生成文章', 'warning');
+            return;
+        }
+        if (window.previewPanelManager) {
+            window.previewPanelManager.setSize('desktop');
+            window.previewPanelManager.show(html);
+        }
+    }
+
     // 切换实时预览面板
     toggleLivePreview() {
         const panel = document.getElementById('live-preview-panel');
-        const btn = document.getElementById('live-preview-btn');
         const logPanel = document.getElementById('generation-progress');
         const refPanel = document.getElementById('reference-mode-panel');
 
-        if (panel) {
-            // 展开预览前关闭其他面板
-            if (panel.classList.contains('collapsed')) {
-                if (logPanel && !logPanel.classList.contains('collapsed')) {
-                    logPanel.classList.add('collapsed');
-                }
-                if (refPanel && !refPanel.classList.contains('collapsed')) {
-                    refPanel.classList.add('collapsed');
-                }
+        if (panel?.classList.contains('collapsed')) {
+            if (logPanel && !logPanel.classList.contains('collapsed')) {
+                logPanel.classList.add('collapsed');
             }
-            panel.classList.toggle('collapsed');
-            if (btn) btn.classList.toggle('active');
+            if (refPanel && !refPanel.classList.contains('collapsed')) {
+                refPanel.classList.add('collapsed');
+                document.getElementById('reference-mode-btn')?.classList.remove('active');
+            }
+            this.switchOutputTab('preview');
+        } else {
+            panel?.classList.add('collapsed');
+            document.getElementById('live-preview-btn')?.classList.remove('active');
         }
     }
 
@@ -1902,7 +1979,7 @@ class CreativeWorkshopManager {
                 // 自动打开预览面板
                 const panel = document.getElementById('live-preview-panel');
                 if (panel && panel.classList.contains('collapsed')) {
-                    this.toggleLivePreview();
+                    this.switchOutputTab('preview');
                 }
                 const contentEl = document.getElementById('live-preview-content');
                 if (contentEl) {
@@ -1923,14 +2000,12 @@ class CreativeWorkshopManager {
             // 自动打开预览面板
             const panel = document.getElementById('live-preview-panel');
             if (panel && panel.classList.contains('collapsed')) {
-                this.toggleLivePreview();
+                this.switchOutputTab('preview');
             }
             // 更新状态
             const statusEl = document.getElementById('live-preview-status');
             if (statusEl) {
-                statusEl.textContent = '✍️ AI 写作中...';
-                statusEl.style.background = 'rgba(108,92,231,.15)';
-                statusEl.style.color = 'var(--primary-color, #6c5ce7)';
+                this.setPreviewStatus('✍️ AI 写作中...', 'writing');
             }
             // 清空旧内容，插入 V3 Skeleton 占位动画
             const contentEl = document.getElementById('live-preview-content');
@@ -1967,11 +2042,11 @@ class CreativeWorkshopManager {
             const statusEl = document.getElementById('live-preview-status');
             if (statusEl) {
                 if (message.includes('REVIEW')) {
-                    statusEl.textContent = '👁️ 终审打磨中...';
+                    this.setPreviewStatus('👁️ 终审打磨中...', 'writing');
                 } else if (message.includes('VISUAL')) {
-                    statusEl.textContent = '🖼️ 视觉集成中...';
+                    this.setPreviewStatus('🖼️ 视觉集成中...', 'writing');
                 } else {
-                    statusEl.textContent = '⏳ 处理中...';
+                    this.setPreviewStatus('⏳ 处理中...', 'writing');
                 }
             }
             return;
@@ -1980,23 +2055,13 @@ class CreativeWorkshopManager {
         // 生成完成标记
         if (message.includes('任务执行完成') || type === 'completed' || message.includes('[PROGRESS:COMPLETE:START]')) {
             this.isCapturingContent = false;
-            const statusEl = document.getElementById('live-preview-status');
-            if (statusEl) {
-                statusEl.textContent = '✅ 生成完成';
-                statusEl.style.background = 'rgba(46,213,115,.15)';
-                statusEl.style.color = '#2ed573';
-            }
+            this.setPreviewStatus('✅ 生成完成', 'done');
             return;
         }
 
         if (type === 'failed') {
             this.isCapturingContent = false;
-            const statusEl = document.getElementById('live-preview-status');
-            if (statusEl) {
-                statusEl.textContent = '❌ 生成失败';
-                statusEl.style.background = 'rgba(239,68,68,.15)';
-                statusEl.style.color = '#ef4444';
-            }
+            this.setPreviewStatus('❌ 生成失败', 'error');
             return;
         }
 
@@ -2038,34 +2103,56 @@ class CreativeWorkshopManager {
 
         this._liveChars = this.livePreviewContent.replace(/<[^>]+>/g, '').length;
 
-        // 实时更新状态栏显示字数
-        const statusEl = document.getElementById('live-preview-status');
-        if (statusEl) {
-            statusEl.textContent = `✍️ AI 写作中... (${this._liveChars} 字)`;
-        }
+        this.setPreviewStatus(`✍️ 写作中 · ${this._liveChars} 字`, 'writing');
+        this.setPreviewMeta(this._liveChars > 0 ? `约 ${this._liveChars} 字` : '');
 
-        // 渲染到预览面板
         const contentEl = document.getElementById('live-preview-content');
         if (contentEl) {
-            // 如果内容已经包含 HTML，直接渲染；否则进行简单 Markdown 渲染
             if (this.livePreviewContent.includes('<')) {
-                contentEl.innerHTML = this.livePreviewContent;
+                contentEl.innerHTML = `<div class="preview-article-body">${this.livePreviewContent}</div>`;
             } else {
                 const formatted = this.livePreviewContent
-                    .replace(/^#{1,3}\s+(.+)$/gm, '<h3 style="color:var(--primary-color);margin:16px 0 8px;font-size:16px;border-bottom:1px solid var(--border-color);padding-bottom:6px">$1</h3>')
+                    .replace(/^#{1,3}\s+(.+)$/gm, '<h3>$1</h3>')
                     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                    .replace(/^[-*]\s+(.+)$/gm, '<li style="margin:4px 0 4px 20px">$1</li>')
-                    .replace(/\n\n+/g, '</p><p style="margin:8px 0">')
+                    .replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>')
+                    .replace(/\n\n+/g, '</p><p>')
                     .replace(/\n/g, '<br>');
-                contentEl.innerHTML = `<div style="padding:4px 0"><p style="margin:8px 0">${formatted}</p></div>`;
+                contentEl.innerHTML = `<div class="preview-article-body"><p>${formatted}</p></div>`;
             }
 
-            // 自动滚动到底部
-            const container = contentEl.parentElement;
-            if (container) {
-                container.scrollTop = container.scrollHeight;
-            }
+            contentEl.scrollTop = contentEl.scrollHeight;
         }
+
+        this._syncFloatingPreviewIfOpen();
+    }
+
+    /** 若用户已打开侧栏预览，同步写入（内容生成默认不自动弹出侧栏） */
+    _syncFloatingPreviewIfOpen() {
+        if (window.previewPanelManager?.isVisible && this.livePreviewContent) {
+            window.previewPanelManager.setContent(this.livePreviewContent);
+        }
+    }
+
+    _processAndRenderChunk(message) {
+        if (!message?.trim()) return;
+        this.livePreviewContent += message;
+        this._liveChars = this.livePreviewContent.replace(/<[^>]+>/g, '').length;
+        this.setPreviewStatus(`✍️ 写作中 · ${this._liveChars} 字`, 'writing');
+        this.setPreviewMeta(this._liveChars > 0 ? `约 ${this._liveChars} 字` : '');
+
+        const contentEl = document.getElementById('live-preview-content');
+        if (!contentEl) return;
+
+        const formatted = this.livePreviewContent
+            .replace(/^#{1,3}\s+(.+)$/gm, '<h3>$1</h3>')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>')
+            .replace(/\n\n+/g, '</p><p>')
+            .replace(/\n/g, '<br>');
+        contentEl.innerHTML = `<div class="preview-article-body"><p>${formatted}</p></div>`;
+        contentEl.scrollTop = contentEl.scrollHeight;
+        this._syncFloatingPreviewIfOpen();
     }
 }

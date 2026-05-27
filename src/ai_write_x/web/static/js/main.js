@@ -139,18 +139,21 @@ class AIWriteXApp {
             });
         });
 
-        // 系统配置主菜单切换    
-        const navToggle = document.querySelector('.nav-toggle');
-        if (navToggle) {
-            navToggle.addEventListener('click', (e) => {
+        // 可展开主菜单切换：
+        // - 设置：点击进入配置视图 + 展开/收起
+        // - 其他分组（选题中心/运行中心）：仅展开/收起，不强制跳转视图（否则在子页时无法收起）
+        document.querySelectorAll('.nav-toggle').forEach(toggle => {
+            toggle.addEventListener('click', (e) => {
                 e.preventDefault();
                 const navItem = e.target.closest('.nav-item-expandable');
                 if (navItem) {
                     navItem.classList.toggle('expanded');
                 }
-                this.showView('config-manager');
+                if (navItem?.classList.contains('config-expandable')) {
+                    this.showView('config-manager');
+                }
             });
-        }
+        });
 
         // 配置二级菜单点击事件    
         document.querySelectorAll('.nav-sublink').forEach(link => {
@@ -170,6 +173,17 @@ class AIWriteXApp {
                 }
             });
         });
+
+        // 视图型二级菜单（用于合并后的分组入口）
+        document.querySelectorAll('.nav-view-sublink').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const view = link.dataset.view;
+                if (view) {
+                    this.showView(view);
+                }
+            });
+        });
     }
 
     showView(viewName) {
@@ -181,10 +195,22 @@ class AIWriteXApp {
         }
 
         // 更新导航状态
-        document.querySelectorAll('.nav-link').forEach(link => {
+        document.querySelectorAll('.nav-link, .nav-view-sublink').forEach(link => {
             link.classList.remove('active');
+        });
+        document.querySelectorAll('.nav-link').forEach(link => {
             if (link.dataset.view === viewName) {
                 link.classList.add('active');
+            }
+        });
+        document.querySelectorAll('.nav-view-sublink').forEach(link => {
+            if (link.dataset.view === viewName) {
+                link.classList.add('active');
+                // 同步展开父菜单，便于用户看到当前所在位置
+                const navItem = link.closest('.nav-item-expandable');
+                if (navItem) {
+                    navItem.classList.add('expanded');
+                }
             }
         });
 
@@ -265,14 +291,18 @@ class AIWriteXApp {
                 if (!window.newshubManager) {
                     window.newshubManager = new NewsHubManager();
                 }
-                // 确保初始化被调用
-                if (window.newshubManager && typeof window.newshubManager.init === 'function' && !window.newshubManager.initialized) {
+                if (window.newshubManager && typeof window.newshubManager.init === 'function') {
                     window.newshubManager.init();
                 }
                 break;
             case 'scheduler':
-                if (window.schedulerManager && typeof window.schedulerManager.init === 'function') {
-                    window.schedulerManager.init();
+                if (window.schedulerManager) {
+                    if (typeof window.schedulerManager.init === 'function') {
+                        window.schedulerManager.init();
+                    }
+                    if (typeof window.schedulerManager.refreshData === 'function') {
+                        window.schedulerManager.refreshData(true);
+                    }
                 }
                 break;
             case 'dashboard':
@@ -298,6 +328,11 @@ class AIWriteXApp {
                     window.previewGallery.init();
                 }
                 break;
+            case 'menu-ip-whitelist':
+                if (window.menuIpWhitelistManager) {
+                    window.menuIpWhitelistManager.init();
+                }
+                break;
         }
     }
 
@@ -308,19 +343,18 @@ class AIWriteXApp {
                 sublink.classList.remove('active');
             });
 
-            // 激活界面设置子菜单    
-            const uiConfigSublink = document.querySelector('[data-config="ui"]');
-            if (uiConfigSublink) {
-                uiConfigSublink.classList.add('active');
+            // 激活常规设置子菜单
+            const generalConfigSublink = document.querySelector('[data-config="general"]');
+            if (generalConfigSublink) {
+                generalConfigSublink.classList.add('active');
             }
 
-            // 显示界面设置面板    
             if (window.configManager) {
-                window.configManager.showConfigPanel('ui');
+                window.configManager.showConfigPanel('general');
             }
         } else {
-            // 如果切换到非配置管理视图,折叠系统设置菜单    
-            const expandableNavItem = document.querySelector('.nav-item-expandable');
+            // 如果切换到非配置管理视图,折叠「设置」菜单（不要误伤其他可展开菜单）
+            const expandableNavItem = document.querySelector('.nav-item-expandable.config-expandable');
             if (expandableNavItem) {
                 expandableNavItem.classList.remove('expanded');
             }
@@ -335,8 +369,12 @@ class AIWriteXApp {
     updatePreviewButtonVisibility(viewName) {
         const previewTrigger = document.getElementById('preview-trigger');
         if (previewTrigger) {
-            const viewsWithPreview = ['creative-workshop', 'article-manager', 'template-manager'];
+            // 内容生成已有内嵌「实时写作」预览，不再显示右侧悬浮条
+            const viewsWithPreview = ['article-manager', 'template-manager'];
             previewTrigger.style.display = viewsWithPreview.includes(viewName) ? 'flex' : 'none';
+            if (viewName === 'creative-workshop' && window.previewPanelManager?.isVisible) {
+                window.previewPanelManager.hide();
+            }
         }
     }
 
@@ -549,7 +587,7 @@ window.openArticleComparison = async function (articleInfo) {
     // 显示模态框
     modal.style.display = 'flex';
 
-    // 检查是否有全局的多篇文章列表(创意工坊批量生成时注入)
+    // 检查是否有全局的多篇文章列表(内容生成批量生成时注入)
     let isBatchComparison = false;
     let targetArticle = articleInfo;
 

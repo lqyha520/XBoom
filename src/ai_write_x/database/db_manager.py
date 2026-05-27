@@ -215,6 +215,25 @@ class DBManager:
             log.print_log(f"[DBManager] Failed to get active tasks: {e}", "error")
             return []
 
+    def claim_task_for_execution(self, task_id: str) -> bool:
+        """原子抢占到期任务，避免 60 秒轮询重复触发。"""
+        try:
+            from uuid import UUID
+            tid = UUID(task_id) if isinstance(task_id, str) else task_id
+            now = datetime.now()
+            with get_session() as session:
+                task = session.get(ScheduledTask, tid)
+                if not task or task.status != "enabled" or task.execution_time > now:
+                    return False
+                task.status = "running"
+                task.updated_at = now
+                session.add(task)
+                session.commit()
+                return True
+        except Exception as e:
+            log.print_log(f"[DBManager] Failed to claim task: {e}", "error")
+            return False
+
     def get_all_tasks(self) -> List[ScheduledTask]:
         try:
             with get_session() as session:

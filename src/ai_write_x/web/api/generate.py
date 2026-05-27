@@ -69,11 +69,11 @@ async def validate_config():
 
             # 检查是否是 API KEY 相关错误
             if "API KEY" in error_msg or "api_key" in error_msg:
-                detail = f"{error_msg}\n\n请前往【系统设置 → 大模型API】配置您的 API 密钥。"
+                detail = f"{error_msg}\n\n请前往【设置 → 大模型API】配置您的 API 密钥。"
             elif "Model" in error_msg or "model" in error_msg:
-                detail = f"{error_msg}\n\n请前往【系统设置 → 大模型API】配置模型参数。"
+                detail = f"{error_msg}\n\n请前往【设置 → 大模型API】配置模型参数。"
             elif "微信公众号" in error_msg or "appid" in error_msg:
-                detail = f"{error_msg}\n\n请前往【系统设置 → 微信公众号】配置账号信息。"
+                detail = f"{error_msg}\n\n请前往【设置 → 微信公众号】配置账号信息。"
             else:
                 detail = f"配置错误: {error_msg}"
 
@@ -900,7 +900,7 @@ async def get_hot_topics():
     优先级策略：
     1. 强制优先并发运行权威媒体爬虫（BBC、纽约时报、新华社等）
     2. 如果候选不足，再运行其他普通爬虫
-    3. 最后兜底：热点聚合（NewsHub缓存）
+    3. 最后兜底：选题中心（NewsHub缓存）
     """
     try:
         from src.ai_write_x.tools.spider_runner import SpiderRunner
@@ -1008,9 +1008,9 @@ async def get_hot_topics():
                 if len(all_candidate_articles) >= target_article_count:
                     break
 
-        # ========== 最后兜底：热点聚合（NewsHub缓存）==========
+        # ========== 最后兜底：选题中心（NewsHub缓存）==========
         if len(all_candidate_articles) < target_article_count:
-            log.print_log(f"📦 最后兜底：正在从热点聚合缓存获取...", "info")
+            log.print_log(f"📦 最后兜底：正在从选题中心缓存获取...", "info")
             try:
                 from src.ai_write_x.web.api.newshub import get_hub_manager
                 hub_manager = get_hub_manager()
@@ -1024,10 +1024,10 @@ async def get_hot_topics():
                             "title": item["title"],
                             "spider": "newshub",
                             "url": item["url"],
-                            "_platform_name": "热点聚合"
+                            "_platform_name": "选题中心"
                         })
                 if cached_news:
-                    log.print_log(f"热点聚合兜底获取 {len(cached_news)} 个话题", "info")
+                    log.print_log(f"选题中心兜底获取 {len(cached_news)} 个话题", "info")
             except Exception as e:
                 print(f"Hot-topics NewsHub cache error: {e}")
         

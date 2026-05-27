@@ -48,6 +48,16 @@ class ContentGenerationEngine(BaseWorkflowFramework):
             tasks[task_config.name] = task
         return tasks
 
+    @staticmethod
+    def _ensure_global_tools():
+        """Web/定时任务路径可能未走 crew_main，按需补注册工具。"""
+        from src.ai_write_x.core.tool_registry import GlobalToolRegistry
+        from src.ai_write_x.core.system_init import initialize_global_tools
+
+        registry = GlobalToolRegistry.get_instance()
+        if "news_hub_tool" not in registry._tools:
+            initialize_global_tools()
+
     def execute_workflow(self, input_data: Dict[str, Any], max_retries: int = 2) -> ContentResult:
         """执行工作流并记录监控数据，支持重试机制"""
         start_time = time.time()
@@ -56,6 +66,7 @@ class ContentGenerationEngine(BaseWorkflowFramework):
 
         for attempt in range(max_retries + 1):
             try:
+                self._ensure_global_tools()
                 self.validate_config()
                 self.agents = self.setup_agents()
                 self.tasks = self.setup_tasks()

@@ -72,6 +72,20 @@ class VisualAssetsManager:
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
 
+    @staticmethod
+    def _enforce_no_text_prompt(prompt: str) -> str:
+        """统一给生图提示词追加“禁止图片文字”约束。"""
+        from src.ai_write_x.core.article_polish import append_no_text_negative
+
+        clean = (prompt or "").strip()
+        if not clean:
+            return clean
+
+        if "--no" in clean:
+            pos, neg = clean.split("--no", 1)
+            return f"{pos.strip().rstrip(',')} --no {append_no_text_negative(neg.strip())}"
+        return f"{clean} --no {append_no_text_negative('')}"
+
     @classmethod
     def get_target_image_count(cls) -> int:
         """每篇文章目标配图总数（含封面），来自基础设置 img_api.settings.article_image_count"""
@@ -211,7 +225,7 @@ class VisualAssetsManager:
    - 光影交互：引入 `Subsurface Scattering` (皮肤透光), `Rim light` (轮廓光), `Volumetric lighting` (体积光)。
 
 ## 视觉纠偏策略 (V19.5 Core)
-- **防止文字畸变**：针对仪表盘或显示器，要求 AI 描述 `sharp digital typography`, `legible financial charts`, `clear UI elements`。
+- **严禁图片文字**：无论任何场景（屏幕/仪表盘/路牌/海报/书页），都必须避免出现可读文字与清晰字符；如必须出现屏幕元素，只能是抽象 UI 光斑/模糊图形/不可辨识符号，不得要求“清晰字体/可读图表/legible”等描述。
 - **防止人物重复**：明确主次，使用描述性差异化词汇（如：一位年长的引导者与一位年轻的记录者）。
 - **人脸保底**：强制加入 `detailed facial features`, `symmetrical face`, `soulful gaze`。
 
@@ -228,6 +242,7 @@ class VisualAssetsManager:
 - **数量限制**：正文插图（含封面）共 **{safe_min} 张**，请严格按此数量插入占位符，不要多也不要少。
 - **首图强制**：必须插入 2.35:1 的封面大图。
 - **构图**：16:9 (全景), 3:4 (人物), 4:3 (标准)。
+- **禁止诱导文字**：Part 1/Part 2 中禁止出现 `typography`、`caption`、`subtitle`、`logo`、`signage`、`legible`、`readable text` 等会诱导生成文字的描述。
 
 直接输出文章全貌，包括正文与占位符，不要任何解释。
 
@@ -252,8 +267,15 @@ class VisualAssetsManager:
             heartbeat = HeartbeatLogger(interval=8.0)
             heartbeat.start()
             try:
-                # 增加 60 秒硬超时防止假死
-                enhanced_text = client.chat(messages=messages, temperature=0.7, timeout=60.0)
+                # 该步骤只用于“生成占位符”，对稳定性要求高：
+                # - 缩短超时，避免卡几分钟
+                # - 禁止重试，超时后直接降级到极速注入
+                enhanced_text = client.chat(
+                    messages=messages,
+                    temperature=0.7,
+                    timeout=20.0,
+                    max_retries_override=0,
+                )
             finally:
                 heartbeat.stop()
                 
@@ -281,11 +303,27 @@ class VisualAssetsManager:
                             lines.insert(pos, "\n" + prompts[i])
                     enhanced_text = "\n".join(lines).strip()
                 
+            # strip_leaked_prompt_text 可能会误判并删除包含负向词的 V-SCENE 行，
+            # 因此先“占位保护”再清理，最后再“还原”占位符。
             from src.ai_write_x.core.article_polish import strip_leaked_prompt_text
-            return strip_leaked_prompt_text(enhanced_text.strip())
+            placeholders = re.findall(r"\[\[V-SCENE:\s*[\s\S]*?\]\]", enhanced_text)
+            protected_text = enhanced_text
+            for i, ph in enumerate(placeholders):
+                token = f"__VSCENE_PLACEHOLDER_{i}__"
+                protected_text = protected_text.replace(ph, token, 1)
+
+            cleaned = strip_leaked_prompt_text(protected_text.strip())
+            for i, ph in enumerate(placeholders):
+                token = f"__VSCENE_PLACEHOLDER_{i}__"
+                cleaned = cleaned.replace(token, ph, 1)
+
+            return cleaned
         except Exception as e:
-            lg.print_log(f"[Warning] 视觉资产提示词植入失败，使用原文跳过: {str(e)}")
-            return markdown_text
+            lg.print_log(
+                f"[Warning] 视觉资产提示词植入失败：{str(e)}，已降级为极速注入占位符",
+                "warning",
+            )
+            return cls.inject_image_prompts_fast(markdown_text)
 
     @classmethod
     def sync_trigger_image_generation(cls, text_with_prompts: str, timeout: Optional[int] = None) -> str:
@@ -319,6 +357,7 @@ class VisualAssetsManager:
             
             # 整合提示词
             full_prompt = f"{pos_prompt} --no {neg_prompt}" if neg_prompt else pos_prompt
+            full_prompt = cls._enforce_no_text_prompt(full_prompt)
             
             all_tasks.append({
                 "prompt": full_prompt,
@@ -335,7 +374,7 @@ class VisualAssetsManager:
             bracket_pattern = r'\n\s*\(([^)\n]{10,100})\)\s*\n' # 10-100字符的圆括号行
             for m in re.finditer(bracket_pattern, text_with_prompts):
                 all_tasks.append({
-                    "prompt": m.group(1).strip(),
+                    "prompt": cls._enforce_no_text_prompt(m.group(1).strip()),
                     "ratio": "16:9",
                     "original": m.group(0)
                 })
@@ -350,7 +389,7 @@ class VisualAssetsManager:
                 if prompt:
                     # 使用 BeautifulSoup 的 replace_with 方法进行更稳定的替换
                     all_tasks.append({
-                        "prompt": prompt,
+                        "prompt": cls._enforce_no_text_prompt(prompt),
                         "ratio": ratio,
                         "original_element": ph # 保存元素对象
                     })
@@ -363,7 +402,7 @@ class VisualAssetsManager:
                 ratio_match = re.search(r'data-aspect-ratio=["\']([^"\']+)["\']', block)
                 if prompt_match:
                     all_tasks.append({
-                        "prompt": prompt_match.group(1).strip(),
+                        "prompt": cls._enforce_no_text_prompt(prompt_match.group(1).strip()),
                         "ratio": (ratio_match.group(1).strip() if ratio_match else "16:9"),
                         "original": block
                     })
@@ -375,7 +414,7 @@ class VisualAssetsManager:
                 tag_body = m.group(0)
                 ratio_match = re.search(r'data-aspect-ratio=["\']([^"\']+)["\']', tag_body)
                 all_tasks.append({
-                    "prompt": prompt,
+                    "prompt": cls._enforce_no_text_prompt(prompt),
                     "ratio": (ratio_match.group(1).strip() if ratio_match else "16:9"),
                     "original": tag_body
                 })
@@ -1317,7 +1356,6 @@ class VisualAssetsManager:
         from src.ai_write_x.core.article_polish import strip_unprocessed_visual_markers
 
         html = cls.prepare_html_for_image_generation(html)
-
         target_total = cls.get_target_image_count()
         min_images = target_total
         body_slots = cls.get_body_image_slot_count()
@@ -1348,13 +1386,66 @@ class VisualAssetsManager:
         )
         html = cls.sync_trigger_image_generation(html, timeout=timeout)
         html = strip_unprocessed_visual_markers(html)
-        from src.ai_write_x.core.article_polish import strip_leaked_prompt_text
-        html = strip_leaked_prompt_text(html)
+        from src.ai_write_x.core.article_polish import clean_article_visual_leaks
+
+        # 生图完成后再清理模板残留的随机占位图，避免与自定义图叠加
+        removed_stock = 0
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(html, "html.parser")
+            for img in soup.find_all("img"):
+                src = (img.get("src") or "").strip()
+                if cls.is_stock_placeholder_url(src):
+                    img.decompose()
+                    removed_stock += 1
+            if removed_stock:
+                lg.print_log(
+                    f"[VisualAssets] 生图后已清理 {removed_stock} 张随机占位图",
+                    "info",
+                )
+                html = soup.decode(formatter=None)
+        except Exception as e:
+            lg.print_log(f"[VisualAssets] 生图后清理随机占位图失败: {e}", "warning")
+
+        html_before_leaks = html
+        html = clean_article_visual_leaks(html)
+
+        def _plain_len(h: str) -> int:
+            return len(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h or "")).strip())
+
+        before_len = _plain_len(html_before_leaks)
+        after_len = _plain_len(html)
+        if before_len >= 80 and after_len < max(30, int(before_len * 0.4)):
+            lg.print_log(
+                f"[VisualAssets] 正文可能被误清理（{before_len}→{after_len} 字），已回退为清理前内容",
+                "warning",
+            )
+            html = html_before_leaks
 
         if article_path:
             cls.persist_cover_metadata(article_path, html)
 
         final_valid = cls.count_valid_article_images(html)
+        has_pending_after = bool(
+            re.search(r"\[\[V-SCENE:", html)
+            or "img-placeholder" in html
+            or re.search(r"data-img-prompt=", html)
+        )
+        has_stock_after = bool(re.search(r"(?:picsum\.photos|placeholder\.com|via\.placeholder|placehold\.co)", html, re.I))
+
+        # 审计日志：用于定位“图片数量异常/仍有随机图/仍有占位符”等问题
+        try:
+            lg.print_log(
+                "[VisualAssets][AUDIT] "
+                f"目标图={min_images} | 有效图={final_valid} | "
+                f"清理随机占位图={removed_stock} | "
+                f"仍有待处理占位={has_pending_after} | "
+                f"仍含随机图={has_stock_after}",
+                "info",
+            )
+        except Exception:
+            pass
         if final_valid < 1:
             lg.print_log("[VisualAssets] 配图生成未完成，请检查图片 API / ComfyUI 配置", "warning")
         else:
@@ -1450,7 +1541,10 @@ class VisualAssetsManager:
                 file_path.write_text(content, encoding="utf-8")
             
             # 2. 无占位符且缺图：注入后再生成
-            from src.ai_write_x.core.article_polish import strip_unprocessed_visual_markers
+            from src.ai_write_x.core.article_polish import (
+                strip_unprocessed_visual_markers,
+                strip_leaked_prompt_text,
+            )
 
             if has_picsum_imgs:
                 from src.ai_write_x.config.config import Config

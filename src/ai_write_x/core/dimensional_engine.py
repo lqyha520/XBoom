@@ -193,12 +193,12 @@ class DimensionalCreativeEngine:
             (推荐维度列表, 最大维度数, 建议创意强度)
         """
         configs = {
-            'politics': {
-                'dimensions': ['audience', 'format'],
-                'max_dims': 1,
-                'intensity': 0.3
+            "politics": {
+                "dimensions": ["audience", "format"],
+                "max_dims": 1,
+                "intensity": 0.3,
             },
-            'news': {
+            "news": {
                 'dimensions': ['audience', 'format', 'tone'],
                 'max_dims': 2,
                 'intensity': 0.4
@@ -225,7 +225,80 @@ class DimensionalCreativeEngine:
             }
         }
         
-        return configs.get(content_type, configs['lifestyle'])
+        return configs.get(content_type, configs["lifestyle"])
+
+    def _resolve_dimension_option(
+        self, category: str, option_name: str
+    ) -> Any:
+        """将 UI 中的选项名解析为预设/自定义选项对象。"""
+        option_name = (option_name or "").strip()
+        dim_cfg = self.dimension_config.get(category, {})
+
+        if option_name == "custom":
+            custom_input = (dim_cfg.get("custom_input") or "").strip()
+            if not custom_input:
+                return None
+            return {
+                "name": "custom",
+                "value": custom_input,
+                "weight": 1.0,
+                "description": "用户自定义",
+            }
+
+        options = self.get_dimension_options(category, ignore_enabled_filter=False)
+        if not options:
+            return None
+
+        if option_name:
+            for option in options:
+                if option.get("name") == option_name:
+                    return option
+
+        weights = [float(o.get("weight", 1.0)) for o in options]
+        return random.choices(options, weights=weights, k=1)[0]
+
+    def _collect_manual_dimension_candidates(
+        self, content_type: str, type_config: Dict[str, Any], adjusted_max: int
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        """从 enabled_dimensions + dimension_options 收集手动模式候选（与前端 UI 一致）。"""
+        enabled_dimensions = self.config.get("enabled_dimensions", {})
+        allowed_categories = set(type_config["dimensions"])
+        strict_types = {"news", "technical", "academic", "politics"}
+        candidates: List[Tuple[str, Dict[str, Any]]] = []
+
+        for category in self.get_available_dimensions(ignore_enabled_filter=False):
+            if not enabled_dimensions.get(category, False):
+                continue
+            if content_type in strict_types and category not in allowed_categories:
+                log.print_log(f"[创意引擎] 跳过不适合的维度: {category}")
+                continue
+
+            dim_cfg = self.dimension_config.get(category, {})
+            option_name = (dim_cfg.get("selected_option") or "").strip()
+            option = self._resolve_dimension_option(category, option_name)
+            if option:
+                candidates.append((category, option))
+
+        # 兼容旧版 selected_dimensions 字段
+        if not candidates:
+            for dim_info in self.config.get("selected_dimensions", []):
+                category = dim_info.get("category")
+                option_name = dim_info.get("option")
+                if not category or not option_name:
+                    continue
+                if content_type in strict_types and category not in allowed_categories:
+                    continue
+                if not enabled_dimensions.get(category, True):
+                    continue
+                option = self._resolve_dimension_option(category, option_name)
+                if option:
+                    candidates.append((category, option))
+
+        if len(candidates) > adjusted_max:
+            candidates = candidates[:adjusted_max]
+            log.print_log(f"[创意引擎] 限制维度数量为: {adjusted_max}")
+
+        return candidates
 
     def select_dimensions(
         self, auto_selection: bool = True, max_dimensions: int = 5, 
@@ -305,62 +378,18 @@ class DimensionalCreativeEngine:
                     if selected_count >= max_dimensions:
                         break
         else:
-            # 手动选择维度，但需要根据内容类型进行过滤
-            selected_dims = self.config.get("selected_dimensions", [])
             compatibility_threshold = self.config.get("compatibility_threshold", 0.6)
-            
-            # 获取该内容类型推荐的维度白名单
-            allowed_categories = set(type_config['dimensions'])
-            
-            # 对于严肃内容类型，只允许使用推荐的维度
-            if content_type in ['news', 'technical', 'academic']:
-                log.print_log(f"[创意引擎] {content_type}类型内容，过滤不适合的创意维度")
+            if content_type in ("news", "technical", "academic", "politics"):
+                log.print_log(f"[创意引擎] {content_type} 类型内容，手动模式将过滤不适合的创意维度")
 
-            # 先收集所有手动选择的维度（过滤不符合内容类型的）
-            candidate_dimensions = []
-            for dim_info in selected_dims:
-                category = dim_info.get("category")
-                option_name = dim_info.get("option")
-                
-                # 检查维度是否适合该内容类型
-                if content_type in ['news', 'technical', 'academic']:
-                    if category not in allowed_categories:
-                        log.print_log(f"[创意引擎] 跳过不适合的维度: {category}")
-                        continue
-                
-                # 检查维度是否启用
-                enabled_dimensions = self.config.get("enabled_dimensions", {})
-                if category and option_name and enabled_dimensions.get(category, True):
-                    # 特殊处理自定义选项
-                    if option_name == "custom":
-                        dimension_config = self.dimension_config.get(category, {})
-                        custom_input = dimension_config.get("custom_input", "")
-                        if custom_input:
-                            custom_option = {
-                                "name": "custom",
-                                "value": custom_input,
-                                "weight": 1.0,
-                                "description": "用户自定义",
-                            }
-                            candidate_dimensions.append((category, custom_option))
-                    else:
-                        options = self.get_dimension_options(category, ignore_enabled_filter=False)
-                        for option in options:
-                            if option.get("name") == option_name:
-                                candidate_dimensions.append((category, option))
-                                break
+            candidate_dimensions = self._collect_manual_dimension_candidates(
+                content_type, type_config, adjusted_max
+            )
 
-            # 限制手动选择的维度数量
-            if len(candidate_dimensions) > adjusted_max:
-                candidate_dimensions = candidate_dimensions[:adjusted_max]
-                log.print_log(f"[创意引擎] 限制维度数量为: {adjusted_max}")
-
-            # 按照兼容性阈值过滤维度组合
             for category, option in candidate_dimensions:
                 temp_dimensions = selected_dimensions + [(category, option)]
                 compatibility_score = self.validate_dimension_compatibility(temp_dimensions)
-
-                if compatibility_score > compatibility_threshold:
+                if compatibility_score >= compatibility_threshold:
                     selected_dimensions.append((category, option))
 
         return selected_dimensions

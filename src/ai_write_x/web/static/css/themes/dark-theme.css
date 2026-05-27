@@ -73,7 +73,7 @@
     border: 1px dashed rgba(255, 255, 255, 0.15);
 }
 
-[data-theme="dark"] .status-indicator {
+[data-theme="dark"] .app-footer .status-indicator {
     box-shadow: 0 0 16px rgba(41, 151, 255, 0.6);
 }
 

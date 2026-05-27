@@ -1,0 +1,217 @@
+<div id="config-general" class="config-panel active general-config-panel">
+    <div class="config-header">
+        <div class="header-content">
+            <div>
+                <h2>常规设置</h2>
+                <p class="config-description">应用外观、发布输出与文章生成参数，合并原「界面设置」与「基础设置」</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="btn btn-secondary" id="reset-general-config">恢复默认</button>
+            <button type="button" class="btn btn-primary" id="save-general-config">保存设置</button>
+        </div>
+    </div>
+
+    <div class="config-form general-config-form">
+        <details class="general-settings-panel" open>
+            <summary class="general-settings-summary">
+                <span class="general-settings-summary-title">应用外观</span>
+                <span class="general-settings-summary-desc">主题、窗口与设计器界面</span>
+            </summary>
+            <div class="general-settings-body">
+                <div class="general-field-grid general-field-grid-3">
+                    <div class="form-group">
+                        <label for="theme-selector">主题模式</label>
+                        <select id="theme-selector" name="theme" class="form-control">
+                            <option value="light">亮色主题</option>
+                            <option value="dark">暗色主题</option>
+                        </select>
+                        <p class="form-help">主界面配色，保存后立即生效</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="window-mode-selector">窗口模式</label>
+                        <select id="window-mode-selector" name="windowMode" class="form-control">
+                            <option value="STANDARD">标准窗口</option>
+                            <option value="MAXIMIZED">最大化启动</option>
+                        </select>
+                        <p class="form-help">部分模式需重启后完全生效</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="design-theme-selector">页面设计器主题</label>
+                        <select id="design-theme-selector" name="designTheme" class="form-control">
+                            <option value="follow-system">跟随系统</option>
+                            <option value="default">默认主题</option>
+                        </select>
+                        <p class="form-help">文章「页面设计」编辑器的外观</p>
+                    </div>
+                </div>
+            </div>
+        </details>
+
+        <details class="general-settings-panel" open>
+            <summary class="general-settings-summary">
+                <span class="general-settings-summary-title">发布与输出</span>
+                <span class="general-settings-summary-desc">平台、格式与自动发布行为</span>
+            </summary>
+            <div class="general-settings-body">
+                <div class="general-field-grid general-field-grid-2">
+                    <div class="form-group">
+                        <label for="publish-platform">发布平台</label>
+                        <select id="publish-platform" class="form-control">
+                            <option value="wechat">微信公众号</option>
+                            <option value="xiaohongshu">小红书</option>
+                            <option value="douyin">抖音</option>
+                            <option value="toutiao">今日头条</option>
+                            <option value="baijiahao">百家号</option>
+                            <option value="zhihu">知乎</option>
+                            <option value="douban">豆瓣</option>
+                        </select>
+                        <p class="form-help">当前版本仅微信公众号完整可用</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="article-format">文章格式</label>
+                        <select id="article-format" class="form-control">
+                            <option value="html">HTML</option>
+                            <option value="markdown">Markdown</option>
+                            <option value="txt">纯文本 TXT</option>
+                        </select>
+                        <p class="form-help">生成文章的默认文件格式</p>
+                    </div>
+                </div>
+                <div class="general-toggle-grid">
+                    <label class="general-toggle-card">
+                        <input type="checkbox" id="auto-publish">
+                        <span class="checkbox-custom"></span>
+                        <span class="general-toggle-text">
+                            <strong>自动发布</strong>
+                            <small>生成完成后发布到所选平台</small>
+                        </span>
+                    </label>
+                    <label class="general-toggle-card">
+                        <input type="checkbox" id="format-publish">
+                        <span class="checkbox-custom"></span>
+                        <span class="general-toggle-text">
+                            <strong>格式化发布</strong>
+                            <small>非 HTML 时先排版再发布</small>
+                        </span>
+                    </label>
+                    <label class="general-toggle-card">
+                        <input type="checkbox" id="auto-delete-published">
+                        <span class="checkbox-custom"></span>
+                        <span class="general-toggle-text">
+                            <strong>发布后删除本地</strong>
+                            <small>成功发布后清空本地 HTML 缓存</small>
+                        </span>
+                    </label>
+                </div>
+            </div>
+        </details>
+
+        <details class="general-settings-panel">
+            <summary class="general-settings-summary">
+                <span class="general-settings-summary-title">文章模板</span>
+                <span class="general-settings-summary-desc">内置模板分类与随机策略</span>
+            </summary>
+            <div class="general-settings-body">
+                <label class="general-toggle-card general-toggle-card-inline">
+                    <input type="checkbox" id="use-template">
+                    <span class="checkbox-custom"></span>
+                    <span class="general-toggle-text">
+                        <strong>使用内置模板</strong>
+                        <small>启用后按下方分类与模板生成排版</small>
+                    </span>
+                </label>
+                <div class="general-field-grid general-field-grid-2 general-template-fields">
+                    <div class="form-group">
+                        <label for="config-template-category">模板分类</label>
+                        <select id="config-template-category" class="form-control" disabled>
+                            <option value="">随机分类</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="template">模板选择</label>
+                        <select id="template" class="form-control" disabled>
+                            <option value="">随机模板</option>
+                        </select>
+                    </div>
+                </div>
+                <label class="general-toggle-card general-toggle-card-inline">
+                    <input type="checkbox" id="use-compress">
+                    <span class="checkbox-custom"></span>
+                    <span class="general-toggle-text">
+                        <strong>压缩模板</strong>
+                        <small>降低 Token 消耗，略损排版细节</small>
+                    </span>
+                </label>
+            </div>
+        </details>
+
+        <details class="general-settings-panel" open>
+            <summary class="general-settings-summary">
+                <span class="general-settings-summary-title">生成参数</span>
+                <span class="general-settings-summary-desc">搜索、篇幅、配图与任务并发</span>
+            </summary>
+            <div class="general-settings-body">
+                <div class="general-field-grid general-field-grid-4">
+                    <div class="form-group">
+                        <label for="max-search-results">最大搜索数</label>
+                        <input type="number" id="max-search-results" class="form-control" min="1" max="20" value="10">
+                        <p class="form-help">1–20</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="min-search-results">最小搜索数</label>
+                        <input type="number" id="min-search-results" class="form-control" min="1" max="10" value="3">
+                        <p class="form-help">1–10</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="min-article-len">最少字数</label>
+                        <input type="number" id="min-article-len" class="form-control" min="500" value="800">
+                    </div>
+                    <div class="form-group">
+                        <label for="max-article-len">最多字数</label>
+                        <input type="number" id="max-article-len" class="form-control" max="5000" value="2000">
+                    </div>
+                </div>
+                <div class="general-field-grid general-field-grid-2">
+                    <div class="form-group">
+                        <label for="article-image-count">文章配图数量</label>
+                        <input type="number" id="article-image-count" class="form-control" min="1" max="12" value="3">
+                        <p class="form-help">含封面，1–12 张，默认 3</p>
+                    </div>
+                </div>
+                <div class="general-toggle-grid">
+                    <label class="general-toggle-card">
+                        <input type="checkbox" id="strict-freshness">
+                        <span class="checkbox-custom"></span>
+                        <span class="general-toggle-text">
+                            <strong>严格新鲜度</strong>
+                            <small>过滤已用过的热点，尽量每篇选题更新</small>
+                        </span>
+                    </label>
+                    <label class="general-toggle-card">
+                        <input type="checkbox" id="serial-mode-forced" checked>
+                        <span class="checkbox-custom"></span>
+                        <span class="general-toggle-text">
+                            <strong>串行任务模式</strong>
+                            <small>勾选时 API 并发为 1；取消则启用蜂群并发</small>
+                        </span>
+                    </label>
+                </div>
+            </div>
+        </details>
+
+        <details class="general-settings-panel general-help-panel">
+            <summary class="general-settings-summary">
+                <span class="general-settings-summary-title">使用说明</span>
+            </summary>
+            <div class="general-settings-body general-help-body">
+                <ul>
+                    <li>外观类设置保存后<strong>立即生效</strong>；发布与生成类写入配置文件。</li>
+                    <li>HTML 格式下「格式化发布」自动禁用。</li>
+                    <li>配图数量与「图片生成 API」中的策略可二选一维护，以本页数值为准写入配置。</li>
+                    <li>「页面设计」样式仍在侧栏单独配置，用于文章 HTML 排版。</li>
+                </ul>
+            </div>
+        </details>
+    </div>
+</div>

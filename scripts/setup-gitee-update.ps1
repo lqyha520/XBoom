@@ -66,7 +66,10 @@ if (-not $repoExists) {
     Start-Sleep -Seconds 2
 }
 
-$Setup = Join-Path $Root 'dist\installer\AIWriteX-Setup.exe'
+$SetupItem = Get-ChildItem -Path (Join-Path $Root 'dist\installer') -Filter '*-Setup.exe' -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+$Setup = if ($SetupItem) { $SetupItem.FullName } else { $null }
 if (-not (Test-Path $Setup)) {
     Write-Host "Building installer..."
     & (Join-Path $Root 'build_windows_installer.ps1')

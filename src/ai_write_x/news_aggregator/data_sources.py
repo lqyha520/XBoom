@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import asyncio
 import aiohttp
+import os
 from datetime import datetime
 
 # feedparser 是可选依赖

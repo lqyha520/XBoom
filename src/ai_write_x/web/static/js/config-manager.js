@@ -2,46 +2,52 @@ class AIWriteXConfigManager {
     constructor() {
         // 维度分组定义  
         this.DIMENSION_GROUPS = {
-            'expression': {
-                name: '文体表达维度',
-                icon: 'icon-text',
+            expression: {
+                name: '文体表达',
+                emoji: '✍️',
                 dimensions: ['style', 'language', 'tone'],
-                description: '控制文章的文体风格、语言风格和语调语气'
+                description: '文体、语言与语调'
             },
-            'culture': {
-                name: '文化时空维度',
-                icon: 'icon-globe',
+            culture: {
+                name: '文化时空',
+                emoji: '🌏',
                 dimensions: ['culture', 'time', 'scene'],
-                description: '设置文化视角、时空背景和场景环境'
+                description: '文化视角、时代与场景'
             },
-            'character': {
-                name: '角色技法维度',
-                icon: 'icon-user',
+            character: {
+                name: '角色技法',
+                emoji: '🎭',
                 dimensions: ['personality', 'technique', 'perspective'],
-                description: '选择人格角色、表现技法和叙述视角'
+                description: '人格、技法与叙述视角'
             },
-            'structure': {
-                name: '结构节奏维度',
-                icon: 'icon-layout',
+            structure: {
+                name: '结构节奏',
+                emoji: '📐',
                 dimensions: ['structure', 'rhythm'],
-                description: '定义文章结构和节奏韵律'
+                description: '篇章结构与韵律'
             },
-            'audience': {
-                name: '受众主题维度',
-                icon: 'icon-target',
+            audience: {
+                name: '受众主题',
+                emoji: '🎯',
                 dimensions: ['audience', 'theme', 'emotion', 'format'],
-                description: '针对目标受众、主题内容、情感调性和表达格式'
+                description: '受众、主题、情绪与格式'
             }
         };
+        this._creativeRecommendedDimensions = ['audience', 'emotion', 'format', 'style', 'theme'];
+        this._creativeBindingsReady = false;
+        this._pageDesignBindingsReady = false;
 
         this.apiEndpoint = '/api/config';
         this.config = {};
         this.uiConfig = this.loadUIConfig();
         this.customAPIs = [];  // 自定义API配置
+        this._selectedAPIProvider = null;  // 大模型 API 面板当前选中的厂商 key
         this.customImgAPIs = [];  // 自定义图片API配置
+        this._selectedImgAPIProvider = null;  // 图片 API 面板当前选中的服务 key
         this.aiforgeCustomProviders = [];  // AIForge自定义LLM提供商配置
 
-        this.currentPanel = 'ui'; this.init();
+        this.currentPanel = 'general';
+        this.init();
     }
 
     async init() {
@@ -92,11 +98,7 @@ class AIWriteXConfigManager {
                     window.themeManager.applyTheme(e.target.value, false);
                 }
 
-                const saveBtn = document.getElementById('save-ui-config');
-                if (saveBtn && !saveBtn.classList.contains('has-changes')) {
-                    saveBtn.classList.add('has-changes');
-                    saveBtn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
-                }
+                this._markGeneralConfigDirty();
             });
         }
 
@@ -108,12 +110,7 @@ class AIWriteXConfigManager {
                 if (window.windowModeManager) {
                     window.windowModeManager.applyMode(e.target.value);
                 }
-
-                const saveBtn = document.getElementById('save-ui-config');
-                if (saveBtn && !saveBtn.classList.contains('has-changes')) {
-                    saveBtn.classList.add('has-changes');
-                    saveBtn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
-                }
+                this._markGeneralConfigDirty();
             });
         }
 
@@ -122,97 +119,19 @@ class AIWriteXConfigManager {
         if (designThemeSelector) {
             designThemeSelector.addEventListener('change', (e) => {
                 this.uiConfig.designTheme = e.target.value;
-
-                // 动态加载/卸载 grapesjs-theme-override.css  
                 this.toggleGrapesJSTheme(e.target.value);
-
-                const saveBtn = document.getElementById('save-ui-config');
-                if (saveBtn && !saveBtn.classList.contains('has-changes')) {
-                    saveBtn.classList.add('has-changes');
-                    saveBtn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
-                }
+                this._markGeneralConfigDirty();
             });
         }
 
-        // 保存按钮  
-        const saveUIConfigBtn = document.getElementById('save-ui-config');
-        if (saveUIConfigBtn) {
-            saveUIConfigBtn.addEventListener('click', async () => {
-                const success = await this.saveUIConfig(this.uiConfig);
-
-                if (success) {
-                    // 清除未保存提示  
-                    const saveBtn = document.getElementById('save-ui-config');
-                    if (saveBtn) {
-                        saveBtn.classList.remove('has-changes');
-                        saveBtn.innerHTML = '保存设置';
-                    }
-                }
-
-                window.app?.showNotification(
-                    success ? '界面设置已保存' : '保存界面设置失败',
-                    success ? 'success' : 'error'
-                );
-            });
+        const saveGeneralConfigBtn = document.getElementById('save-general-config');
+        if (saveGeneralConfigBtn) {
+            saveGeneralConfigBtn.addEventListener('click', () => this.saveGeneralConfig());
         }
 
-        // 恢复默认按钮  
-        const resetUIConfigBtn = document.getElementById('reset-ui-config');
-        if (resetUIConfigBtn) {
-            resetUIConfigBtn.addEventListener('click', async () => {
-                const oldWindowMode = this.uiConfig.windowMode;
-                this.uiConfig = {
-                    theme: 'light',
-                    windowMode: 'STANDARD',
-                    designTheme: 'follow-system'
-                };
-
-                // 更新UI显示    
-                const themeSelector = document.getElementById('theme-selector');
-                const windowModeSelector = document.getElementById('window-mode-selector');
-                const designThemeSelector = document.getElementById('design-theme-selector');
-
-                if (themeSelector) themeSelector.value = 'light';
-                if (windowModeSelector) windowModeSelector.value = 'STANDARD';
-                if (designThemeSelector) designThemeSelector.value = 'follow-system';
-
-                if (window.themeManager) window.themeManager.applyTheme('light', false);
-                if (window.windowModeManager) window.windowModeManager.applyMode('STANDARD');
-                this.toggleGrapesJSTheme('follow-system');  // 应用设计主题  
-
-                const success = await this.saveUIConfig(this.uiConfig);
-                if (success && oldWindowMode !== 'STANDARD') {
-                    window.windowModeManager?.showRestartNotification();
-                }
-            });
-        }
-
-        // 基础设置保存按钮  
-        const saveBaseConfigBtn = document.getElementById('save-base-config');
-        if (saveBaseConfigBtn) {
-            saveBaseConfigBtn.addEventListener('click', async () => {
-                const success = await this.saveConfig();
-                if (success) {
-                    saveBaseConfigBtn.classList.remove('has-changes');
-                    saveBaseConfigBtn.innerHTML = '保存设置';
-                }
-                window.app?.showNotification(
-                    success ? '基础设置已保存' : '保存基础设置失败',
-                    success ? 'success' : 'error'
-                );
-            });
-        }
-
-        // 基础设置恢复默认按钮  
-        const resetBaseConfigBtn = document.getElementById('reset-base-config');
-        if (resetBaseConfigBtn) {
-            resetBaseConfigBtn.addEventListener('click', async () => {
-                const success = await this.resetToDefault();
-                window.app?.showNotification(
-                    success ? '已恢复默认设置' : '恢复默认设置失败',
-                    success ? 'info' : 'error'
-                );
-            });
+        const resetGeneralConfigBtn = document.getElementById('reset-general-config');
+        if (resetGeneralConfigBtn) {
+            resetGeneralConfigBtn.addEventListener('click', () => this.resetGeneralConfig());
         }
 
         // 文章格式  
@@ -395,7 +314,7 @@ class AIWriteXConfigManager {
             });
         }
 
-        // ========== 热搜平台设置事件绑定 ==========  
+        // ========== 选题来源设置事件绑定 ==========  
 
         // 保存平台配置按钮  
         const savePlatformsConfigBtn = document.getElementById('save-platforms-config');
@@ -612,14 +531,6 @@ class AIWriteXConfigManager {
             });
         }
 
-        // 添加自定义图片API
-        const addCustomImgAPIBtn = document.getElementById('add-custom-img-api');
-        if (addCustomImgAPIBtn) {
-            addCustomImgAPIBtn.addEventListener('click', () => {
-                this.addCustomImgAPI();
-            });
-        }
-
         // 恢复默认图片API配置  
         const resetImgAPIConfigBtn = document.getElementById('reset-img-api-config');
         if (resetImgAPIConfigBtn) {
@@ -800,186 +711,123 @@ class AIWriteXConfigManager {
             });
         }
 
-        const creativeEnabled = document.getElementById('creative-enabled');
-        if (creativeEnabled) {
-            creativeEnabled.addEventListener('change', async (e) => {
-                const enabled = e.target.checked;
+        this.bindCreativeConfigListeners();
 
-                // 更新所有相关控件的禁用状态  
-                document.querySelectorAll('.dimension-checkbox, .dimension-select, .dimension-custom-input').forEach(el => {
-                    if (!document.getElementById('auto-dimension-selection').checked) {
-                        el.disabled = !enabled;
-                    }
-                });
+        this.bindPageDesignConfigListeners();
+    }
 
-                await this.updateConfig({
-                    dimensional_creative: {
-                        ...this.config.dimensional_creative,
-                        enabled: enabled
-                    }
-                });
-            });
+    _markPageDesignDirty() {
+        const saveBtn = document.getElementById('save-page-design-config');
+        if (saveBtn && !saveBtn.classList.contains('has-changes')) {
+            saveBtn.classList.add('has-changes');
+            saveBtn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
         }
+    }
 
-        const autoSelection = document.getElementById('auto-dimension-selection');
-        if (autoSelection) {
-            autoSelection.addEventListener('change', async (e) => {
-                const auto = e.target.checked;
-                const globalEnabled = document.getElementById('creative-enabled').checked;
+    bindPageDesignConfigListeners() {
+        if (this._pageDesignBindingsReady) return;
+        this._pageDesignBindingsReady = true;
 
-                // 禁用/启用所有维度控件  
-                document.querySelectorAll('.dimension-checkbox, .dimension-select, .dimension-custom-input').forEach(el => {
-                    el.disabled = !globalEnabled || auto;
-                });
+        document.getElementById('use-original-styles')?.addEventListener('change', (e) => {
+            this.togglePageDesignSections(e.target.checked);
+            this.updatePageDesignUIState();
+            this._markPageDesignDirty();
+        });
 
-                // 显示/隐藏自动选择参数  
-                document.getElementById('max-dimensions').disabled = !auto;
-                document.getElementById('compatibility-threshold').disabled = !auto;
+        document.getElementById('unified-brand-style')?.addEventListener('change', () => {
+            this.updatePageDesignUIState();
+            this._markPageDesignDirty();
+        });
 
-                await this.updateConfig({
-                    dimensional_creative: {
-                        ...this.config.dimensional_creative,
-                        auto_dimension_selection: auto
-                    }
-                });
-            });
-        }
+        document.getElementById('save-page-design-config')?.addEventListener('click', () => {
+            this.savePageDesignConfig();
+        });
 
-        // 启用维度化创意复选框  
-        const creativeEnabledCheckbox = document.getElementById('creative-enabled');
-        if (creativeEnabledCheckbox) {
-            creativeEnabledCheckbox.addEventListener('change', async (e) => {
-                const enabled = e.target.checked;
+        document.getElementById('reset-page-design-config')?.addEventListener('click', async () => {
+            const response = await fetch(`${this.apiEndpoint}/default`);
+            if (!response.ok) {
+                window.app?.showNotification('恢复默认配置失败', 'error');
+                return;
+            }
+            const result = await response.json();
+            await this.updateConfig({ page_design: result.data.page_design });
+            this.populatePageDesignUI();
+            window.app?.showNotification('已恢复默认页面设计配置', 'info');
+        });
 
-                this.updateCreativeControlsState();
-
-                await this.updateConfig({
-                    dimensional_creative: {
-                        ...this.config.dimensional_creative,
-                        enabled: enabled
-                    }
-                });
-            });
-        }
-
-        // 自动选择维度复选框    
-        const autoSelectionCheckbox = document.getElementById('auto-dimension-selection');
-        if (autoSelectionCheckbox) {
-            autoSelectionCheckbox.addEventListener('change', async (e) => {
-                const auto = e.target.checked;
-
-                this.updateCreativeControlsState();
-
-                await this.updateConfig({
-                    dimensional_creative: {
-                        ...this.config.dimensional_creative,
-                        auto_dimension_selection: auto
-                    }
-                });
-            });
-        }
-
-        // 保存创意配置按钮  
-        const saveCreativeConfigBtn = document.getElementById('save-creative-config');
-        if (saveCreativeConfigBtn) {
-            saveCreativeConfigBtn.addEventListener('click', async () => {
-                const success = await this.saveConfig();
-
-                if (success) {
-                    saveCreativeConfigBtn.classList.remove('has-changes');
-                    saveCreativeConfigBtn.innerHTML = '保存设置';
-                }
-
-                window.app?.showNotification(
-                    success ? '创意配置已保存' : '保存创意配置失败',
-                    success ? 'success' : 'error'
-                );
-            });
-        }
-
-        // 恢复默认创意配置按钮  
-        const resetCreativeConfigBtn = document.getElementById('reset-creative-config');
-        if (resetCreativeConfigBtn) {
-            resetCreativeConfigBtn.addEventListener('click', async () => {
-                const response = await fetch(`${this.apiEndpoint}/default`);
-                if (response.ok) {
-                    const result = await response.json();
-                    const defaultCreative = result.data.dimensional_creative;
-
-                    await this.updateConfig({ dimensional_creative: defaultCreative });
-
-                    this.populateCreativeUI();
-
-                    window.app?.showNotification('已恢复默认创意配置', 'info');
-                } else {
-                    window.app?.showNotification('恢复默认配置失败', 'error');
-                }
-            });
-        }
-
-        // 页面设计配置 - 使用原始样式开关  
-        const useOriginalStylesCheckbox = document.getElementById('use-original-styles');
-        if (useOriginalStylesCheckbox) {
-            useOriginalStylesCheckbox.addEventListener('change', (e) => {
-                const useOriginal = e.target.checked;
-                this.togglePageDesignSections(useOriginal);
-
-                // 标记按钮状态变化    
-                const saveBtn = document.getElementById('save-page-design-config');
-                if (saveBtn && !saveBtn.classList.contains('has-changes')) {
-                    saveBtn.classList.add('has-changes');
-                    saveBtn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
-                }
-            });
-        }
-
-        // 页面设计配置 - 保存按钮  
-        const savePageDesignBtn = document.getElementById('save-page-design-config');
-        if (savePageDesignBtn) {
-            savePageDesignBtn.addEventListener('click', async () => {
-                await this.savePageDesignConfig();
-            });
-        }
-
-        // 页面设计配置 - 恢复默认按钮  
-        const resetPageDesignBtn = document.getElementById('reset-page-design-config');
-        if (resetPageDesignBtn) {
-            resetPageDesignBtn.addEventListener('click', async () => {
-                const response = await fetch(`${this.apiEndpoint}/default`);
-                if (response.ok) {
-                    const result = await response.json();
-                    const defaultPageDesign = result.data.page_design;
-
-                    await this.updateConfig({ page_design: defaultPageDesign });
-                    this.populatePageDesignUI();
-
-                    window.app?.showNotification('已恢复默认页面设计配置', 'info');
-                }
-            });
-        }
-
-        // 页面设计配置 - 输入框变化监听  
         const pageDesignInputs = [
             'container-max-width', 'container-margin-h', 'container-bg-color',
             'card-border-radius', 'card-padding', 'card-bg-color', 'card-box-shadow',
             'typography-font-size', 'typography-line-height', 'typography-heading-scale',
             'typography-text-color', 'typography-heading-color',
             'spacing-section-margin', 'spacing-element-margin',
-            'accent-primary-color', 'accent-secondary-color', 'accent-highlight-bg'
+            'accent-primary-color', 'accent-secondary-color', 'accent-highlight-bg',
+            'unified-brand-style'
         ];
 
-        pageDesignInputs.forEach(inputId => {
+        pageDesignInputs.forEach((inputId) => {
             const input = document.getElementById(inputId);
-            if (input) {
-                input.addEventListener('input', () => {
-                    const saveBtn = document.getElementById('save-page-design-config');
-                    if (saveBtn && !saveBtn.classList.contains('has-changes')) {
-                        saveBtn.classList.add('has-changes');
-                        saveBtn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
-                    }
-                });
-            }
+            if (!input) return;
+            const handler = () => {
+                if (input.type === 'color') {
+                    this.syncPageDesignColorLabels(input);
+                    this.updatePageDesignAccentPreview();
+                }
+                this._markPageDesignDirty();
+            };
+            input.addEventListener('input', handler);
+            input.addEventListener('change', handler);
         });
+    }
+
+    syncPageDesignColorLabels(colorInput) {
+        const hex = document.querySelector(`[data-color-for="${colorInput.id}"]`);
+        if (hex) hex.textContent = (colorInput.value || '').toLowerCase();
+    }
+
+    syncAllPageDesignColorLabels() {
+        document.querySelectorAll('.page-design-color-input input[type="color"]').forEach((el) => {
+            this.syncPageDesignColorLabels(el);
+        });
+    }
+
+    updatePageDesignAccentPreview() {
+        const primary = document.getElementById('accent-primary-color')?.value || '#3a7bd5';
+        const secondary = document.getElementById('accent-secondary-color')?.value || '#00b09b';
+        const highlight = document.getElementById('accent-highlight-bg')?.value || '#f0f7ff';
+        const elP = document.getElementById('preview-primary');
+        const elS = document.getElementById('preview-secondary');
+        const elH = document.getElementById('preview-highlight');
+        if (elP) elP.style.background = primary;
+        if (elS) elS.style.background = secondary;
+        if (elH) elH.style.background = highlight;
+    }
+
+    updatePageDesignUIState() {
+        const useOriginal = document.getElementById('use-original-styles')?.checked || false;
+        const unifiedBrand = document.getElementById('unified-brand-style')?.checked !== false;
+        const modeTitle = document.getElementById('page-design-mode-title');
+        const modeDesc = document.getElementById('page-design-mode-desc');
+        const brandPill = document.getElementById('page-design-brand-pill');
+        const modeBar = document.getElementById('page-design-mode-bar');
+        const accentHint = document.getElementById('page-design-accent-hint');
+        const accentBody = document.getElementById('accent-design-body');
+
+        if (modeTitle) {
+            modeTitle.textContent = useOriginal ? '使用原始样式' : '应用全局样式';
+        }
+        if (modeDesc) {
+            modeDesc.textContent = useOriginal
+                ? '已跳过全局参数，排版以 HTML 文件内联样式为准'
+                : '下方参数将注入新生成文章的 HTML 排版';
+        }
+        if (brandPill) {
+            brandPill.textContent = unifiedBrand ? '统一配色' : '自由配色';
+            brandPill.classList.toggle('is-free', !unifiedBrand);
+        }
+        if (modeBar) modeBar.classList.toggle('is-original', useOriginal);
+        if (accentHint) accentHint.hidden = unifiedBrand;
+        if (accentBody) accentBody.classList.toggle('accent-muted', !unifiedBrand);
     }
 
     // 加载页面设计配置到UI(续)  
@@ -1045,36 +893,24 @@ class AIWriteXConfigManager {
         // 色彩    
         if (pd.accent) {
             document.getElementById('accent-primary-color').value = pd.accent.primary_color || '#3a7bd5';
-            document.getElementById('accent-secondary-color').value = pd.accent.secondary_color || '#2563a8';
+            document.getElementById('accent-secondary-color').value = pd.accent.secondary_color || '#00b09b';
             document.getElementById('accent-highlight-bg').value = pd.accent.highlight_bg || '#f0f7ff';
         }
+
+        this.syncAllPageDesignColorLabels();
+        this.updatePageDesignAccentPreview();
+        this.updatePageDesignUIState();
     }
 
     togglePageDesignSections(useOriginal) {
-        const settingsSections = [
-            'page-design-settings',
-            'card-design-settings',
-            'typography-design-settings',
-            'spacing-design-settings',
-            'accent-design-settings'
-        ];
+        const wrap = document.getElementById('page-design-styles-wrap');
+        if (wrap) {
+            wrap.classList.toggle('is-disabled', useOriginal);
+        }
 
-        settingsSections.forEach(sectionId => {
-            const section = document.getElementById(sectionId);
-            if (section) {
-                const inputs = section.querySelectorAll('input, select, textarea');
-                inputs.forEach(input => {
-                    input.disabled = useOriginal;
-                });
-
-                if (useOriginal) {
-                    section.style.opacity = '0.5';
-                    section.style.pointerEvents = 'none';
-                } else {
-                    section.style.opacity = '1';
-                    section.style.pointerEvents = 'auto';
-                }
-            }
+        const inputs = wrap?.querySelectorAll('input:not([type="checkbox"]), select, textarea') || [];
+        inputs.forEach((input) => {
+            input.disabled = useOriginal;
         });
     }
 
@@ -1119,7 +955,7 @@ class AIWriteXConfigManager {
             const saveBtn = document.getElementById('save-page-design-config');
             if (saveBtn) {
                 saveBtn.classList.remove('has-changes');
-                saveBtn.innerHTML = '<i class="icon-save"></i> 保存设置';
+                saveBtn.innerHTML = '保存设置';
             }
         }
 
@@ -1294,7 +1130,7 @@ class AIWriteXConfigManager {
             designThemeSelector.value = this.uiConfig.designTheme || 'follow-system';
         }
 
-        // ========== 填充热搜平台配置 ==========  
+        // ========== 填充选题来源配置 ==========  
         this.populatePlatformsUI();
 
         // ========== 填充微信公众号配置 ==========  
@@ -1316,7 +1152,7 @@ class AIWriteXConfigManager {
         this.bindCustomAPIEvents();
     }
 
-    // 填充热搜平台UI  
+    // 填充选题来源UI  
     populatePlatformsUI() {
         const platformListBody = document.getElementById('platform-list-body');
         if (!platformListBody || !this.config.platforms) return;
@@ -2048,96 +1884,384 @@ class AIWriteXConfigManager {
         return descriptions[platformName] || '热搜话题来源';
     }
 
-    // 填充大模型API UI  
+    getLLMProviderDisplayName(key) {
+        if (!key) return '未选择';
+        if (key === 'SiliconFlow') return '硅基流动';
+        const custom = (this.customAPIs || []).find(
+            (c) => c && (c.provider_key === key || c.name === key)
+        );
+        if (custom?.name) return custom.name;
+        if (key.startsWith('CustomAPI_')) return custom?.name || '自定义 API';
+        return key;
+    }
+
+    getLLMProviderOptions() {
+        const api = this.config?.api || {};
+        const deleted = api.deleted_providers || [];
+        const options = [];
+        const seen = new Set();
+
+        Object.keys(api).forEach((key) => {
+            if (key === 'api_type' || key === 'deleted_providers' || key === 'custom') return;
+            if (deleted.includes(key)) return;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const customIndex = (api.custom || []).findIndex(
+                (c) => c && c.provider_key === key
+            );
+            options.push({
+                key,
+                display: this.getLLMProviderDisplayName(key),
+                kind: customIndex >= 0 ? 'custom' : 'builtin',
+                customIndex: customIndex >= 0 ? customIndex : undefined,
+            });
+        });
+
+        (api.custom || []).forEach((entry, index) => {
+            if (!entry) return;
+            const key = entry.provider_key;
+            if (key && seen.has(key)) return;
+            if (!key) {
+                const virtualKey = `__custom_index_${index}`;
+                options.push({
+                    key: virtualKey,
+                    display: entry.name || `自定义 API ${index + 1}`,
+                    kind: 'custom',
+                    customIndex: index,
+                });
+            }
+        });
+
+        options.sort((a, b) => {
+            if (a.kind !== b.kind) return a.kind === 'builtin' ? -1 : 1;
+            return a.display.localeCompare(b.display, 'zh-CN');
+        });
+        return options;
+    }
+
+    resolveAPIProviderOption(selectedKey) {
+        return this.getLLMProviderOptions().find((p) => p.key === selectedKey);
+    }
+
+    isAPIProviderCurrent(option, currentAPIType) {
+        if (!option || !currentAPIType) return false;
+        if (option.kind === 'custom' && option.customIndex !== undefined) {
+            const entry = this.customAPIs[option.customIndex];
+            const key = entry?.provider_key || option.key;
+            return currentAPIType === key;
+        }
+        return currentAPIType === option.key;
+    }
+
+    renderAPIProviderToolbar(providers, currentAPIType) {
+        const toolbar = document.getElementById('api-provider-toolbar');
+        if (!toolbar) return;
+
+        if (!providers.length) {
+            toolbar.innerHTML = `
+                <div class="llm-api-toolbar-empty">
+                    <p>暂无可用厂商</p>
+                    <button type="button" class="btn btn-primary btn-sm" id="add-custom-api-btn">+ 添加自定义 API</button>
+                </div>
+            `;
+            toolbar.querySelector('#add-custom-api-btn')?.addEventListener('click', () => this.addCustomAPI());
+            return;
+        }
+
+        const selectedKey = this._selectedAPIProvider;
+        const selected = providers.find((p) => p.key === selectedKey) || providers[0];
+        this._selectedAPIProvider = selected.key;
+        const isCurrent = this.isAPIProviderCurrent(selected, currentAPIType);
+        const isCustom = selected.kind === 'custom';
+
+        const optionsHtml = providers
+            .map((p) => {
+                const active = this.isAPIProviderCurrent(p, currentAPIType);
+                const tag = p.kind === 'custom' ? ' [自定义]' : '';
+                const suffix = active ? ' ✓' : '';
+                return `<option value="${p.key}" ${p.key === selected.key ? 'selected' : ''}>${p.display}${tag}${suffix}</option>`;
+            })
+            .join('');
+
+        const currentLabel = this.getLLMProviderDisplayName(currentAPIType);
+        const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+        toolbar.innerHTML = `
+            <div class="llm-api-toolbar-grid">
+                <div class="llm-api-toolbar-main">
+                    <label class="llm-api-picker-label" for="api-provider-select">配置厂商</label>
+                    <select id="api-provider-select" class="form-control llm-api-provider-select" aria-label="选择大模型厂商">${optionsHtml}</select>
+                    <div class="llm-api-status-chip ${isCurrent ? 'is-active' : ''}" role="status">
+                        <span class="llm-api-status-dot" aria-hidden="true"></span>
+                        <div class="llm-api-status-copy">
+                            <span class="llm-api-status-name">${esc(selected.display)}</span>
+                            <span class="llm-api-status-meta">${isCurrent ? '写作中使用' : '未设为当前'}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="llm-api-toolbar-actions">
+                    <button type="button" class="btn btn-primary btn-sm" id="set-current-api-provider" ${isCurrent ? 'disabled' : ''}>
+                        ${isCurrent ? '✓ 当前使用' : '设为当前使用'}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="test-api-provider">测试连接</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="add-custom-api-btn">+ 自定义</button>
+                    <button type="button" class="btn btn-ghost btn-sm llm-api-btn-danger" id="delete-api-provider" title="删除当前厂商配置">删除</button>
+                </div>
+            </div>
+            <div class="llm-api-global-bar">
+                <span class="llm-api-global-label">全局写作</span>
+                <strong id="current-api-type-label" class="llm-api-global-value">${esc(currentLabel)}</strong>
+                <span class="llm-api-global-sep">·</span>
+                <span class="llm-api-global-hint">${isCustom ? 'OpenAI 兼容接口' : '内置厂商'} · 切换下拉不丢失已填内容</span>
+            </div>
+        `;
+
+        toolbar.querySelector('#api-provider-select')?.addEventListener('change', (e) => {
+            this._selectedAPIProvider = e.target.value;
+            this.populateAPIUI();
+        });
+        toolbar.querySelector('#set-current-api-provider')?.addEventListener('click', () => {
+            this.applySelectedAsCurrentAPI();
+        });
+        toolbar.querySelector('#test-api-provider')?.addEventListener('click', () => {
+            this.testSelectedAPIProvider();
+        });
+        toolbar.querySelector('#delete-api-provider')?.addEventListener('click', () => {
+            this.deleteSelectedAPIProvider();
+        });
+        toolbar.querySelector('#add-custom-api-btn')?.addEventListener('click', () => {
+            this.addCustomAPI();
+        });
+    }
+
+    createLLMFormSection(title, description = '') {
+        const section = document.createElement('section');
+        section.className = 'api-form-section';
+        const head = document.createElement('div');
+        head.className = 'api-form-section-head';
+        const titleEl = document.createElement('h4');
+        titleEl.className = 'api-form-section-title';
+        titleEl.textContent = title;
+        head.appendChild(titleEl);
+        if (description) {
+            const desc = document.createElement('p');
+            desc.className = 'api-form-section-desc';
+            desc.textContent = description;
+            head.appendChild(desc);
+        }
+        const body = document.createElement('div');
+        body.className = 'api-form-section-body';
+        section.appendChild(head);
+        section.appendChild(body);
+        return { section, body };
+    }
+
+    async applySelectedAsCurrentAPI() {
+        const option = this.resolveAPIProviderOption(this._selectedAPIProvider);
+        if (!option) return;
+        if (option.kind === 'custom' && option.customIndex !== undefined) {
+            await this.setCurrentCustomAPI(option.customIndex);
+            return;
+        }
+        await this.setCurrentAPIProvider(option.key);
+    }
+
+    _setToolbarTestButtonLoading(loading) {
+        const btn = document.getElementById('test-api-provider');
+        if (!btn) return;
+        if (loading) {
+            if (!btn.dataset.defaultLabel) {
+                btn.dataset.defaultLabel = btn.textContent.trim();
+            }
+            btn.disabled = true;
+            btn.textContent = '测试中…';
+        } else {
+            btn.disabled = false;
+            btn.textContent = btn.dataset.defaultLabel || '测试连接';
+        }
+    }
+
+    async testSelectedAPIProvider() {
+        const option = this.resolveAPIProviderOption(this._selectedAPIProvider);
+        if (!option) {
+            window.app?.showNotification('请先选择要测试的厂商', 'warning');
+            return;
+        }
+
+        this._setToolbarTestButtonLoading(true);
+        try {
+            if (option.kind === 'custom' && option.customIndex !== undefined) {
+                await this.testCustomAPI(option.customIndex, { fromToolbar: true });
+            } else {
+                await this.testBuiltinAPIProvider(option.key);
+            }
+        } catch (error) {
+            console.error('测试 API 失败:', error);
+            window.app?.showNotification(`测试失败: ${error.message || error}`, 'error');
+        } finally {
+            this._setToolbarTestButtonLoading(false);
+        }
+    }
+
+    async testBuiltinAPIProvider(providerKey) {
+        const providerData = this.config?.api?.[providerKey];
+        if (!providerData) {
+            window.app?.showNotification('未找到该厂商配置', 'error');
+            return;
+        }
+
+        const apiKeys = providerData.api_key || [];
+        const keyIndex = Number(providerData.key_index) || 0;
+        const apiKey = (apiKeys[keyIndex] || apiKeys[0] || '').trim();
+        const apiBase = (providerData.api_base || '').trim();
+        const models = providerData.model || [];
+        const modelIndex = Number(providerData.model_index) || 0;
+        const model = (models[modelIndex] || models[0] || '').trim();
+
+        if (!apiKey) {
+            window.app?.showNotification('请先添加并选中 API KEY（在 API KEY 下拉框中点「点击添加」）', 'warning');
+            return;
+        }
+        if (!apiBase) {
+            window.app?.showNotification('缺少 API Base 地址', 'warning');
+            return;
+        }
+
+        const response = await fetch('/api/config/test-custom-api', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: providerKey,
+                api_base: apiBase,
+                api_key: apiKey,
+                model: model || 'gpt-3.5-turbo',
+                provider: providerData.provider || 'openai',
+            }),
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (result.status === 'success') {
+            window.app?.showNotification(result.message || '连接成功', 'success');
+            try {
+                await this.fetchAPIModels(providerKey, { quietSuccess: true });
+            } catch (_) {
+                /* 拉取模型列表失败不影响连通性结果 */
+            }
+            return;
+        }
+
+        window.app?.showNotification(result.message || '连接失败，请检查 Key 与 Base URL', 'error');
+    }
+
+    async deleteSelectedAPIProvider() {
+        const option = this.resolveAPIProviderOption(this._selectedAPIProvider);
+        if (!option) return;
+        const label = option.display;
+        if (!confirm(`确定要删除「${label}」的配置吗？\n\n删除后可通过「恢复默认」找回内置厂商。`)) {
+            return;
+        }
+        if (option.kind === 'custom' && option.customIndex !== undefined) {
+            await this.deleteCustomAPI(option.customIndex);
+            return;
+        }
+        await this.deleteAPIProvider(option.key);
+    }
+
+    // 填充大模型API UI（下拉选择厂商，仅展示当前厂商表单）
     populateAPIUI() {
-        // 每次显示API面板时加载自定义API
         this.initCustomAPIs();
 
         const container = document.getElementById('api-providers-container');
         if (!container || !this.config.api) return;
 
         const currentAPIType = this.config.api.api_type;
+        const providers = this.getLLMProviderOptions();
 
-        // 更新当前API类型指示器  
-        const indicator = document.getElementById('current-api-type');
-        if (indicator) {
-            indicator.textContent = currentAPIType === 'SiliconFlow' ? '硅基流动' : currentAPIType;
+        if (
+            !this._selectedAPIProvider
+            || !providers.some((p) => p.key === this._selectedAPIProvider)
+        ) {
+            const preferred = providers.find((p) => this.isAPIProviderCurrent(p, currentAPIType));
+            this._selectedAPIProvider = preferred?.key || providers[0]?.key || null;
         }
 
-        // 清空现有内容  
+        this.renderAPIProviderToolbar(providers, currentAPIType);
+
         container.innerHTML = '';
+        if (!providers.length) return;
 
-        const apiConfig = this.config.api;
-        const deletedProviders = apiConfig.deleted_providers || [];
-        const providers = Object.keys(apiConfig)
-            .filter(key => key !== 'api_type' && key !== 'deleted_providers' && !deletedProviders.includes(key))
-            .map(key => ({
-                key: key,
-                display: key === 'SiliconFlow' ? '硅基流动' : key
-            }));
+        const selected = this.resolveAPIProviderOption(this._selectedAPIProvider);
+        if (!selected) return;
 
-        // 生成提供商卡片  
-        providers.forEach(provider => {
-            const providerData = apiConfig[provider.key];
-            if (providerData) {
-                const card = this.createAPIProviderCard(provider.key, provider.display, providerData, currentAPIType);
+        if (selected.kind === 'custom' && selected.customIndex !== undefined) {
+            const entry = this.customAPIs[selected.customIndex];
+            if (entry) {
+                const card = this.createCustomAPICard(entry, selected.customIndex, true);
                 container.appendChild(card);
             }
-        });
+            return;
+        }
+
+        const providerData = this.config.api[selected.key];
+        if (providerData) {
+            const card = this.createAPIProviderCard(
+                selected.key,
+                selected.display,
+                providerData,
+                currentAPIType,
+                true
+            );
+            container.appendChild(card);
+        }
     }
 
-    // 创建API提供商卡片    
-    createAPIProviderCard(providerKey, providerDisplay, providerData, currentAPIType) {
+    // 创建API提供商卡片
+    createAPIProviderCard(providerKey, providerDisplay, providerData, currentAPIType, compactToolbar = false) {
         const card = document.createElement('div');
-        card.className = 'api-provider-card';
+        card.className = 'api-provider-card llm-api-detail-card';
         if (providerKey === currentAPIType) {
             card.classList.add('active');
         }
 
-        // 卡片头部  
         const header = document.createElement('div');
         header.className = 'provider-header';
 
-        const titleGroup = document.createElement('div');
-        titleGroup.className = 'provider-title-group';
+        if (!compactToolbar) {
+            const titleGroup = document.createElement('div');
+            titleGroup.className = 'provider-title-group';
+            const name = document.createElement('div');
+            name.className = 'provider-name';
+            name.textContent = providerDisplay;
+            const badge = document.createElement('span');
+            badge.className = `provider-badge ${providerKey === currentAPIType ? 'active' : 'inactive'}`;
+            badge.textContent = providerKey === currentAPIType ? '当前使用' : '未使用';
+            titleGroup.appendChild(name);
+            titleGroup.appendChild(badge);
+            header.appendChild(titleGroup);
 
-        const name = document.createElement('div');
-        name.className = 'provider-name';
-        name.textContent = providerDisplay;
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className = `provider-toggle-btn ${providerKey === currentAPIType ? 'active' : ''}`;
+            toggleBtn.textContent = providerKey === currentAPIType ? '当前使用' : '设为当前';
+            toggleBtn.disabled = providerKey === currentAPIType;
+            toggleBtn.addEventListener('click', async () => {
+                await this.setCurrentAPIProvider(providerKey);
+            });
 
-        const badge = document.createElement('span');
-        badge.className = `provider-badge ${providerKey === currentAPIType ? 'active' : 'inactive'}`;
-        badge.textContent = providerKey === currentAPIType ? '使用中' : '未使用';
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'provider-delete-btn';
+            deleteBtn.textContent = '删除';
+            deleteBtn.title = '删除此API提供商';
+            deleteBtn.onclick = async () => {
+                if (confirm(`确定要删除 "${providerDisplay}" API吗？\n\n删除后可通过恢复默认恢复。`)) {
+                    await this.deleteAPIProvider(providerKey);
+                }
+            };
+            header.appendChild(toggleBtn);
+            header.appendChild(deleteBtn);
+        }
 
-        titleGroup.appendChild(name);
-        titleGroup.appendChild(badge);
-
-        const toggleBtn = document.createElement('button');
-        toggleBtn.className = `provider-toggle-btn ${providerKey === currentAPIType ? 'active' : ''}`;
-        toggleBtn.textContent = providerKey === currentAPIType ? '当前使用' : '设为当前';
-        toggleBtn.disabled = providerKey === currentAPIType;
-        toggleBtn.addEventListener('click', async () => {
-            await this.setCurrentAPIProvider(providerKey);
-        });
-
-        // 删除按钮（仅对代码写死的卡片）
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'provider-delete-btn';
-        deleteBtn.textContent = '删除';
-        deleteBtn.title = '删除此API提供商';
-        deleteBtn.onclick = async () => {
-            if (confirm(`确定要删除 "${providerDisplay}" API吗？\n\n删除后可通过恢复默认恢复。`)) {
-                await this.deleteAPIProvider(providerKey);
-            }
-        };
-
-        header.appendChild(titleGroup);
-        header.appendChild(toggleBtn);
-        header.appendChild(deleteBtn);
-
-        // 表单内容  
         const form = document.createElement('div');
-        form.className = 'provider-form';
+        form.className = 'provider-form llm-api-form';
 
         // 行1: KEY名称和API BASE同一行,各占一半  
         const row1 = document.createElement('div');
@@ -2347,14 +2471,52 @@ class AIWriteXConfigManager {
         row4.appendChild(designerModelSelectGroup);
         row4.appendChild(refinerModelSelectGroup);
 
-        // 组装表单  
-        form.appendChild(row1);
-        form.appendChild(row2);
-        form.appendChild(row3);
-        form.appendChild(row4);
+        if (compactToolbar) {
+            keySelectGroup.classList.remove('form-group-half');
+            keySelectGroup.classList.add('form-group-full');
+            modelSelectGroup.classList.remove('form-group-half');
+            modelSelectGroup.classList.add('form-group-full');
 
-        // 组装卡片  
-        card.appendChild(header);
+            const keyOnlyRow = document.createElement('div');
+            keyOnlyRow.className = 'form-row';
+            keyOnlyRow.appendChild(keySelectGroup);
+
+            const connSec = this.createLLMFormSection(
+                '连接与认证',
+                '点击 API KEY 添加密钥（一行一个）；下方为厂商预设接口信息'
+            );
+            connSec.body.appendChild(keyOnlyRow);
+            row1.classList.add('api-endpoint-meta');
+            connSec.body.appendChild(row1);
+
+            const modelSec = this.createLLMFormSection(
+                '模型',
+                '主模型用于写稿；点击刷新可拉取厂商可用模型列表'
+            );
+            const modelRow = document.createElement('div');
+            modelRow.className = 'form-row';
+            modelRow.appendChild(modelSelectGroup);
+            modelSec.body.appendChild(modelRow);
+
+            const advDetails = document.createElement('details');
+            advDetails.className = 'api-form-advanced';
+            advDetails.innerHTML = '<summary>高级选项（视觉 / 备用 / 模板 / 精修）</summary>';
+            advDetails.appendChild(row3);
+            advDetails.appendChild(row4);
+
+            form.appendChild(connSec.section);
+            form.appendChild(modelSec.section);
+            form.appendChild(advDetails);
+        } else {
+            form.appendChild(row1);
+            form.appendChild(row2);
+            form.appendChild(row3);
+            form.appendChild(row4);
+        }
+
+        if (!compactToolbar) {
+            card.appendChild(header);
+        }
         card.appendChild(form);
 
         return card;
@@ -3067,6 +3229,9 @@ class AIWriteXConfigManager {
         // ⚡ 自动保存到文件，确保 deleted_providers 持久化
         await this.saveConfig();
 
+        if (this._selectedAPIProvider === providerKey) {
+            this._selectedAPIProvider = null;
+        }
         this.populateAPIUI();
 
         window.app?.showNotification(
@@ -3077,6 +3242,8 @@ class AIWriteXConfigManager {
 
     // 保存API配置    
     async saveAPIConfig() {
+        await this.persistCustomAPIsToConfig();
+        await this.syncCustomProviderSnapshots();
         const success = await this.saveConfig();
 
         if (success) {
@@ -3132,7 +3299,77 @@ class AIWriteXConfigManager {
         });
     }
 
+    _markGeneralConfigDirty() {
+        const saveBtn = document.getElementById('save-general-config');
+        if (saveBtn && !saveBtn.classList.contains('has-changes')) {
+            saveBtn.classList.add('has-changes');
+            saveBtn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
+        }
+    }
+
+    _clearGeneralConfigDirty() {
+        const saveBtn = document.getElementById('save-general-config');
+        if (saveBtn) {
+            saveBtn.classList.remove('has-changes');
+            saveBtn.innerHTML = '保存设置';
+        }
+    }
+
+    async saveGeneralConfig() {
+        const uiSuccess = await this.saveUIConfig(this.uiConfig);
+        const baseSuccess = await this.saveConfig();
+        const success = uiSuccess && baseSuccess;
+        if (success) {
+            this._clearGeneralConfigDirty();
+        }
+        window.app?.showNotification(
+            success ? '常规设置已保存' : '保存常规设置失败',
+            success ? 'success' : 'error'
+        );
+        return success;
+    }
+
+    async resetGeneralConfig() {
+        if (!confirm('确定恢复界面与基础参数为默认值？')) {
+            return;
+        }
+        const oldWindowMode = this.uiConfig.windowMode;
+        this.uiConfig = {
+            theme: 'light',
+            windowMode: 'STANDARD',
+            designTheme: 'follow-system'
+        };
+
+        const themeSelector = document.getElementById('theme-selector');
+        const windowModeSelector = document.getElementById('window-mode-selector');
+        const designThemeSelector = document.getElementById('design-theme-selector');
+        if (themeSelector) themeSelector.value = 'light';
+        if (windowModeSelector) windowModeSelector.value = 'STANDARD';
+        if (designThemeSelector) designThemeSelector.value = 'follow-system';
+
+        if (window.themeManager) window.themeManager.applyTheme('light', false);
+        if (window.windowModeManager) window.windowModeManager.applyMode('STANDARD');
+        this.toggleGrapesJSTheme('follow-system');
+
+        const uiOk = await this.saveUIConfig(this.uiConfig);
+        const baseOk = await this.resetToDefault();
+        if (uiOk && baseOk) {
+            this._clearGeneralConfigDirty();
+            this.populateUI();
+        }
+        if (uiOk && oldWindowMode !== 'STANDARD') {
+            window.windowModeManager?.showRestartNotification();
+        }
+        window.app?.showNotification(
+            uiOk && baseOk ? '已恢复默认常规设置' : '恢复默认失败',
+            uiOk && baseOk ? 'info' : 'error'
+        );
+    }
+
     showConfigPanel(panelType) {
+        if (panelType === 'ui' || panelType === 'base') {
+            panelType = 'general';
+        }
         const configContent = document.querySelector('.config-content');
         const targetPanel = document.getElementById(`config-${panelType}`);
 
@@ -3250,9 +3487,8 @@ class AIWriteXConfigManager {
             const result = await response.json();
             this.config = result.data;
 
-            // 同步自定义列表到本地内存变量
-            if (this.config.api?.custom) this.customAPIs = this.config.api.custom;
             if (this.config.img_api?.custom) this.customImgAPIs = this.config.img_api.custom;
+            this.initCustomAPIs();
 
             return true;
         } catch (error) {
@@ -3349,22 +3585,144 @@ class AIWriteXConfigManager {
 
     // 存储自定义API配置（在方法中初始化）
 
-    // 初始化自定义API
+    // 初始化自定义API（合并 secrets 恢复后的 config 与本地缓存中的 Key）
     initCustomAPIs() {
+        let list = [];
         if (this.config.api && Array.isArray(this.config.api.custom)) {
-            this.customAPIs = this.config.api.custom;
-            this.saveCustomAPIs();
-        } else {
-            const stored = localStorage.getItem('custom_apis');
-            if (stored) {
-                try {
-                    this.customAPIs = JSON.parse(stored);
-                } catch (e) {
-                    this.customAPIs = [];
+            list = JSON.parse(JSON.stringify(this.config.api.custom));
+        }
+        const stored = localStorage.getItem('custom_apis');
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed)) {
+                    list = this._mergeCustomAPIEntries(list, parsed);
                 }
+            } catch (e) {
+                /* ignore */
             }
         }
-        this.renderCustomAPIs();
+        this.customAPIs = list;
+        this._hydrateCustomAPIKeysFromProviderEntries();
+        this.saveCustomAPIs();
+        this.syncCustomAPICurrentFlags();
+    }
+
+    _mergeCustomAPIEntries(primary, fallback) {
+        const result = Array.isArray(primary) ? [...primary] : [];
+        const hasKeys = (item) => {
+            const k = item?.api_key;
+            if (Array.isArray(k)) return k.some((x) => String(x || '').trim());
+            return Boolean(String(k || '').trim());
+        };
+        (fallback || []).forEach((fb, index) => {
+            if (!fb || !hasKeys(fb)) return;
+            const pk = fb.provider_key || '';
+            let target = pk
+                ? result.find((x) => x && x.provider_key === pk)
+                : result[index];
+            if (!target) {
+                result.push({ ...fb });
+                return;
+            }
+            if (!hasKeys(target)) {
+                target.api_key = fb.api_key;
+            }
+        });
+        return result;
+    }
+
+    _hydrateCustomAPIKeysFromProviderEntries() {
+        const api = this.config?.api || {};
+        this.customAPIs.forEach((entry) => {
+            if (!entry) return;
+            const pk = entry.provider_key;
+            if (!pk || !api[pk] || !Array.isArray(api[pk].api_key)) return;
+            const hasLocal = Array.isArray(entry.api_key)
+                ? entry.api_key.some((k) => String(k || '').trim())
+                : Boolean(String(entry.api_key || '').trim());
+            if (!hasLocal && api[pk].api_key.length) {
+                entry.api_key = [...api[pk].api_key];
+            }
+        });
+    }
+
+    _escapeHtml(text) {
+        return String(text || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    createCustomApiKeyField(index, api) {
+        const raw = Array.isArray(api.api_key) ? api.api_key.join('\n') : (api.api_key || '');
+        const hasKey = String(raw).trim().length > 0;
+        const wrap = document.createElement('div');
+        wrap.className = 'form-group form-group-full api-key-field';
+        wrap.innerHTML = `
+            <div class="api-key-field-head">
+                <label>API KEY <span class="api-key-hint-inline">（一行一个，保存后重启仍有效）</span></label>
+                <button type="button" class="btn btn-ghost btn-xs api-key-toggle" title="显示/隐藏密钥">${
+                    hasKey ? '显示' : ''
+                }</button>
+            </div>
+            <textarea class="api-key-input masked" rows="3" placeholder="请输入 API Key" autocomplete="off">${this._escapeHtml(
+                raw
+            )}</textarea>
+        `;
+        const textarea = wrap.querySelector('textarea');
+        const toggle = wrap.querySelector('.api-key-toggle');
+        textarea.addEventListener('change', (e) => {
+            this.updateCustomAPI(index, 'api_key', e.target.value);
+        });
+        if (toggle) {
+            toggle.addEventListener('click', () => {
+                const masked = textarea.classList.toggle('masked');
+                toggle.textContent = masked ? '显示' : '隐藏';
+            });
+        }
+        return wrap;
+    }
+
+    async syncCustomProviderSnapshots() {
+        const updates = {};
+        for (const api of this.customAPIs || []) {
+            if (!api?.provider_key) continue;
+            const pk = api.provider_key;
+            const snap = this.config.api?.[pk];
+            if (!snap || typeof snap !== 'object') continue;
+            const keys = api.api_key;
+            const hasKeys = Array.isArray(keys)
+                ? keys.some((k) => String(k || '').trim())
+                : Boolean(String(keys || '').trim());
+            if (!hasKeys) continue;
+            updates[pk] = {
+                ...snap,
+                api_key: Array.isArray(keys) ? keys : String(keys).split('\n').map((k) => k.trim()).filter(Boolean),
+                api_base: api.api_base || snap.api_base,
+            };
+            if (api.model) {
+                updates[pk].model = Array.isArray(snap.model)
+                    ? snap.model.includes(api.model)
+                        ? snap.model
+                        : [api.model, ...snap.model]
+                    : [api.model];
+            }
+        }
+        if (Object.keys(updates).length) {
+            await this.updateConfig({ api: updates });
+        }
+    }
+
+    syncCustomAPICurrentFlags() {
+        const currentApiType = this.config?.api?.api_type || '';
+        this.customAPIs.forEach((api, index) => {
+            if (api) {
+                const customProviderKey = api.provider_key || api.name || '';
+                api.isCurrent = Boolean(currentApiType && customProviderKey === currentApiType);
+            }
+        });
     }
 
     async persistCustomAPIsToConfig() {
@@ -3381,28 +3739,21 @@ class AIWriteXConfigManager {
         localStorage.setItem('custom_apis', JSON.stringify(this.customAPIs));
     }
 
-    // 渲染自定义API卡片
+    // 兼容旧调用：同步状态并刷新大模型 API 面板
     renderCustomAPIs() {
-        const container = document.getElementById('custom-apis-container');
-        if (!container) return;
-
-        container.innerHTML = '';
-
-        const currentApiType = this.config?.api?.api_type || '';
-        this.customAPIs.forEach((api, index) => {
-            if (api) {
-                const customProviderKey = api.provider_key || api.name || '';
-                api.isCurrent = Boolean(currentApiType && customProviderKey === currentApiType);
-            }
-            const card = this.createCustomAPICard(api, index);
-            container.appendChild(card);
-        });
+        this.syncCustomAPICurrentFlags();
+        if (this.currentPanel === 'api') {
+            this.populateAPIUI();
+        }
     }
 
     // 创建自定义API卡片
-    createCustomAPICard(api, index) {
+    createCustomAPICard(api, index, compactToolbar = false) {
         const card = document.createElement('div');
-        card.className = 'custom-api-card';
+        card.className = 'custom-api-card api-provider-card llm-api-detail-card';
+        if (this.customAPIs[index]?.isCurrent) {
+            card.classList.add('active');
+        }
         card.dataset.index = index;
 
         const header = document.createElement('div');
@@ -3416,34 +3767,35 @@ class AIWriteXConfigManager {
         const actions = document.createElement('div');
         actions.className = 'custom-api-card-actions';
 
-        const useBtn = document.createElement('button');
-        useBtn.className = `btn-use ${isCurrent ? 'active' : ''}`;
-        useBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ${isCurrent ? '当前使用' : '设为当前'}`;
-        useBtn.onclick = () => this.setCurrentCustomAPI(index);
+        if (!compactToolbar) {
+            const useBtn = document.createElement('button');
+            useBtn.className = `btn-use ${isCurrent ? 'active' : ''}`;
+            useBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ${isCurrent ? '当前使用' : '设为当前'}`;
+            useBtn.onclick = () => this.setCurrentCustomAPI(index);
 
-        // 测试按钮
-        const testBtn = document.createElement('button');
-        testBtn.className = 'btn-test';
-        testBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试`;
-        testBtn.onclick = () => this.testCustomAPI(index);
+            const testBtn = document.createElement('button');
+            testBtn.className = 'btn-test';
+            testBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试`;
+            testBtn.onclick = () => this.testCustomAPI(index);
 
-        // 删除按钮
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'btn-delete';
-        deleteBtn.textContent = '删除';
-        deleteBtn.onclick = () => this.deleteCustomAPI(index);
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn-delete';
+            deleteBtn.textContent = '删除';
+            deleteBtn.onclick = () => this.deleteCustomAPI(index);
 
-        actions.appendChild(useBtn);
-        actions.appendChild(testBtn);
-        actions.appendChild(deleteBtn);
+            actions.appendChild(useBtn);
+            actions.appendChild(testBtn);
+            actions.appendChild(deleteBtn);
+        }
+
         header.appendChild(title);
-        header.appendChild(actions);
+        if (!compactToolbar) {
+            header.appendChild(actions);
+        }
 
-        // 表单
         const form = document.createElement('div');
-        form.className = 'custom-api-form';
+        form.className = 'custom-api-form llm-api-form';
 
-        // 名称
         const nameGroup = document.createElement('div');
         nameGroup.className = 'form-group';
         nameGroup.innerHTML = `
@@ -3474,13 +3826,7 @@ class AIWriteXConfigManager {
             <small style="color:#888;font-size:11px;">💡 提示：系统会自动补全/v1路径，如需强制使用原始地址请在末尾添加#</small>
         `;
 
-        // API Key
-        const keyGroup = document.createElement('div');
-        keyGroup.className = 'form-group form-group-full';
-        keyGroup.innerHTML = `
-            <label>API KEY (支持多 Key，一行一 Key)</label>
-            <textarea placeholder="输入API Key，一行一个支持自动重试负载均衡" rows="3" onchange="window.configManager.updateCustomAPI(${index}, 'api_key', this.value)">${Array.isArray(api.api_key) ? api.api_key.join('\n') : (api.api_key || '')}</textarea>
-        `;
+        const keyGroup = this.createCustomApiKeyField(index, api);
 
         // 模型选择
         const modelGroup = document.createElement('div');
@@ -3501,21 +3847,43 @@ class AIWriteXConfigManager {
             <input type="text" value="${api.model || ''}" placeholder="或手动输入模型名称" style="margin-top:8px" onchange="window.configManager.updateCustomAPI(${index}, 'model', this.value)">
         `;
 
-        form.appendChild(nameGroup);
-        form.appendChild(typeGroup);
-        form.appendChild(baseGroup);
-        form.appendChild(keyGroup);
-        form.appendChild(modelGroup);
-
-        // 测试结果
         const resultDiv = document.createElement('div');
         resultDiv.className = 'test-result';
         resultDiv.id = `test-result-${index}`;
         resultDiv.style.display = 'none';
 
-        card.appendChild(header);
+        if (compactToolbar) {
+            const basicSec = this.createLLMFormSection('基本信息', '自定义 OpenAI 兼容接口');
+            const basicRow = document.createElement('div');
+            basicRow.className = 'form-row';
+            basicRow.appendChild(nameGroup);
+            basicRow.appendChild(typeGroup);
+            basicSec.body.appendChild(basicRow);
+
+            const connSec = this.createLLMFormSection('连接与认证', 'Base 地址与 API Key（一行一个 Key）');
+            connSec.body.appendChild(baseGroup);
+            connSec.body.appendChild(keyGroup);
+
+            const modelSec = this.createLLMFormSection('模型', '测试连接成功后可刷新模型列表');
+            modelSec.body.appendChild(modelGroup);
+
+            form.appendChild(basicSec.section);
+            form.appendChild(connSec.section);
+            form.appendChild(modelSec.section);
+            form.appendChild(resultDiv);
+        } else {
+            form.appendChild(nameGroup);
+            form.appendChild(typeGroup);
+            form.appendChild(baseGroup);
+            form.appendChild(keyGroup);
+            form.appendChild(modelGroup);
+            form.appendChild(resultDiv);
+        }
+
+        if (!compactToolbar) {
+            card.appendChild(header);
+        }
         card.appendChild(form);
-        card.appendChild(resultDiv);
 
         return card;
     }
@@ -3531,9 +3899,10 @@ class AIWriteXConfigManager {
             models: [],
             tested: false
         });
+        this._selectedAPIProvider = `__custom_index_${this.customAPIs.length - 1}`;
         this.saveCustomAPIs();
         await this.persistCustomAPIsToConfig();
-        this.renderCustomAPIs();
+        this.populateAPIUI();
     }
 
     // 删除自定义API
@@ -3545,9 +3914,10 @@ class AIWriteXConfigManager {
                 });
             }
             this.customAPIs.splice(index, 1);
+            this._selectedAPIProvider = null;
             this.saveCustomAPIs();
             await this.persistCustomAPIsToConfig();
-            this.renderCustomAPIs();
+            this.populateAPIUI();
         }
     }
 
@@ -3573,6 +3943,7 @@ class AIWriteXConfigManager {
 
             const apiKeys = Array.isArray(api.api_key) ? api.api_key : (api.api_key ? api.api_key.split('\n').map(k => k.trim()).filter(k => k !== '') : []);
             this.saveCustomAPIs();
+            await this.persistCustomAPIsToConfig();
 
             // 更新后端配置
             await this.updateConfig({
@@ -3624,21 +3995,51 @@ class AIWriteXConfigManager {
     }
 
     // 测试自定义API
-    async testCustomAPI(index) {
+    async testCustomAPI(index, options = {}) {
         const api = this.customAPIs[index];
-        const testBtn = document.querySelector(`.custom-api-card[data-index="${index}"] .btn-test`);
-        const resultDiv = document.getElementById(`test-result-${index}`);
+        if (!api) {
+            window.app?.showNotification('未找到自定义 API 配置', 'error');
+            return;
+        }
 
-        testBtn.disabled = true;
-        testBtn.textContent = '测试中...';
+        const cardTestBtn = document.querySelector(`.custom-api-card[data-index="${index}"] .btn-test`);
+        const resultDiv = document.getElementById(`test-result-${index}`);
+        const fromToolbar = Boolean(options.fromToolbar);
+
+        const setCardBtnLoading = (loading) => {
+            if (!cardTestBtn || fromToolbar) return;
+            cardTestBtn.disabled = loading;
+            cardTestBtn.textContent = loading ? '测试中...' : '测试';
+        };
+
+        const showResult = (ok, message) => {
+            const text = ok ? `✅ ${message}` : `❌ ${message}`;
+            if (resultDiv) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = ok ? 'test-result success' : 'test-result error';
+                resultDiv.textContent = text;
+            }
+            window.app?.showNotification(message, ok ? 'success' : 'error');
+        };
+
+        let apiKey = api.api_key;
+        if (Array.isArray(apiKey)) {
+            apiKey = apiKey[0] || '';
+        }
+        apiKey = String(apiKey || '').trim();
+
+        if (!api.api_base?.trim()) {
+            showResult(false, '请先填写 API Base');
+            return;
+        }
+        if (!apiKey) {
+            showResult(false, '请先填写 API KEY');
+            return;
+        }
+
+        setCardBtnLoading(true);
 
         try {
-            // 处理 API Key：支持数组或字符串格式
-            let apiKey = api.api_key;
-            if (Array.isArray(apiKey)) {
-                apiKey = apiKey[0] || '';
-            }
-
             const response = await fetch('/api/config/test-custom-api', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3647,39 +4048,34 @@ class AIWriteXConfigManager {
                     api_base: api.api_base,
                     api_key: apiKey,
                     model: api.model,
-                    provider: api.provider || api.type || 'openai'
-                })
+                    provider: api.provider || api.type || 'openai',
+                }),
             });
 
-            const result = await response.json();
+            const result = await response.json().catch(() => ({}));
 
-            resultDiv.style.display = 'block';
             if (result.status === 'success') {
-                resultDiv.className = 'test-result success';
-                resultDiv.textContent = '✅ ' + (result.message || '连接成功');
+                showResult(true, result.message || '连接成功');
                 this.customAPIs[index].tested = true;
-
-                // 自动设为当前使用
-                this.customAPIs.forEach((api, i) => {
-                    if (api) api.isCurrent = (i === index);
+                this.customAPIs.forEach((entry, i) => {
+                    if (entry) entry.isCurrent = i === index;
                 });
                 this.saveCustomAPIs();
-
-                // 自动获取模型列表
-                await this.fetchModels(index);
+                try {
+                    await this.fetchModels(index);
+                } catch (_) {
+                    /* 刷新模型列表失败不覆盖成功提示 */
+                }
             } else {
-                resultDiv.className = 'test-result error';
-                resultDiv.textContent = '❌ ' + (result.message || '未知错误，请检查配置');
                 this.customAPIs[index].tested = false;
+                showResult(false, result.message || '未知错误，请检查配置');
             }
         } catch (error) {
-            resultDiv.style.display = 'block';
-            resultDiv.className = 'test-result error';
-            resultDiv.textContent = '❌ 测试失败: ' + (error.message || '网络异常');
+            this.customAPIs[index].tested = false;
+            showResult(false, error.message || '网络异常');
+        } finally {
+            setCardBtnLoading(false);
         }
-
-        testBtn.disabled = false;
-        testBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试`;
     }
 
     // 测试ComfyUI连接
@@ -3688,18 +4084,30 @@ class AIWriteXConfigManager {
         const apiBase = apiBaseInput?.value?.trim() || '';
 
         if (!apiBase) {
-            window.app?.showNotification('请填写ComfyUI API地址', 'error');
+            window.app?.showNotification('请填写 ComfyUI 服务地址', 'error');
             return;
         }
 
         const testBtn = document.getElementById('test-comfyui-btn');
-        const resultDiv = document.getElementById('comfyui-test-result');
+        let resultDiv = document.getElementById('comfyui-test-result');
+        if (!resultDiv) {
+            const wrap = document.getElementById('img-api-providers-container');
+            if (wrap) {
+                resultDiv = document.createElement('div');
+                resultDiv.id = 'comfyui-test-result';
+                resultDiv.className = 'test-result';
+                resultDiv.style.display = 'none';
+                resultDiv.style.marginTop = '12px';
+                wrap.appendChild(resultDiv);
+            }
+        }
 
-        testBtn.disabled = true;
-        testBtn.innerHTML = `<svg class="spinner" viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="30 70"/></svg> 测试中...`;
+        if (testBtn) {
+            testBtn.disabled = true;
+            testBtn.innerHTML = `<svg class="spinner" viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="30 70"/></svg> 测试中...`;
+        }
 
         try {
-            // 测试ComfyUI API连通性 - 调用系统端点
             const response = await fetch('/api/config/test-comfyui', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3708,23 +4116,34 @@ class AIWriteXConfigManager {
 
             const result = await response.json();
 
-            resultDiv.style.display = 'block';
+            if (resultDiv) {
+                resultDiv.style.display = 'block';
+                if (result.status === 'success') {
+                    resultDiv.className = 'test-result success';
+                    resultDiv.textContent = '✅ ' + result.message;
+                } else {
+                    resultDiv.className = 'test-result error';
+                    resultDiv.textContent = '❌ ' + result.message;
+                }
+            }
             if (result.status === 'success') {
-                resultDiv.className = 'test-result success';
-                resultDiv.textContent = '✅ ' + result.message;
-                window.app?.showNotification('ComfyUI连接成功！', 'success');
+                window.app?.showNotification('ComfyUI 连接成功', 'success');
             } else {
-                resultDiv.className = 'test-result error';
-                resultDiv.textContent = '❌ ' + result.message;
+                window.app?.showNotification(result.message || 'ComfyUI 连接失败', 'error');
             }
         } catch (error) {
-            resultDiv.style.display = 'block';
-            resultDiv.className = 'test-result error';
-            resultDiv.textContent = '❌ 测试失败: ' + error.message;
+            if (resultDiv) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'test-result error';
+                resultDiv.textContent = '❌ 测试失败: ' + error.message;
+            }
+            window.app?.showNotification('测试失败: ' + error.message, 'error');
+        } finally {
+            if (testBtn) {
+                testBtn.disabled = false;
+                testBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试连接`;
+            }
         }
-
-        testBtn.disabled = false;
-        testBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试连接`;
     }
 
     // 测试内置图片API连通性 (Ali, ModelScope)
@@ -3809,8 +4228,11 @@ class AIWriteXConfigManager {
 
     async fetchModels(index) {
         const api = this.customAPIs[index];
-        if (!api.api_base || !api.api_key) {
-            alert('请先填写API BASE和API KEY');
+        if (!api) return;
+        let apiKey = api.api_key;
+        if (Array.isArray(apiKey)) apiKey = apiKey[0] || '';
+        if (!api.api_base?.trim() || !String(apiKey || '').trim()) {
+            window.app?.showNotification('请先填写 API Base 和 API KEY', 'warning');
             return;
         }
 
@@ -3853,18 +4275,20 @@ class AIWriteXConfigManager {
     }
 
     // 内置API提供商获取模型列表
-    async fetchAPIModels(providerKey) {
+    async fetchAPIModels(providerKey, options = {}) {
+        const { quietSuccess = false } = options;
         const providerData = this.config.api[providerKey];
         if (!providerData) return;
 
-        // 获取当前选中的KEY
         const apiKeys = providerData.api_key || [];
-        const keyIndex = providerData.key_index || 0;
-        const apiKey = apiKeys[keyIndex];
-        const apiBase = providerData.api_base;
+        const keyIndex = Number(providerData.key_index) || 0;
+        const apiKey = (apiKeys[keyIndex] || apiKeys[0] || '').trim();
+        const apiBase = (providerData.api_base || '').trim();
 
         if (!apiKey || !apiBase) {
-            window.app?.showNotification('请先配置并选中 API KEY', 'warning');
+            if (!quietSuccess) {
+                window.app?.showNotification('请先配置并选中 API KEY', 'warning');
+            }
             return;
         }
 
@@ -3909,165 +4333,315 @@ class AIWriteXConfigManager {
                 await this.updateConfig(updateData);
                 this.populateAPIUI();
 
-                window.app?.showNotification(`检测完成! 识别到 ${detectedVisionModels.length} 个视觉模型`, 'success');
-            } else {
+                if (!quietSuccess) {
+                    window.app?.showNotification(
+                        `检测完成! 共 ${result.models.length} 个模型，其中 ${detectedVisionModels.length} 个视觉模型`,
+                        'success'
+                    );
+                }
+            } else if (!quietSuccess) {
                 window.app?.showNotification('未获取到模型列表: ' + (result.message || '未知错误'), 'error');
             }
         } catch (error) {
             console.error('检测模型失败:', error);
-            window.app?.showNotification('网络错误: ' + error.message, 'error');
+            if (!quietSuccess) {
+                window.app?.showNotification('网络错误: ' + error.message, 'error');
+            }
+            throw error;
         } finally {
             if (btn) btn.classList.remove('spinning');
         }
     }
 
-    // 绑定自定义API事件
+    // 绑定自定义API事件（添加按钮已移至厂商工具栏，由 populateAPIUI 绑定）
     bindCustomAPIEvents() {
-        const addBtn = document.getElementById('add-custom-api-btn');
-        if (addBtn) {
-            addBtn.onclick = () => this.addCustomAPI();
-        }
-
-        // 初始化已有自定义API
         this.initCustomAPIs();
     }
 
-    // 填充图片API UI  
-    populateImgAPIUI() {
-        const container = document.getElementById('img-api-providers-container');
-        if (!container || !this.config.img_api) return;
-
-        const currentImgAPIType = this.config.img_api.api_type;
-
-        // 清空现有内容  
-        container.innerHTML = '';
-
-        const settingsCard = this.createImgAPIRuntimeSettingsCard();
-        if (settingsCard) {
-            container.appendChild(settingsCard);
-        }
-
-        // 定义提供商列表(固定四个)  
-        const providers = [
-            { key: 'picsum', display: 'Picsum(随机)' },
-            { key: 'ali', display: '阿里百炼' },
-            { key: 'modelscope', display: '魔搭社区(ModelScope)' },
-            { key: 'comfyui', display: 'ComfyUI' }
+    getImgProviderOptions() {
+        const builtins = [
+            { key: 'picsum', display: 'Picsum（随机图）', kind: 'builtin' },
+            { key: 'ali', display: '阿里百炼', kind: 'builtin' },
+            { key: 'modelscope', display: '魔搭 ModelScope', kind: 'builtin' },
+            { key: 'comfyui', display: 'ComfyUI（本地）', kind: 'builtin' },
         ];
-
-        // 生成提供商卡片  
-        providers.forEach(provider => {
-            const providerData = this.config.img_api[provider.key];
-            if (providerData) {
-                const card = this.createImgAPIProviderCard(
-                    provider.key,
-                    provider.display,
-                    providerData,
-                    currentImgAPIType
-                );
-                container.appendChild(card);
-            }
-        });
-
-        // 追加自定义图片API卡片
-        this.renderCustomImgAPIs(true); // 传入 true 表示追加模式，不清理容器
+        const customs = (this.customImgAPIs || []).map((api, index) => ({
+            key: `custom:${index}`,
+            display: api.name || `自定义图片 API ${index + 1}`,
+            kind: 'custom',
+            customIndex: index,
+        }));
+        return [...builtins, ...customs];
     }
 
-    createImgAPIRuntimeSettingsCard() {
-        const settings = this.config.img_api?.settings || {};
-        const card = document.createElement('div');
-        card.className = 'provider-card';
+    getCurrentImgAPIProviderKey() {
+        const t = this.config?.img_api?.api_type;
+        if (t === 'custom') {
+            const idx = this.config.img_api.custom_index ?? 0;
+            return `custom:${idx}`;
+        }
+        return t || 'picsum';
+    }
 
-        const header = document.createElement('div');
-        header.className = 'provider-card-header';
-        header.innerHTML = `
-            <div class="provider-info">
-                <div class="provider-name">图片生成策略</div>
-                <div class="provider-desc">控制极速模式超时、默认超时、轻量提示词强度与占位图回退策略</div>
+    resolveImgProviderOption(selectedKey) {
+        return this.getImgProviderOptions().find((p) => p.key === selectedKey);
+    }
+
+    isImgProviderCurrent(option, currentKey) {
+        if (!option) return false;
+        if (option.kind === 'custom' && option.customIndex !== undefined) {
+            return (
+                this.config.img_api?.api_type === 'custom'
+                && (this.config.img_api.custom_index ?? 0) === option.customIndex
+            );
+        }
+        return this.config.img_api?.api_type === option.key;
+    }
+
+    getImgProviderDisplayName(providerKey) {
+        if (!providerKey) return '未设置';
+        if (String(providerKey).startsWith('custom:')) {
+            const idx = parseInt(String(providerKey).split(':')[1], 10);
+            const api = this.customImgAPIs[idx];
+            return api?.name || `自定义图片 API ${idx + 1}`;
+        }
+        const map = {
+            picsum: 'Picsum（随机图）',
+            ali: '阿里百炼',
+            modelscope: '魔搭 ModelScope',
+            comfyui: 'ComfyUI',
+        };
+        return map[providerKey] || providerKey;
+    }
+
+    renderImgAPIProviderToolbar(providers, currentProviderKey) {
+        const toolbar = document.getElementById('img-api-provider-toolbar');
+        if (!toolbar) return;
+
+        if (!providers.length) {
+            toolbar.innerHTML = `
+                <div class="img-api-toolbar-empty">
+                    <p>暂无可用配图服务</p>
+                    <button type="button" class="btn btn-primary btn-sm" id="add-custom-img-api">+ 自定义</button>
+                </div>
+            `;
+            toolbar.querySelector('#add-custom-img-api')?.addEventListener('click', () => this.addCustomImgAPI());
+            return;
+        }
+
+        const selectedKey = this._selectedImgAPIProvider;
+        const selected = providers.find((p) => p.key === selectedKey) || providers[0];
+        this._selectedImgAPIProvider = selected.key;
+        const isCurrent = this.isImgProviderCurrent(selected, currentProviderKey);
+        const isCustom = selected.kind === 'custom';
+
+        const optionsHtml = providers
+            .map((p) => {
+                const active = this.isImgProviderCurrent(p, currentProviderKey);
+                const tag = p.kind === 'custom' ? ' [自定义]' : '';
+                const suffix = active ? ' ✓' : '';
+                return `<option value="${p.key}" ${p.key === selected.key ? 'selected' : ''}>${p.display}${tag}${suffix}</option>`;
+            })
+            .join('');
+
+        const currentLabel = this.getImgProviderDisplayName(currentProviderKey);
+        const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const canTest = selected.key !== 'picsum';
+
+        toolbar.innerHTML = `
+            <div class="img-api-toolbar-grid">
+                <div class="img-api-toolbar-main">
+                    <label class="img-api-picker-label" for="img-api-provider-select">配图服务</label>
+                    <select id="img-api-provider-select" class="form-control img-api-provider-select" aria-label="选择图片生成服务">${optionsHtml}</select>
+                    <div class="img-api-status-chip ${isCurrent ? 'is-active' : ''}" role="status">
+                        <span class="img-api-status-dot" aria-hidden="true"></span>
+                        <div class="img-api-status-copy">
+                            <span class="img-api-status-name">${esc(selected.display)}</span>
+                            <span class="img-api-status-meta">${isCurrent ? '配图使用中' : '未设为当前'}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="img-api-toolbar-actions">
+                    <button type="button" class="btn btn-primary btn-sm" id="set-current-img-api-provider" ${isCurrent ? 'disabled' : ''}>
+                        ${isCurrent ? '✓ 当前使用' : '设为当前使用'}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="test-img-api-provider" ${canTest ? '' : 'disabled'} title="${canTest ? '测试连接并生成预览图' : 'Picsum 无需测试'}">测试连接</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="add-custom-img-api">+ 自定义</button>
+                    <button type="button" class="btn btn-ghost btn-sm img-api-btn-danger" id="delete-img-api-provider" ${isCustom ? '' : 'disabled'} title="删除自定义配图服务">删除</button>
+                </div>
+            </div>
+            <div class="img-api-global-bar">
+                <span>当前配图</span>
+                <strong id="current-img-api-type-label" class="img-api-global-value">${esc(currentLabel)}</strong>
+                <span>·</span>
+                <span>${isCustom ? 'OpenAI 兼容文生图' : '内置服务'} · 切换下拉不丢失已填内容</span>
             </div>
         `;
 
-        const form = document.createElement('div');
-        form.className = 'provider-form';
+        toolbar.querySelector('#img-api-provider-select')?.addEventListener('change', (e) => {
+            this._selectedImgAPIProvider = e.target.value;
+            this.populateImgAPIUI();
+        });
+        toolbar.querySelector('#set-current-img-api-provider')?.addEventListener('click', () => {
+            this.applySelectedAsCurrentImgAPI();
+        });
+        toolbar.querySelector('#test-img-api-provider')?.addEventListener('click', () => {
+            this.testSelectedImgAPIProvider();
+        });
+        toolbar.querySelector('#add-custom-img-api')?.addEventListener('click', () => {
+            this.addCustomImgAPI();
+        });
+        toolbar.querySelector('#delete-img-api-provider')?.addEventListener('click', () => {
+            this.deleteSelectedImgAPIProvider();
+        });
+    }
 
-        const row1 = document.createElement('div');
-        row1.className = 'form-row';
-        const defaultTimeoutGroup = this.createFormGroup(
-            '普通超时(秒)',
-            'number',
-            'img-api-settings-default-timeout',
-            settings.default_timeout_seconds ?? 60,
-            '默认 60',
-            false
-        );
-        const fastTimeoutGroup = this.createFormGroup(
-            '极速超时(秒)',
-            'number',
-            'img-api-settings-fast-timeout',
-            settings.fast_mode_timeout_seconds ?? 45,
-            '默认 45',
-            false
-        );
-        row1.appendChild(defaultTimeoutGroup);
-        row1.appendChild(fastTimeoutGroup);
+    async applySelectedAsCurrentImgAPI() {
+        const option = this.resolveImgProviderOption(this._selectedImgAPIProvider);
+        if (!option) return;
+        if (option.kind === 'custom' && option.customIndex !== undefined) {
+            await this.setCurrentCustomImgAPI(option.customIndex);
+            return;
+        }
+        await this.setCurrentImgAPIProvider(option.key);
+    }
 
-        const row2 = document.createElement('div');
-        row2.className = 'form-row';
-        const promptCountGroup = this.createFormGroup(
-            '文章配图数量',
-            'number',
-            'img-api-settings-article-image-count',
-            settings.article_image_count ?? settings.fast_mode_prompt_count ?? 3,
-            '含封面，1–12，默认 3',
-            false
-        );
-        const excerptLengthGroup = this.createFormGroup(
-            '提示词截取长度',
-            'number',
-            'img-api-settings-fast-prompt-excerpt',
-            settings.fast_mode_prompt_excerpt_length ?? 120,
-            '默认 120',
-            false
-        );
-        row2.appendChild(promptCountGroup);
-        row2.appendChild(excerptLengthGroup);
+    _setImgToolbarTestLoading(loading) {
+        const btn = document.getElementById('test-img-api-provider');
+        if (!btn) return;
+        if (loading) {
+            if (!btn.dataset.defaultLabel) {
+                btn.dataset.defaultLabel = btn.textContent.trim();
+            }
+            btn.disabled = true;
+            btn.textContent = '测试中…';
+        } else {
+            const canTest = this._selectedImgAPIProvider !== 'picsum';
+            btn.disabled = !canTest;
+            btn.textContent = btn.dataset.defaultLabel || '测试连接';
+        }
+    }
 
-        const fallbackRow = document.createElement('div');
-        fallbackRow.className = 'form-row';
-        fallbackRow.style.alignItems = 'center';
+    async testSelectedImgAPIProvider() {
+        const option = this.resolveImgProviderOption(this._selectedImgAPIProvider);
+        if (!option) {
+            window.app?.showNotification('请先选择配图服务', 'warning');
+            return;
+        }
+        if (option.key === 'picsum') {
+            window.app?.showNotification('Picsum 为免费随机图，无需测试', 'info');
+            return;
+        }
+        this._setImgToolbarTestLoading(true);
+        try {
+            if (option.kind === 'custom' && option.customIndex !== undefined) {
+                await this.testCustomImgAPI(option.customIndex);
+            } else if (['ali', 'modelscope'].includes(option.key)) {
+                await this.testBuiltinImgAPI(option.key);
+            } else if (option.key === 'comfyui') {
+                await this.testComfyUI();
+            }
+        } finally {
+            this._setImgToolbarTestLoading(false);
+        }
+    }
 
-        const fallbackLabel = document.createElement('label');
-        fallbackLabel.className = 'checkbox-label';
-        fallbackLabel.style.marginTop = '8px';
+    async deleteSelectedImgAPIProvider() {
+        const option = this.resolveImgProviderOption(this._selectedImgAPIProvider);
+        if (!option || option.kind !== 'custom' || option.customIndex === undefined) return;
+        await this.deleteCustomImgAPI(option.customIndex);
+    }
 
-        const fallbackCheckbox = document.createElement('input');
-        fallbackCheckbox.type = 'checkbox';
-        fallbackCheckbox.id = 'img-api-settings-allow-placeholder-fallback';
-        fallbackCheckbox.checked = settings.allow_placeholder_fallback !== false;
+    buildImgAPISettingsForm() {
+        const settings = this.config.img_api?.settings || {};
+        const wrap = document.createElement('div');
+        wrap.className = 'img-api-settings-grid';
 
-        const fallbackCustom = document.createElement('span');
-        fallbackCustom.className = 'checkbox-custom';
+        const mk = (label, type, id, value, placeholder) => {
+            const g = this.createFormGroup(label, type, id, value, placeholder, false);
+            return g;
+        };
 
-        const fallbackText = document.createElement('span');
-        fallbackText.textContent = '允许自动回退到 Picsum 占位图';
+        wrap.appendChild(mk('普通超时（秒）', 'number', 'img-api-settings-default-timeout', settings.default_timeout_seconds ?? 60, '默认 60'));
+        wrap.appendChild(mk('极速超时（秒）', 'number', 'img-api-settings-fast-timeout', settings.fast_mode_timeout_seconds ?? 45, '默认 45'));
+        wrap.appendChild(mk('文章配图数量', 'number', 'img-api-settings-article-image-count', settings.article_image_count ?? settings.fast_mode_prompt_count ?? 3, '1–12，含封面'));
+        wrap.appendChild(mk('提示词截取长度', 'number', 'img-api-settings-fast-prompt-excerpt', settings.fast_mode_prompt_excerpt_length ?? 120, '默认 120'));
 
-        fallbackLabel.appendChild(fallbackCheckbox);
-        fallbackLabel.appendChild(fallbackCustom);
-        fallbackLabel.appendChild(fallbackText);
-        fallbackRow.appendChild(fallbackLabel);
+        const fallback = document.createElement('label');
+        fallback.className = 'checkbox-label img-api-settings-fallback';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = 'img-api-settings-allow-placeholder-fallback';
+        cb.checked = settings.allow_placeholder_fallback !== false;
+        const spanCustom = document.createElement('span');
+        spanCustom.className = 'checkbox-custom';
+        const spanText = document.createElement('span');
+        spanText.textContent = '允许自动回退到 Picsum 占位图';
+        fallback.appendChild(cb);
+        fallback.appendChild(spanCustom);
+        fallback.appendChild(spanText);
+        wrap.appendChild(fallback);
 
-        const help = document.createElement('div');
-        help.style.cssText = 'margin-top: 10px; color: var(--text-secondary); font-size: 13px; line-height: 1.6;';
-        help.textContent = '关闭后，ComfyUI 工作流缺失或失败时将保留原占位符，不再自动替换为随机图。';
+        const hint = document.createElement('p');
+        hint.className = 'img-api-settings-hint';
+        hint.textContent = '关闭占位图回退后，ComfyUI 工作流缺失或失败时将保留原占位符，不再自动替换为随机图。';
+        wrap.appendChild(hint);
 
-        form.appendChild(row1);
-        form.appendChild(row2);
-        form.appendChild(fallbackRow);
-        form.appendChild(help);
+        return wrap;
+    }
 
-        card.appendChild(header);
-        card.appendChild(form);
-        return card;
+    // 填充图片 API UI（下拉 + 单卡表单）
+    populateImgAPIUI() {
+        this.loadCustomImgAPIs();
+
+        const settingsBody = document.getElementById('img-api-settings-body');
+        if (settingsBody) {
+            settingsBody.innerHTML = '';
+            settingsBody.appendChild(this.buildImgAPISettingsForm());
+        }
+
+        const container = document.getElementById('img-api-providers-container');
+        if (!container || !this.config.img_api) return;
+
+        const currentProviderKey = this.getCurrentImgAPIProviderKey();
+        const providers = this.getImgProviderOptions();
+
+        if (
+            !this._selectedImgAPIProvider
+            || !providers.some((p) => p.key === this._selectedImgAPIProvider)
+        ) {
+            const preferred = providers.find((p) => this.isImgProviderCurrent(p, currentProviderKey));
+            this._selectedImgAPIProvider = preferred?.key || providers[0]?.key || null;
+        }
+
+        this.renderImgAPIProviderToolbar(providers, currentProviderKey);
+
+        container.innerHTML = '';
+        if (!providers.length) return;
+
+        const selected = this.resolveImgProviderOption(this._selectedImgAPIProvider);
+        if (!selected) return;
+
+        if (selected.kind === 'custom' && selected.customIndex !== undefined) {
+            const api = this.customImgAPIs[selected.customIndex];
+            if (api) {
+                const card = this.createCustomImgAPICard(api, selected.customIndex, true);
+                container.appendChild(card);
+            }
+            return;
+        }
+
+        const providerData = this.config.img_api[selected.key];
+        if (providerData) {
+            const card = this.createImgAPIProviderCard(
+                selected.key,
+                selected.display,
+                providerData,
+                currentProviderKey,
+                true
+            );
+            container.appendChild(card);
+        }
     }
 
     // 加载自定义图片API配置
@@ -4097,115 +4671,109 @@ class AIWriteXConfigManager {
         localStorage.setItem('custom_img_apis', JSON.stringify(this.customImgAPIs));
     }
 
-    // 渲染自定义图片API卡片
-    renderCustomImgAPIs(isAppend = false) {
-        const container = document.getElementById('img-api-providers-container');
-        if (!container) return;
-
-        // 如果不是追加模式，则清空容器并重新填充整个面板（包含内置和自定义）
-        if (!isAppend) {
-            this.populateImgAPIUI();
-            return;
-        }
-
-        // 追加模式下，先确保不会重复添加（通过 dataset.index 检查）
-        this.customImgAPIs.forEach((api, index) => {
-            if (container.querySelector(`.custom-api-card[data-index="${index}"]`)) {
-                return;
-            }
-            const card = this.createCustomImgAPICard(api, index);
-            container.appendChild(card);
-        });
+    renderCustomImgAPIs() {
+        this.populateImgAPIUI();
     }
 
     // 创建自定义图片API卡片
-    createCustomImgAPICard(api, index) {
+    createCustomImgAPICard(api, index, compactToolbar = false) {
+        const currentKey = this.getCurrentImgAPIProviderKey();
+        const isCurrent = this.config.img_api?.api_type === 'custom'
+            && (this.config.img_api.custom_index ?? 0) === index;
+
         const card = document.createElement('div');
-        card.className = 'custom-api-card';
+        card.className = 'api-provider-card img-api-detail-card custom-api-card';
         card.dataset.index = index;
+        if (isCurrent) {
+            card.classList.add('active');
+        }
 
         const header = document.createElement('div');
         header.className = 'custom-api-card-header';
 
-        const title = document.createElement('div');
-        title.className = 'custom-api-card-title';
-        title.textContent = api.name || `自定义图片API ${index + 1}`;
+        if (!compactToolbar) {
+            const title = document.createElement('div');
+            title.className = 'custom-api-card-title';
+            title.textContent = api.name || `自定义图片API ${index + 1}`;
 
-        const actions = document.createElement('div');
-        actions.className = 'custom-api-card-actions';
+            const actions = document.createElement('div');
+            actions.className = 'custom-api-card-actions';
 
-        // 设为当前使用按钮
-        const useBtn = document.createElement('button');
-        const isCurrent = this.customImgAPIs[index]?.isCurrent;
-        useBtn.className = `btn-use ${isCurrent ? 'active' : ''}`;
-        useBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ${isCurrent ? '当前使用' : '设为当前'}`;
-        useBtn.onclick = () => this.setCurrentCustomImgAPI(index);
+            const useBtn = document.createElement('button');
+            useBtn.className = `btn-use ${isCurrent ? 'active' : ''}`;
+            useBtn.textContent = isCurrent ? '当前使用' : '设为当前';
+            useBtn.onclick = () => this.setCurrentCustomImgAPI(index);
 
-        // 删除按钮
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'btn-delete';
-        deleteBtn.textContent = '删除';
-        deleteBtn.onclick = () => this.deleteCustomImgAPI(index);
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn-delete';
+            deleteBtn.textContent = '删除';
+            deleteBtn.onclick = () => this.deleteCustomImgAPI(index);
 
-        actions.appendChild(useBtn);
-        actions.appendChild(deleteBtn);
-        header.appendChild(title);
-        header.appendChild(actions);
+            actions.appendChild(useBtn);
+            actions.appendChild(deleteBtn);
+            header.appendChild(title);
+            header.appendChild(actions);
+        }
 
-        // 表单
         const form = document.createElement('div');
-        form.className = 'custom-api-form';
+        form.className = 'custom-api-form img-api-form';
 
-        // 名称
+        const { section: secBasic, body: basicBody } = this.createLLMFormSection(
+            '基本信息',
+            '服务名称与请求地址预览'
+        );
         const nameGroup = document.createElement('div');
         nameGroup.className = 'form-group form-group-full';
         nameGroup.innerHTML = `
             <div class="api-preview-header">
-                <label>API名称</label>
+                <label>服务名称</label>
                 <div class="api-full-url-preview" id="img-api-url-preview-${index}">
-                    URL预览: <span>${this.getImgAPIPullURL(api)}</span>
+                    请求预览：<span>${this.getImgAPIPullURL(api)}</span>
                 </div>
             </div>
-            <input type="text" value="${api.name || ''}" placeholder="例如: 我的Stable Diffusion" onchange="window.configManager.updateCustomImgAPI(${index}, 'name', this.value)">
+            <input type="text" value="${api.name || ''}" placeholder="例如：我的 Stable Diffusion" onchange="window.configManager.updateCustomImgAPI(${index}, 'name', this.value)">
         `;
+        basicBody.appendChild(nameGroup);
 
-        // API Base
+        const { section: secAuth, body: authBody } = this.createLLMFormSection(
+            '连接与认证',
+            'OpenAI 兼容文生图接口'
+        );
         const baseGroup = document.createElement('div');
         baseGroup.className = 'form-group form-group-full';
         baseGroup.innerHTML = `
-            <label>API 接口地址 (Endpoint)</label>
-            <input type="text" value="${api.api_base || ''}" placeholder="例如: https://api.openai.com/v1 (末尾加#强制使用原始地址)" onchange="window.configManager.updateCustomImgAPI(${index}, 'api_base', this.value)">
-            <p class="field-help">💡 提示：系统会自动补全/v1路径，如需强制使用原始地址请在末尾添加#</p>
+            <label>API Base</label>
+            <input type="text" value="${api.api_base || ''}" placeholder="https://api.openai.com/v1" onchange="window.configManager.updateCustomImgAPI(${index}, 'api_base', this.value)">
+            <p class="field-help">末尾加 # 可强制使用原始地址，不自动补全路径</p>
         `;
-
-        // API Key
         const keyGroup = document.createElement('div');
         keyGroup.className = 'form-group form-group-full';
         keyGroup.innerHTML = `
             <label>API KEY</label>
-            <input type="password" value="${api.api_key || ''}" placeholder="输入 API Key (Bearer Token)" onchange="window.configManager.updateCustomImgAPI(${index}, 'api_key', this.value)">
+            <input type="password" value="${api.api_key || ''}" placeholder="Bearer Token" onchange="window.configManager.updateCustomImgAPI(${index}, 'api_key', this.value)">
         `;
+        authBody.appendChild(baseGroup);
+        authBody.appendChild(keyGroup);
 
-        // 模型选择（下拉 + 刷新 + 手动输入，与 LLM API 卡片一致）
+        const { section: secModel, body: modelBody } = this.createLLMFormSection(
+            '模型',
+            '选择或输入文生图模型名'
+        );
+        const imgModelOptions = (api.models || []).map(m => `<option value="${m}" ${api.model === m ? 'selected' : ''}>${m}</option>`).join('');
         const modelGroup = document.createElement('div');
         modelGroup.className = 'form-group form-group-full';
-        const imgModelOptions = (api.models || []).map(m => `<option value="${m}" ${api.model === m ? 'selected' : ''}>${m}</option>`).join('');
         modelGroup.innerHTML = `
-            <label>图片生成模型 (Model)</label>
+            <label>图片生成模型</label>
             <div class="model-select-wrapper">
                 <select id="custom-img-model-select-${index}" onchange="window.configManager.updateCustomImgAPI(${index}, 'model', this.value)">
                     <option value="">请先刷新列表或手动输入</option>
                     ${imgModelOptions}
                 </select>
-                <button type="button" class="api-action-btn btn-fetch" onclick="window.configManager.fetchImgModels(${index})" title="获取可用模型列表">
+                <button type="button" class="api-action-btn btn-fetch" onclick="window.configManager.fetchImgModels(${index})" title="获取模型列表">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                 </button>
-                <button type="button" class="api-action-btn btn-test-img" id="btn-test-custom-img-${index}" onclick="window.configManager.testCustomImgAPI(${index})" title="测试 API 连通性并生成一个测试图">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试连接
-                </button>
             </div>
-            <input type="text" id="custom-img-model-input-${index}" value="${api.model || ''}" placeholder="或直接输入模型名，如: flux-pro / dall-e-3" style="margin-top:8px" onchange="window.configManager.updateCustomImgAPI(${index}, 'model', this.value)">
-            
+            <input type="text" id="custom-img-model-input-${index}" value="${api.model || ''}" placeholder="如 flux-pro、dall-e-3" style="margin-top:8px" onchange="window.configManager.updateCustomImgAPI(${index}, 'model', this.value)">
             <div id="test-result-custom-img-${index}" class="test-result-container" style="display: none; margin-top: 15px;">
                 <div class="test-status"></div>
                 <div class="test-image-preview" style="margin-top: 10px; text-align: center;">
@@ -4213,12 +4781,11 @@ class AIWriteXConfigManager {
                 </div>
             </div>
         `;
+        modelBody.appendChild(modelGroup);
 
-        form.appendChild(nameGroup);
-        form.appendChild(baseGroup);
-        form.appendChild(keyGroup);
-        form.appendChild(modelGroup);
-
+        form.appendChild(secBasic);
+        form.appendChild(secAuth);
+        form.appendChild(secModel);
         card.appendChild(header);
         card.appendChild(form);
 
@@ -4237,7 +4804,8 @@ class AIWriteXConfigManager {
             tested: false
         });
         this.saveCustomImgAPIs();
-        this.renderCustomImgAPIs();
+        this._selectedImgAPIProvider = `custom:${this.customImgAPIs.length - 1}`;
+        this.populateImgAPIUI();
     }
 
     // 删除自定义图片API
@@ -4250,7 +4818,8 @@ class AIWriteXConfigManager {
             }
             this.customImgAPIs.splice(index, 1);
             this.saveCustomImgAPIs();
-            this.renderCustomImgAPIs();
+            this._selectedImgAPIProvider = this.getImgProviderOptions()[0]?.key || 'picsum';
+            this.populateImgAPIUI();
         }
     }
 
@@ -4394,7 +4963,8 @@ class AIWriteXConfigManager {
         await this.updateConfig({ img_api: imgApiConfig });
 
         this.saveCustomImgAPIs();
-        this.renderCustomImgAPIs();
+        this._selectedImgAPIProvider = `custom:${index}`;
+        this.populateImgAPIUI();
 
         window.app?.showNotification(`已将${api.name}设为当前使用`, 'success');
     }
@@ -4436,96 +5006,105 @@ class AIWriteXConfigManager {
         return base;
     }
 
-    // 创建图片API提供商卡片  
-    createImgAPIProviderCard(providerKey, providerDisplay, providerData, currentImgAPIType) {
+    // 创建图片API提供商卡片
+    createImgAPIProviderCard(providerKey, providerDisplay, providerData, currentProviderKey, compactToolbar = false) {
         const card = document.createElement('div');
-        card.className = 'api-provider-card';
-        if (providerKey === currentImgAPIType) {
+        card.className = 'api-provider-card img-api-detail-card';
+        if (providerKey === currentProviderKey) {
             card.classList.add('active');
         }
 
-        // 卡片头部  
-        const header = document.createElement('div');
-        header.className = 'provider-header';
-
-        const titleGroup = document.createElement('div');
-        titleGroup.className = 'provider-title-group';
-
-        const name = document.createElement('div');
-        name.className = 'provider-name';
-        name.textContent = providerDisplay;
-
-        const badge = document.createElement('span');
-        badge.className = `provider-badge ${providerKey === currentImgAPIType ? 'active' : 'inactive'}`;
-        badge.textContent = providerKey === currentImgAPIType ? '使用中' : '未使用';
-
-        titleGroup.appendChild(name);
-        titleGroup.appendChild(badge);
-
-        const toggleBtn = document.createElement('button');
-        toggleBtn.className = `provider-toggle-btn ${providerKey === currentImgAPIType ? 'active' : ''}`;
-        toggleBtn.textContent = providerKey === currentImgAPIType ? '当前使用' : '设为当前';
-        toggleBtn.disabled = providerKey === currentImgAPIType;
-        toggleBtn.addEventListener('click', async () => {
-            await this.setCurrentImgAPIProvider(providerKey);
-        });
-
-        header.appendChild(titleGroup);
-        header.appendChild(toggleBtn);
-
-        // 表单内容  
         const form = document.createElement('div');
-        form.className = 'provider-form';
+        form.className = 'provider-form img-api-form';
 
-        // API KEY字段  
-        const apiKeyGroup = this.createFormGroup(
-            'API KEY',
-            'text',
-            `img-api-${providerKey}-api-key`,
-            providerData.api_key || '',
-            providerKey === 'picsum' ? "随机图片无需API KEY" : "请输入API KEY",
-            false
-        );
-        apiKeyGroup.classList.add('form-group-half');
+        if (providerKey === 'picsum') {
+            const { section, body } = this.createLLMFormSection(
+                '说明',
+                '免费随机图服务，无需配置 Key 与模型'
+            );
+            const note = document.createElement('p');
+            note.className = 'img-api-settings-hint';
+            note.style.margin = '0';
+            note.textContent = '适合先跑通配图流程；画质与主题匹配度一般。设为当前使用后即可在生成文章时自动插入随机图。';
+            body.appendChild(note);
+            form.appendChild(section);
+        } else {
+            const { section: secAuth, body: authBody } = this.createLLMFormSection(
+                '连接与认证',
+                providerKey === 'comfyui' ? '本地 ComfyUI 服务地址' : 'API KEY 与接口地址'
+            );
 
-        // 给图片API的API KEY输入框添加点击弹窗事件（picsum除外）
-        if (providerKey !== 'picsum') {
-            const apiKeyInput = apiKeyGroup.querySelector('input');
-            if (apiKeyInput) {
-                apiKeyInput.style.cursor = 'pointer';
-                apiKeyInput.title = '点击编辑API KEY（一行一个，支持负载均衡）';
-                apiKeyInput.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    // 将单行key转换为数组传给弹窗
-                    const currentKey = providerData.api_key || '';
-                    const keys = currentKey ? currentKey.split('\n').filter(k => k.trim()) : [];
-                    this.showImgAPIKeyEditor(providerKey, keys);
-                });
+            if (['modelscope', 'ali', 'comfyui'].includes(providerKey)) {
+                const apiBaseUrl = providerData.api_base || '';
+                const baseUrlGroup = this.createFormGroup(
+                    'API Base',
+                    'text',
+                    `img-api-${providerKey}-api-base`,
+                    apiBaseUrl,
+                    'API Base URL',
+                    providerKey !== 'comfyui'
+                );
+                baseUrlGroup.classList.add('form-group-full');
+                authBody.appendChild(baseUrlGroup);
             }
-        }
 
-        // 模型字段（带检测按钮，picsum除外）
-        const modelGroup = document.createElement('div');
-        modelGroup.className = 'form-group form-group-half';
-        if (providerKey !== 'picsum') {
-            const builtinModels = (providerData.models || []).map(m => `<option value="${m}" ${providerData.model === m ? 'selected' : ''}>${m}</option>`).join('');
+            if (providerKey !== 'comfyui') {
+                const apiKeyGroup = this.createFormGroup(
+                    'API KEY',
+                    'text',
+                    `img-api-${providerKey}-api-key`,
+                    providerData.api_key || '',
+                    '点击输入，一行一个 Key',
+                    false
+                );
+                apiKeyGroup.classList.add('form-group-full');
+                const apiKeyInput = apiKeyGroup.querySelector('input');
+                if (apiKeyInput) {
+                    apiKeyInput.style.cursor = 'pointer';
+                    apiKeyInput.title = '点击编辑 API KEY';
+                    apiKeyInput.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const currentKey = providerData.api_key || '';
+                        const keys = currentKey ? currentKey.split('\n').filter((k) => k.trim()) : [];
+                        this.showImgAPIKeyEditor(providerKey, keys);
+                    });
+                }
+                authBody.appendChild(apiKeyGroup);
+            } else {
+                const keyOptional = this.createFormGroup(
+                    'API KEY（可选）',
+                    'password',
+                    `img-api-${providerKey}-api-key`,
+                    providerData.api_key || '',
+                    '本地未鉴权可留空',
+                    false
+                );
+                keyOptional.classList.add('form-group-full');
+                authBody.appendChild(keyOptional);
+            }
+            form.appendChild(secAuth);
+
+            const { section: secModel, body: modelBody } = this.createLLMFormSection(
+                '模型',
+                '文生图模型，可刷新列表或手动输入'
+            );
+            const builtinModels = (providerData.models || [])
+                .map((m) => `<option value="${m}" ${providerData.model === m ? 'selected' : ''}>${m}</option>`)
+                .join('');
+            const modelGroup = document.createElement('div');
+            modelGroup.className = 'form-group form-group-full';
             modelGroup.innerHTML = `
-                <label>模型</label>
+                <label>图片生成模型</label>
                 <div class="model-select-wrapper">
                     <select id="img-api-${providerKey}-model" onchange="window.configManager.updateImgAPIField('${providerKey}', 'model', this.value)">
-                        <option value="${providerData.model || ''}">${providerData.model || '请先检测API获取模型'}</option>
+                        <option value="${providerData.model || ''}">${providerData.model || '请先刷新模型列表'}</option>
                         ${builtinModels}
                     </select>
                     <button type="button" class="model-dropdown-btn" onclick="window.configManager.fetchImgBuiltinModels('${providerKey}')" title="刷新模型列表">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                     </button>
-                    ${['ali', 'modelscope'].includes(providerKey) ? `
-                    <button type="button" class="api-action-btn btn-test-img" id="btn-test-builtin-img-${providerKey}" onclick="window.configManager.testBuiltinImgAPI('${providerKey}')" title="测试 API 连通性并生成一个测试图" style="margin-left: 8px;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试
-                    </button>` : ''}
                 </div>
                 <input type="text" value="${providerData.model || ''}" placeholder="或手动输入模型名称" style="margin-top:8px" id="img-api-${providerKey}-model-input" onchange="window.configManager.updateImgAPIField('${providerKey}', 'model', this.value); document.getElementById('img-api-${providerKey}-model').value = this.value;">
-                
                 <div id="test-result-builtin-img-${providerKey}" class="test-result-container" style="display: none; margin-top: 15px;">
                     <div class="test-status"></div>
                     <div class="test-image-preview" style="margin-top: 10px; text-align: center;">
@@ -4533,88 +5112,26 @@ class AIWriteXConfigManager {
                     </div>
                 </div>
             `;
-        } else {
-            modelGroup.innerHTML = `
-                <label>模型</label>
-                <input type="text" id="img-api-${providerKey}-model" value="" placeholder="随机图片无需模型" disabled style="cursor:not-allowed;user-select:none">
-            `;
-        }
+            modelBody.appendChild(modelGroup);
+            form.appendChild(secModel);
 
-        if (providerKey === 'picsum') {
-            const keyInput = apiKeyGroup.querySelector('input');
-            if (keyInput) {
-                keyInput.disabled = true;
-                keyInput.style.userSelect = 'none';
-                keyInput.style.cursor = 'not-allowed';
-            }
-        }
-
-        const row = document.createElement('div');
-        row.className = 'form-row';
-        row.appendChild(apiKeyGroup);
-        row.appendChild(modelGroup);
-
-        form.appendChild(row);
-
-        // ModelScope/Ali/ComfyUI: 显示 API 地址  
-        if (['modelscope', 'ali', 'comfyui'].includes(providerKey)) {
-            const apiBaseUrl = providerKey === 'comfyui'
-                ? (providerData.api_base || '')
-                : (providerData.api_base || '');
-            const isEditable = providerKey === 'comfyui';  // comfyui可编辑，其他只读
-            const baseUrlGroup = this.createFormGroup(
-                'API地址',
-                'text',
-                `img-api-${providerKey}-api-base`,
-                apiBaseUrl,
-                'API Base URL',
-                !isEditable  // ali/modelscope 只读
-            );
-            baseUrlGroup.classList.add('form-group-full');
-            form.appendChild(baseUrlGroup);
-
-            // ComfyUI 额外帮助文本（API地址已在上方统一渲染）
             if (providerKey === 'comfyui') {
-                // 添加帮助说明
                 const helpDiv = document.createElement('div');
-                helpDiv.style.cssText = 'background: #f0f7ff; border: 1px solid #91d5ff; border-radius: 6px; padding: 12px; margin-top: 10px; font-size: 13px; color: #333; line-height: 1.6;';
-                helpDiv.innerHTML = `<strong style="color: #1890ff;">💡 提示：</strong>ComfyUI是一个本地运行的AI图像生成工具。
-                请确保ComfyUI已启动并开启了<strong>"Enable API"</strong>选项(设置→高级设置→Enable API)。
-                <br><a href="https://github.com/comfyanonymous/ComfyUI" target="_blank" style="color:#1890ff;text-decoration:underline;">查看ComfyUI GitHub</a>
-                <br><br><strong style="color:#ff9800;">📁 图片保存说明：</strong>生成的图片会自动保存在项目根目录的<strong>image/</strong>文件夹中，文件名格式为<strong>comfyui_时间戳.png</strong>。如需使用本地已有图片，请将图片文件放入<strong>image/</strong>文件夹，并确保文件名包含正确后缀(如: photo.jpg, image.png)`;
+                helpDiv.className = 'img-api-callout';
+                helpDiv.innerHTML = `<strong>提示：</strong>请确保本机 ComfyUI 已启动并开启 <strong>Enable API</strong>。
+                <a href="https://github.com/comfyanonymous/ComfyUI" target="_blank" rel="noopener">ComfyUI 文档</a>
+                · 生成图保存在项目 <strong>image/</strong> 目录。测试连接请用工具栏「测试连接」。`;
                 form.appendChild(helpDiv);
-
-                // 添加测试按钮
-                const testBtnRow = document.createElement('div');
-                testBtnRow.className = 'form-row';
-                testBtnRow.style.justifyContent = 'flex-end';
-                testBtnRow.style.marginTop = '10px';
-
-                const testBtn = document.createElement('button');
-                testBtn.type = 'button';
-                testBtn.className = 'btn btn-secondary';
-                testBtn.id = 'test-comfyui-btn';
-                testBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 测试连接`;
-                testBtn.onclick = () => this.testComfyUI();
-
                 const testResultDiv = document.createElement('div');
                 testResultDiv.id = 'comfyui-test-result';
                 testResultDiv.className = 'test-result';
                 testResultDiv.style.display = 'none';
-                testResultDiv.style.marginLeft = '10px';
                 testResultDiv.style.marginTop = '10px';
-
-                testBtnRow.appendChild(testBtn);
-                testBtnRow.appendChild(testResultDiv);
-                form.appendChild(testBtnRow);
+                form.appendChild(testResultDiv);
             }
-
         }
 
-        // 组装卡片  
-        card.appendChild(header);
         card.appendChild(form);
-
         return card;
     }
 
@@ -5417,106 +5934,185 @@ class AIWriteXConfigManager {
         });
     }
 
+    bindCreativeConfigListeners() {
+        if (this._creativeBindingsReady) return;
+        this._creativeBindingsReady = true;
+
+        const markDirty = () => {
+            const btn = document.getElementById('save-creative-config');
+            if (btn && !btn.classList.contains('has-changes')) {
+                btn.classList.add('has-changes');
+                btn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
+            }
+        };
+
+        const patchCreative = async (patch) => {
+            await this.updateConfig({
+                dimensional_creative: {
+                    ...this.config.dimensional_creative,
+                    ...patch
+                }
+            });
+            markDirty();
+        };
+
+        document.getElementById('creative-enabled')?.addEventListener('change', async (e) => {
+            await patchCreative({ enabled: e.target.checked });
+            this.updateCreativeControlsState();
+        });
+
+        document.getElementById('auto-dimension-selection')?.addEventListener('change', async (e) => {
+            await patchCreative({ auto_dimension_selection: e.target.checked });
+            this.updateCreativeControlsState();
+        });
+
+        document.getElementById('preserve-core-info')?.addEventListener('change', async (e) => {
+            await patchCreative({ preserve_core_info: e.target.checked });
+        });
+
+        document.getElementById('allow-experimental')?.addEventListener('change', async (e) => {
+            await patchCreative({ allow_experimental: e.target.checked });
+        });
+
+        document.getElementById('creative-intensity')?.addEventListener('input', async (e) => {
+            this.updateCreativeSliderLabels();
+            await patchCreative({ creative_intensity: parseFloat(e.target.value) });
+        });
+
+        document.getElementById('compatibility-threshold')?.addEventListener('input', async (e) => {
+            this.updateCreativeSliderLabels();
+            await patchCreative({ compatibility_threshold: parseFloat(e.target.value) });
+        });
+
+        document.getElementById('max-dimensions')?.addEventListener('change', async (e) => {
+            await patchCreative({ max_dimensions: parseInt(e.target.value, 10) || 3 });
+        });
+
+        document.getElementById('save-creative-config')?.addEventListener('click', async () => {
+            await this.syncDimensionalCreativeFromUI();
+            const success = await this.saveConfig();
+            const btn = document.getElementById('save-creative-config');
+            if (success && btn) {
+                btn.classList.remove('has-changes');
+                btn.innerHTML = '保存设置';
+            }
+            window.app?.showNotification(
+                success ? '创意配置已保存' : '保存创意配置失败',
+                success ? 'success' : 'error'
+            );
+        });
+
+        document.getElementById('reset-creative-config')?.addEventListener('click', async () => {
+            const response = await fetch(`${this.apiEndpoint}/default`);
+            if (!response.ok) {
+                window.app?.showNotification('恢复默认配置失败', 'error');
+                return;
+            }
+            const result = await response.json();
+            await this.updateConfig({ dimensional_creative: result.data.dimensional_creative });
+            this.populateCreativeUI();
+            window.app?.showNotification('已恢复默认创意配置', 'info');
+        });
+
+        document.getElementById('creative-expand-all')?.addEventListener('click', () => {
+            document.querySelectorAll('.creative-dimension-card .creative-dimension-body').forEach((el) => {
+                el.classList.remove('collapsed');
+            });
+            document.querySelectorAll('.creative-dimension-chevron').forEach((el) => el.classList.add('rotated'));
+        });
+
+        document.getElementById('creative-collapse-all')?.addEventListener('click', () => {
+            document.querySelectorAll('.creative-dimension-card .creative-dimension-body').forEach((el) => {
+                el.classList.add('collapsed');
+            });
+            document.querySelectorAll('.creative-dimension-chevron').forEach((el) => el.classList.remove('rotated'));
+        });
+
+        document.getElementById('creative-enable-recommended')?.addEventListener('click', async () => {
+            const enabled = { ...(this.config.dimensional_creative?.enabled_dimensions || {}) };
+            this._creativeRecommendedDimensions.forEach((key) => {
+                enabled[key] = true;
+            });
+            await patchCreative({ enabled_dimensions: enabled, auto_dimension_selection: false });
+            this.populateCreativeUI();
+        });
+    }
+
+    updateCreativeSliderLabels() {
+        const intensity = document.getElementById('creative-intensity');
+        const intensityVal = document.getElementById('creative-intensity-val');
+        if (intensity && intensityVal) intensityVal.textContent = intensity.value;
+
+        const threshold = document.getElementById('compatibility-threshold');
+        const thresholdVal = document.getElementById('compatibility-threshold-val');
+        if (threshold && thresholdVal) thresholdVal.textContent = threshold.value;
+    }
+
+    async syncDimensionalCreativeFromUI() {
+        if (!this.config.dimensional_creative) return;
+
+        const selected_dimensions = [];
+        Object.entries(this.DIMENSION_GROUPS).forEach(([, groupData]) => {
+            groupData.dimensions.forEach((dimensionKey) => {
+                const checkbox = document.getElementById(`dimension-${dimensionKey}-enabled`);
+                const select = document.getElementById(`dimension-${dimensionKey}-select`);
+                if (!checkbox?.checked) return;
+                const option = select?.value || '';
+                selected_dimensions.push({ category: dimensionKey, option });
+            });
+        });
+
+        await this.updateConfig({
+            dimensional_creative: {
+                ...this.collectDimensionalCreativeFromForm(),
+                selected_dimensions
+            }
+        });
+    }
+
+    collectDimensionalCreativeFromForm() {
+        return {
+            enabled: document.getElementById('creative-enabled')?.checked || false,
+            creative_intensity: parseFloat(document.getElementById('creative-intensity')?.value || '1'),
+            preserve_core_info: document.getElementById('preserve-core-info')?.checked !== false,
+            allow_experimental: document.getElementById('allow-experimental')?.checked || false,
+            auto_dimension_selection: document.getElementById('auto-dimension-selection')?.checked !== false,
+            max_dimensions: parseInt(document.getElementById('max-dimensions')?.value || '3', 10),
+            compatibility_threshold: parseFloat(document.getElementById('compatibility-threshold')?.value || '0.6')
+        };
+    }
+
     // 填充创意配置UI  
     populateCreativeUI() {
         if (!this.config.dimensional_creative) return;
 
         const creativeConfig = this.config.dimensional_creative;
 
-        // 填充全局配置  
         const enabledCheckbox = document.getElementById('creative-enabled');
-        if (enabledCheckbox) {
-            enabledCheckbox.checked = creativeConfig.enabled || false;
-        }
+        if (enabledCheckbox) enabledCheckbox.checked = !!creativeConfig.enabled;
 
         const intensitySlider = document.getElementById('creative-intensity');
-        if (intensitySlider) {
-            intensitySlider.value = creativeConfig.creative_intensity || 1.0;
-            this.updateSliderValue(intensitySlider);
-            intensitySlider.addEventListener('input', (e) => {
-                this.updateSliderValue(e.target);
-
-                // 更新配置  
-                this.updateConfig({
-                    dimensional_creative: {
-                        ...this.config.dimensional_creative,
-                        creative_intensity: parseFloat(e.target.value)
-                    }
-                });
-            });
-        }
+        if (intensitySlider) intensitySlider.value = creativeConfig.creative_intensity ?? 1.0;
 
         const preserveCheckbox = document.getElementById('preserve-core-info');
-        if (preserveCheckbox) {
-            preserveCheckbox.checked = creativeConfig.preserve_core_info !== false;
-        }
+        if (preserveCheckbox) preserveCheckbox.checked = creativeConfig.preserve_core_info !== false;
 
         const autoSelectionCheckbox = document.getElementById('auto-dimension-selection');
         if (autoSelectionCheckbox) {
-            autoSelectionCheckbox.checked = creativeConfig.auto_dimension_selection || false;
+            autoSelectionCheckbox.checked = creativeConfig.auto_dimension_selection !== false;
         }
 
         const maxDimensionsInput = document.getElementById('max-dimensions');
-        if (maxDimensionsInput) {
-            maxDimensionsInput.value = creativeConfig.max_dimensions || 5;
-        }
+        if (maxDimensionsInput) maxDimensionsInput.value = creativeConfig.max_dimensions ?? 3;
 
         const thresholdSlider = document.getElementById('compatibility-threshold');
-        if (thresholdSlider) {
-            thresholdSlider.value = creativeConfig.compatibility_threshold || 0.6;
-            this.updateSliderValue(thresholdSlider);
-            thresholdSlider.addEventListener('input', (e) => {
-                this.updateSliderValue(e.target);
-
-                // 更新配置  
-                this.updateConfig({
-                    dimensional_creative: {
-                        ...this.config.dimensional_creative,
-                        compatibility_threshold: parseFloat(e.target.value)
-                    }
-                });
-            });
-        }
+        if (thresholdSlider) thresholdSlider.value = creativeConfig.compatibility_threshold ?? 0.6;
 
         const experimentalCheckbox = document.getElementById('allow-experimental');
-        if (experimentalCheckbox) {
-            experimentalCheckbox.checked = creativeConfig.allow_experimental || false;
-        }
+        if (experimentalCheckbox) experimentalCheckbox.checked = !!creativeConfig.allow_experimental;
 
-        // 生成维度分组卡片  
+        this.updateCreativeSliderLabels();
         this.populateDimensionGroups();
-
-        const globalEnabled = creativeConfig.enabled || false;
-        const autoSelection = creativeConfig.auto_dimension_selection || false;
-        const enabledDimensions = creativeConfig.enabled_dimensions || {};
-
-        // 更新全局控件  
-        if (intensitySlider) intensitySlider.disabled = !globalEnabled;
-        if (preserveCheckbox) preserveCheckbox.disabled = !globalEnabled;
-        if (experimentalCheckbox) experimentalCheckbox.disabled = !globalEnabled;
-        if (autoSelectionCheckbox) autoSelectionCheckbox.disabled = !globalEnabled;
-        if (maxDimensionsInput) maxDimensionsInput.disabled = !globalEnabled || !autoSelection;
-        if (thresholdSlider) thresholdSlider.disabled = !globalEnabled || !autoSelection;
-
-        // 更新所有维度控件  
-        Object.keys(enabledDimensions).forEach(dimensionKey => {
-            const checkbox = document.getElementById(`dimension-${dimensionKey}-enabled`);
-            const select = document.getElementById(`dimension-${dimensionKey}-select`);
-            const customInput = document.getElementById(`dimension-${dimensionKey}-custom`);
-            const isEnabled = enabledDimensions[dimensionKey];
-
-            if (checkbox) {
-                checkbox.disabled = !globalEnabled;
-            }
-            if (select) {
-                select.disabled = !globalEnabled || autoSelection || !isEnabled;
-            }
-            if (customInput) {
-                const selectValue = select?.value;
-                customInput.disabled = !globalEnabled || !isEnabled || selectValue !== 'custom';
-            }
-        });
-
         this.updateCreativeControlsState();
     }
 
@@ -5547,299 +6143,264 @@ class AIWriteXConfigManager {
         });
     }
 
-    // 更新创意配置所有控件的禁用状态    
     updateCreativeControlsState() {
         const globalEnabled = document.getElementById('creative-enabled')?.checked || false;
-        const autoSelection = document.getElementById('auto-dimension-selection')?.checked || false;
+        const autoSelection = document.getElementById('auto-dimension-selection')?.checked !== false;
 
-        // 更新全局控件  
         const intensitySlider = document.getElementById('creative-intensity');
         const preserveCheckbox = document.getElementById('preserve-core-info');
         const experimentalCheckbox = document.getElementById('allow-experimental');
+        const autoSelectionCheckbox = document.getElementById('auto-dimension-selection');
         const maxDimensionsInput = document.getElementById('max-dimensions');
         const thresholdSlider = document.getElementById('compatibility-threshold');
+        const autoParams = document.getElementById('creative-auto-params');
+        const manualHint = document.getElementById('creative-manual-hint');
+        const modeTitle = document.getElementById('creative-mode-title');
+        const modeDesc = document.getElementById('creative-mode-desc');
+        const enabledPill = document.getElementById('creative-enabled-pill');
+        const dimToolbar = document.querySelector('.creative-dim-toolbar');
 
         if (intensitySlider) intensitySlider.disabled = !globalEnabled;
         if (preserveCheckbox) preserveCheckbox.disabled = !globalEnabled;
         if (experimentalCheckbox) experimentalCheckbox.disabled = !globalEnabled;
+        if (autoSelectionCheckbox) autoSelectionCheckbox.disabled = !globalEnabled;
         if (maxDimensionsInput) maxDimensionsInput.disabled = !globalEnabled || !autoSelection;
         if (thresholdSlider) thresholdSlider.disabled = !globalEnabled || !autoSelection;
+        if (autoParams) autoParams.classList.toggle('is-disabled', !globalEnabled || !autoSelection);
+        if (manualHint) manualHint.hidden = autoSelection || !globalEnabled;
+        if (dimToolbar) dimToolbar.classList.toggle('is-manual-only', autoSelection);
 
+        if (enabledPill) {
+            enabledPill.textContent = globalEnabled ? '已启用' : '未启用';
+            enabledPill.classList.toggle('is-on', globalEnabled);
+        }
+        if (modeTitle) modeTitle.textContent = autoSelection ? '自动选维' : '手动选维';
+        if (modeDesc) {
+            modeDesc.textContent = autoSelection
+                ? 'AI 按内容类型挑选维度组合，无需逐项勾选'
+                : '请勾选下方维度并选择预设；未勾选任何维度时创意步骤将跳过';
+        }
+
+        let manualEnabledCount = 0;
         Object.entries(this.DIMENSION_GROUPS).forEach(([groupKey, groupData]) => {
-            // 统计该分组中已启用的维度数量  
             let enabledCount = 0;
-            groupData.dimensions.forEach(dimensionKey => {
-                const checkbox = document.getElementById(`dimension-${dimensionKey}-enabled`);
-                if (checkbox && checkbox.checked) {
-                    enabledCount++;
-                }
-            });
-
-            // 查找该分组的徽章元素并更新  
-            const cards = document.querySelectorAll('.dimension-group-card');
-            cards.forEach(card => {
-                const cardName = card.querySelector('.dimension-group-name')?.textContent;
-                if (cardName === groupData.name) {
-                    const badge = card.querySelector('.dimension-count-badge');
-                    if (badge) {
-                        badge.textContent = `${enabledCount}/${groupData.dimensions.length}`;
-                    }
-                }
-            });
-        });
-
-        // 更新所有维度控件的禁用状态  
-        Object.entries(this.DIMENSION_GROUPS).forEach(([groupKey, groupData]) => {
-            groupData.dimensions.forEach(dimensionKey => {
+            groupData.dimensions.forEach((dimensionKey) => {
                 const checkbox = document.getElementById(`dimension-${dimensionKey}-enabled`);
                 const select = document.getElementById(`dimension-${dimensionKey}-select`);
                 const customInput = document.getElementById(`dimension-${dimensionKey}-custom`);
-
-                if (checkbox) {
-                    checkbox.disabled = !globalEnabled || autoSelection;
+                const isRowOn = checkbox?.checked || false;
+                if (isRowOn) {
+                    enabledCount++;
+                    manualEnabledCount++;
                 }
 
-                if (select) {
-                    const isEnabled = checkbox?.checked || false;
-                    select.disabled = !globalEnabled || autoSelection || !isEnabled;
-                }
-
+                if (checkbox) checkbox.disabled = !globalEnabled || autoSelection;
+                if (select) select.disabled = !globalEnabled || autoSelection || !isRowOn;
                 if (customInput) {
-                    const isEnabled = checkbox?.checked || false;
-                    const selectValue = select?.value;
-                    customInput.disabled = !globalEnabled || !isEnabled || selectValue !== 'custom';
+                    customInput.disabled = !globalEnabled || !isRowOn || select?.value !== 'custom';
                 }
             });
+
+            const badge = document.querySelector(`[data-group-badge="${groupKey}"]`);
+            if (badge) badge.textContent = `${enabledCount}/${groupData.dimensions.length}`;
         });
+
+        const modeBar = document.getElementById('creative-mode-bar');
+        if (modeBar && !autoSelection && globalEnabled && manualEnabledCount === 0) {
+            modeBar.classList.add('is-warning');
+        } else if (modeBar) {
+            modeBar.classList.remove('is-warning');
+        }
     }
 
-    // 创建维度分组卡片  
     createDimensionGroupCard(groupKey, groupData, dimensionOptions, enabledDimensions, autoSelection, globalEnabled) {
         const card = document.createElement('div');
-        card.className = 'dimension-group-card';
+        card.className = 'creative-dimension-card dimension-group-card';
+        card.dataset.groupKey = groupKey;
 
-        // ========== 卡片头部 ==========  
-        const header = document.createElement('div');
-        header.className = 'dimension-group-header';
-        header.style.cursor = 'pointer';
+        const header = document.createElement('button');
+        header.type = 'button';
+        header.className = 'creative-dimension-header dimension-group-header';
 
         const titleGroup = document.createElement('div');
         titleGroup.className = 'dimension-group-title-group';
 
-        const icon = document.createElement('i');
-        icon.className = groupData.icon;
+        const emoji = document.createElement('span');
+        emoji.className = 'creative-dimension-emoji';
+        emoji.textContent = groupData.emoji || '◆';
 
-        const name = document.createElement('div');
+        const name = document.createElement('span');
         name.className = 'dimension-group-name';
         name.textContent = groupData.name;
 
-        // 统计已启用维度数量  
-        const enabledCount = groupData.dimensions.filter(dim =>
-            enabledDimensions[dim] === true
-        ).length;
-
+        const enabledCount = groupData.dimensions.filter((dim) => enabledDimensions[dim] === true).length;
         const badge = document.createElement('span');
         badge.className = 'dimension-count-badge';
+        badge.dataset.groupBadge = groupKey;
         badge.textContent = `${enabledCount}/${groupData.dimensions.length}`;
 
-        titleGroup.appendChild(icon);
+        titleGroup.appendChild(emoji);
         titleGroup.appendChild(name);
         titleGroup.appendChild(badge);
 
-        const toggleIcon = document.createElement('i');
-        toggleIcon.className = 'icon-chevron-down dimension-toggle-icon';
+        const chevron = document.createElement('span');
+        chevron.className = 'creative-dimension-chevron dimension-toggle-icon';
+        chevron.textContent = '▾';
 
         header.appendChild(titleGroup);
-        header.appendChild(toggleIcon);
+        header.appendChild(chevron);
 
-        // ========== 卡片内容(默认折叠) ==========  
         const content = document.createElement('div');
-        content.className = 'dimension-group-content collapsed';
+        content.className = 'creative-dimension-body dimension-group-content';
 
-        // 为每个维度创建配置行  
-        groupData.dimensions.forEach(dimensionKey => {
+        groupData.dimensions.forEach((dimensionKey) => {
             const dimensionData = dimensionOptions[dimensionKey];
             if (!dimensionData) return;
-
-            const dimensionRow = this.createDimensionRow(
-                dimensionKey,
-                dimensionData,
-                enabledDimensions[dimensionKey] || false,
-                globalEnabled,
-                autoSelection
+            content.appendChild(
+                this.createDimensionRow(
+                    dimensionKey,
+                    dimensionData,
+                    !!enabledDimensions[dimensionKey],
+                    globalEnabled,
+                    autoSelection
+                )
             );
-            content.appendChild(dimensionRow);
         });
 
-        // 点击头部展开/折叠  
         header.addEventListener('click', () => {
             content.classList.toggle('collapsed');
-            toggleIcon.classList.toggle('rotated');
+            chevron.classList.toggle('rotated');
         });
 
         card.appendChild(header);
         card.appendChild(content);
-
         return card;
     }
 
-    // 创建维度配置行  
     createDimensionRow(dimensionKey, dimensionData, isEnabled, globalEnabled, autoSelection) {
         const row = document.createElement('div');
-        row.className = 'dimension-row';
+        row.className = 'creative-dimension-row dimension-row';
 
-        // ========== 维度启用复选框(使用统一的checkbox-label样式) ==========  
+        const top = document.createElement('div');
+        top.className = 'creative-dimension-row-top';
+
         const checkboxLabel = document.createElement('label');
-        checkboxLabel.className = 'checkbox-label';
+        checkboxLabel.className = 'checkbox-label creative-dimension-check';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.id = `dimension-${dimensionKey}-enabled`;
+        checkbox.className = 'dimension-checkbox';
         checkbox.checked = isEnabled;
         checkbox.disabled = !globalEnabled || autoSelection;
 
         const checkboxCustom = document.createElement('span');
         checkboxCustom.className = 'checkbox-custom';
-
         checkboxLabel.appendChild(checkbox);
         checkboxLabel.appendChild(checkboxCustom);
 
-        // 绑定复选框事件  
-        checkbox.addEventListener('change', async (e) => {
-            const newEnabled = e.target.checked;
+        const label = document.createElement('span');
+        label.className = 'dimension-name-label';
+        label.textContent = dimensionData.name || dimensionKey;
 
-            const currentGlobalEnabled = document.getElementById('creative-enabled')?.checked || false;
-            const currentAutoSelection = document.getElementById('auto-dimension-selection')?.checked || false;
+        top.appendChild(checkboxLabel);
+        top.appendChild(label);
 
-            // 更新下拉框和自定义输入框的禁用状态    
-            const select = document.getElementById(`dimension-${dimensionKey}-select`);
-            const customInput = document.getElementById(`dimension-${dimensionKey}-custom`);
+        const fields = document.createElement('div');
+        fields.className = 'creative-dimension-fields';
 
-            if (select) {
-                select.disabled = !currentGlobalEnabled || currentAutoSelection || !newEnabled;
-            }
+        const select = document.createElement('select');
+        select.id = `dimension-${dimensionKey}-select`;
+        select.className = 'dimension-select form-control';
+        select.disabled = !globalEnabled || autoSelection || !isEnabled;
 
-            if (customInput) {
-                const selectValue = select?.value;
-                customInput.disabled = !currentGlobalEnabled || !newEnabled || selectValue !== 'custom';
-            }
+        const autoOption = document.createElement('option');
+        autoOption.value = '';
+        autoOption.textContent = '自动选择预设';
+        select.appendChild(autoOption);
 
+        (dimensionData.preset_options || []).forEach((option) => {
+            const opt = document.createElement('option');
+            opt.value = option.name;
+            opt.textContent = option.value || option.name;
+            opt.title = option.description || '';
+            select.appendChild(opt);
+        });
+
+        const customOption = document.createElement('option');
+        customOption.value = 'custom';
+        customOption.textContent = '自定义…';
+        select.appendChild(customOption);
+        select.value = dimensionData.selected_option || '';
+
+        const customInput = document.createElement('input');
+        customInput.type = 'text';
+        customInput.id = `dimension-${dimensionKey}-custom`;
+        customInput.className = 'dimension-custom-input form-control';
+        customInput.placeholder = '自定义描述';
+        customInput.value = dimensionData.custom_input || '';
+        customInput.disabled = !globalEnabled || !isEnabled || select.value !== 'custom';
+
+        const patchDim = async (dimPatch) => {
             await this.updateConfig({
                 dimensional_creative: {
                     ...this.config.dimensional_creative,
-                    enabled_dimensions: {
-                        ...this.config.dimensional_creative.enabled_dimensions,
-                        [dimensionKey]: newEnabled
-                    }
+                    ...dimPatch
+                }
+            });
+            const btn = document.getElementById('save-creative-config');
+            if (btn && !btn.classList.contains('has-changes')) {
+                btn.classList.add('has-changes');
+                btn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
+            }
+        };
+
+        checkbox.addEventListener('change', async (e) => {
+            await patchDim({
+                enabled_dimensions: {
+                    ...this.config.dimensional_creative.enabled_dimensions,
+                    [dimensionKey]: e.target.checked
                 }
             });
             this.updateCreativeControlsState();
         });
 
-        // ========== 维度名称标签 ==========  
-        const label = document.createElement('label');
-        label.className = 'dimension-name-label';
-        label.textContent = dimensionData.name || dimensionKey;
-        label.setAttribute('for', `dimension-${dimensionKey}-select`);
-
-        // ========== 预设选项下拉框 ==========  
-        const select = document.createElement('select');
-        select.id = `dimension-${dimensionKey}-select`;
-        select.className = 'dimension-select';
-        select.disabled = !globalEnabled || autoSelection || !isEnabled;
-
-        // 添加"自动选择"选项  
-        const autoOption = document.createElement('option');
-        autoOption.value = '';
-        autoOption.textContent = '自动选择';
-        select.appendChild(autoOption);
-
-        // 添加预设选项  
-        const presetOptions = dimensionData.preset_options || [];
-        presetOptions.forEach(option => {
-            const opt = document.createElement('option');
-            opt.value = option.name;
-            opt.textContent = `${option.value} (${option.description})`;
-            select.appendChild(opt);
-        });
-
-        // 添加"自定义"选项  
-        const customOption = document.createElement('option');
-        customOption.value = 'custom';
-        customOption.textContent = '自定义';
-        select.appendChild(customOption);
-
-        // 设置当前选中值  
-        const selectedOption = dimensionData.selected_option || '';
-        select.value = selectedOption;
-
-        // 绑定下拉框事件  
         select.addEventListener('change', async (e) => {
             const selectedValue = e.target.value;
-            const customInput = document.getElementById(`dimension-${dimensionKey}-custom`);
-
-            if (customInput) {
-                // 只有选择"自定义"时才启用对应的输入框  
-                customInput.disabled = selectedValue !== 'custom';
-
-                // 如果不是自定义,清空输入框  
-                if (selectedValue !== 'custom') {
-                    customInput.value = '';
-                }
-            }
-
-            await this.updateConfig({
-                dimensional_creative: {
-                    ...this.config.dimensional_creative,
-                    dimension_options: {
-                        ...this.config.dimensional_creative.dimension_options,
-                        [dimensionKey]: {
-                            ...this.config.dimensional_creative.dimension_options[dimensionKey],
-                            selected_option: selectedValue,
-                            custom_input: selectedValue === 'custom' ? (customInput ? customInput.value : '') : ''
-                        }
+            if (selectedValue !== 'custom') customInput.value = '';
+            customInput.disabled = !globalEnabled || !checkbox.checked || selectedValue !== 'custom';
+            await patchDim({
+                dimension_options: {
+                    ...this.config.dimensional_creative.dimension_options,
+                    [dimensionKey]: {
+                        ...this.config.dimensional_creative.dimension_options[dimensionKey],
+                        selected_option: selectedValue,
+                        custom_input: selectedValue === 'custom' ? customInput.value : ''
                     }
                 }
             });
         });
 
-        // ========== 自定义输入框 ==========  
-        const customInput = document.createElement('input');
-        customInput.type = 'text';
-        customInput.id = `dimension-${dimensionKey}-custom`;
-        customInput.className = 'dimension-custom-input';
-        customInput.placeholder = '输入自定义内容...';
-        customInput.value = dimensionData.custom_input || '';
-
-        customInput.disabled = !globalEnabled || !isEnabled || select.value !== 'custom';
-
-        // 绑定自定义输入框事件(使用值变化检测)  
         let originalValue = customInput.value;
         customInput.addEventListener('blur', async (e) => {
-            if (e.target.value !== originalValue) {
-                originalValue = e.target.value;
-
-                await this.updateConfig({
-                    dimensional_creative: {
-                        ...this.config.dimensional_creative,
-                        dimension_options: {
-                            ...this.config.dimensional_creative.dimension_options,
-                            [dimensionKey]: {
-                                ...this.config.dimensional_creative.dimension_options[dimensionKey],
-                                custom_input: e.target.value
-                            }
-                        }
+            if (e.target.value === originalValue) return;
+            originalValue = e.target.value;
+            await patchDim({
+                dimension_options: {
+                    ...this.config.dimensional_creative.dimension_options,
+                    [dimensionKey]: {
+                        ...this.config.dimensional_creative.dimension_options[dimensionKey],
+                        custom_input: e.target.value,
+                        selected_option: 'custom'
                     }
-                });
-            }
+                }
+            });
         });
 
-        // 组装行  
-        row.appendChild(checkboxLabel);
-        row.appendChild(label);
-        row.appendChild(select);
-        row.appendChild(customInput);
-
+        fields.appendChild(select);
+        fields.appendChild(customInput);
+        row.appendChild(top);
+        row.appendChild(fields);
         return row;
     }
 
@@ -5929,8 +6490,9 @@ class AIWriteXConfigManager {
             this.deepMerge(this.config, updates);
 
             const panelButtonMap = {
-                'ui': 'save-ui-config',
-                'base': 'save-base-config',
+                'general': 'save-general-config',
+                'ui': 'save-general-config',
+                'base': 'save-general-config',
                 'platforms': 'save-platforms-config',
                 'wechat': 'save-wechat-config',
                 'api': 'save-api-config',

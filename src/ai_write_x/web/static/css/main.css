@@ -2,7 +2,7 @@
 :root {
     /* 统一的布局变量 */
     --sidebar-width: 200px;
-    --header-height: 60px;
+    --header-height: 0;
     --footer-height: 40px;
     --content-bottom-padding: 20px;
     --sidebar-bottom-padding: 0;
@@ -381,17 +381,7 @@ body {
     }
 }
 
-.wf-node.active {
-    animation: nodeActivePulse 1.5s infinite ease-in-out;
-    border-color: var(--primary-color) !important;
-}
-
-.wf-node.done {
-    transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    background-color: var(--primary-color) !important;
-    color: white !important;
-    border-color: var(--primary-color) !important;
-}
+/* 工作流节点动效已迁移至 creative-workshop.css，避免全局样式污染标签可读性 */
 
 /* ===== V11: Universal Nexus UI 扩展 ===== */
 .v11-glass-card {

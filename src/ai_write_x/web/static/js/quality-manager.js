@@ -889,7 +889,7 @@ class QualityManager {
             this.optimizedContent = content;
         }
 
-        // 1. 同步到预览面板 / 创意工坊实时预览
+        // 1. 同步到预览面板 / 内容生成实时预览
         if (window.previewPanelManager) {
             window.previewPanelManager.setContent(content);
             if (window.previewPanelManager.isVisible) {

@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AIWriteX - 智能内容创作平台</title>
+    <title>小爆来咯 - 智能内容创作平台</title>
 
-    <link rel="icon" href="data:," />
+    <link rel="icon" href="/static/images/app-logo.png?v=20260523" />
 
     <!-- 核心样式文件 -->
     <link rel="stylesheet" href="/static/css/main.css?v=20260304a">
@@ -17,15 +17,15 @@
     <link rel="stylesheet" href="/static/css/themes/dark-theme.css?v=20260304a">
 
     <!-- 组件样式文件 -->
-    <link rel="stylesheet" href="/static/css/components/header.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/components/header.css?v=20260524c">
     <link rel="stylesheet" href="/static/css/components/sidebar.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/components/footer.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/components/footer.css?v=20260524d">
     <link rel="stylesheet" href="/static/css/components/navigation.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/components/buttons.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/components/forms.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/components/notifications.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/components/modals.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/components/preview-panel.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/components/preview-panel.css?v=20260524g">
     <link rel="stylesheet" href="/static/css/components/content-editor.css?v=20260304a">
 
     <link rel="stylesheet" href="/static/lib/grapesjs/css/grapes.min.css">
@@ -33,14 +33,15 @@
 
     <!-- 视图样式文件  -->
     <link rel="stylesheet" href="/static/css/views/shared-manager.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/views/creative-workshop.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/views/creative-workshop.css?v=20260524f">
     <link rel="stylesheet" href="/static/css/views/article-manager.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/views/template-manager.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/views/config-manager.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/views/config-manager.css?v=20260525e">
     <link rel="stylesheet" href="/static/css/views/mcp-manager.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/views/newshub.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/views/dashboard.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/swarm-monitor.css?v=20260307">
+    <link rel="stylesheet" href="/static/css/views/menu-ip-whitelist.css?v=20260528">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
 </head>
 
@@ -58,7 +59,9 @@
             <div class="app-main">
                 <main class="content-area">
                     <!-- 组件化的视图 -->
+                    {% if show_restricted_menu %}
                     {% include 'components/views/dashboard.html' %}
+                    {% endif %}
                     {% include 'components/views/creative-workshop.html' %}
                     {% include 'components/views/article-manager.html' %}
                     {% include 'components/views/template-manager.html' %}
@@ -67,9 +70,12 @@
                     {% include 'components/views/newshub.html' %}
                     {% include 'components/views/scheduler.html' %}
                     {% include 'components/views/config-manager/config-manager.html' %}
+                    {% if show_restricted_menu %}
                     {% include 'components/views/swarm-monitor.html' %}
                     {% include 'components/views/database-manager.html' %}
                     {% include 'components/views/preview-gallery.html' %}
+                    {% include 'components/views/menu-ip-whitelist.html' %}
+                    {% endif %}
                 </main>
             </div>
         </div>
@@ -444,29 +450,30 @@
     <script src="/static/js/markdown-renderer.js?v=20260301c"></script>
     <script src="/static/lib/monaco/vs/loader.js"></script>
     <script src="/static/js/dialog.js?v=20260301c"></script>
-    <script src="/static/js/preview-panel.js?v=20260301c"></script>
-    <script src="/static/js/update-checker.js?v=20260522b"></script>
+    <script src="/static/js/preview-panel.js?v=20260524g"></script>
+    <script src="/static/js/update-checker.js?v=20260524c"></script>
     <script src="/static/js/footer-marquee.js?v=20260301c"></script>
     <script src="/static/js/task-queue.js?v=20260303a"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/progress-manager.js?v=20260301c"></script>
-    <script src="/static/js/creative-workshop.js?v=20260301c"></script>
+    <script src="/static/js/creative-workshop.js?v=20260524g"></script>
     <script src="/static/js/article-manager.js?v=20260301c"></script>
     <script src="/static/js/template-manager.js?v=20260301c"></script>
     <script src="/static/js/spider-manager.js?v=20260301c"></script>
     <script src="/static/js/mcp-manager.js?v=20260301d"></script>
-    <script src="/static/js/newshub-manager.js?v=20260301c"></script>
+    <script src="/static/js/newshub-manager.js?v=20260524a"></script>
     <script src="/static/js/content-editor.js?v=20260301c"></script>
-    <script src="/static/js/config-manager.js?v=20260301c"></script>
+    <script src="/static/js/config-manager.js?v=20260525e"></script>
     <script src="/static/js/quality-manager.js?v=20260301c"></script>
     <script src="/static/js/dashboard-manager.js?v=20260305b"></script>
     <script src="/static/js/theme-manager.js?v=20260301c"></script>
-    <script src="/static/js/scheduler-manager.js?v=20260305a"></script>
+    <script src="/static/js/scheduler-manager.js?v=20260524a"></script>
     <script src="/static/js/window-modes.js?v=20260301c"></script>
     <script src="/static/js/swarm-monitor.js?v=20260307"></script>
     <script src="/static/js/database-manager.js?v=20260307"></script>
     <script src="/static/js/aesthetic-voting.js?v=20260307"></script>
     <script src="/static/js/preview-gallery.js?v=20260308"></script>
+    <script src="/static/js/menu-ip-whitelist-manager.js?v=20260528"></script>
 </body>
 
 </html>

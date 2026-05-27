@@ -190,7 +190,14 @@ class MigrationManager:
                     "CREATE TABLE IF NOT EXISTS swarm_state (id VARCHAR PRIMARY KEY, state_json TEXT, updated_at TIMESTAMP)",
                     "CREATE TABLE IF NOT EXISTS pheromone_space (id VARCHAR PRIMARY KEY, agent_id VARCHAR, pheromone_type VARCHAR, strength FLOAT)",
                 ]
-            }
+            },
+            {
+                "version": "v1.0.1-scheduler",
+                "description": "定时任务 last_run_at 字段",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN last_run_at TIMESTAMP",
+                ],
+            },
         ]
         
         for migration in migrations:

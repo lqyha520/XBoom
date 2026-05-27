@@ -12,9 +12,9 @@
 <div class="preview-overlay" id="preview-overlay" style="display: none;">
     <div class="preview-panel mobile-width">
         <div class="preview-header">
-            <h3 class="preview-title">内容预览</h3>
+            <h3 class="preview-title">侧栏预览</h3>
             <div class="preview-controls">
-                <!-- 【新增】创意工坊专属操作按钮组 -->
+                <!-- 【新增】内容生成专属操作按钮组 -->
                 <div class="preview-actions" id="preview-actions" style="display: none;">
                     <button class="icon-btn" id="preview-edit-btn" title="编辑">
                         <svg class="btn-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -62,8 +62,11 @@
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
-                <button class="preview-toggle-size" id="preview-toggle-size" title="切换尺寸">
-                    📱
+                <button class="preview-toggle-size" id="preview-toggle-size" title="切换预览宽度（手机/平板/桌面）" type="button">
+                    <svg class="btn-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="5" y="2" width="14" height="20" rx="2" />
+                        <line x1="12" y1="18" x2="12" y2="18.01" />
+                    </svg>
                 </button>
                 <button class="preview-close" id="preview-close">×</button>
             </div>

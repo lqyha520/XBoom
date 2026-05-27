@@ -62,18 +62,18 @@ class WebSocketManager {
         };
     }
 
-    // V3: 连接状态指示器 — 在header显示实时连接质量
+    // V3: 连接状态指示器 — 在底部状态栏显示实时连接质量
     _updateStatusIndicator(status) {
         let indicator = document.getElementById('ws-status-indicator');
         if (!indicator) {
-            // 自动创建指示器并插入header
+            // 自动创建指示器并插入底部状态栏
             indicator = document.createElement('div');
             indicator.id = 'ws-status-indicator';
             indicator.className = 'ws-status-dot';
             indicator.title = '实时连接状态';
-            const header = document.querySelector('.header-actions, .header-right, header');
-            if (header) {
-                header.prepend(indicator);
+            const footerLeft = document.querySelector('.footer-left');
+            if (footerLeft) {
+                footerLeft.prepend(indicator);
             } else {
                 document.body.appendChild(indicator);
             }

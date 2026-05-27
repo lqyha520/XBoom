@@ -31,8 +31,8 @@ class TaskUpdate(BaseModel):
 async def get_tasks():
     tasks = db_manager.get_all_tasks()
     return [{
-        "id": t.id,
-        "topic": t.topic,
+        "id": str(t.id),
+        "topic": t.topic or "",
         "platform": t.platform,
         "execution_time": t.execution_time.strftime("%Y-%m-%d %H:%M:%S"),
         "is_recurring": t.is_recurring,
@@ -63,7 +63,7 @@ async def create_task(data: TaskCreate):
             use_ai_beautify=data.use_ai_beautify
         )
         if task:
-            return {"status": "success", "id": task.id}
+            return {"status": "success", "id": str(task.id)}
         raise HTTPException(status_code=500, detail="Failed to create task in DB")
     except Exception as e:
         log.print_log(f"创建定时任务失败: {e}", "error")
@@ -116,14 +116,33 @@ async def get_logs(limit: int = 50):
 
 @router.get("/verify-platform")
 async def verify_platform(platform: str):
-    """验证发布平台连接性"""
+    """验证发布平台连接性（微信公众号复用配置中心的凭证校验）"""
+    if platform != "wechat":
+        return {"success": True, "message": f"{platform} 暂不支持连接性检测"}
+
     try:
-        if platform == "wechat":
-            from src.ai_write_x.tools.publishers.wechat_publisher import WeChatPublisher
-            publisher = WeChatPublisher()
-            success, msg = await publisher.verify_credentials()
-            return {"success": success, "message": msg}
-        # 其他平台暂不实现或默认成功
-        return {"success": True, "message": f"{platform} 暂不支持连接性检测，默认为通过"}
+        from src.ai_write_x.config.config import Config
+        from src.ai_write_x.web.api.config import WechatCredentialTest, test_wechat_credential
+
+        config = Config.get_instance()
+        creds = config.wechat_credentials or []
+        cred = next(
+            (c for c in creds if (c.get("appid") or "").strip() and (c.get("appsecret") or "").strip()),
+            None,
+        )
+        if not cred:
+            return {
+                "success": False,
+                "message": "未配置微信公众号 AppID / AppSecret，请先在「配置 → 发布平台」填写并保存",
+            }
+
+        result = await test_wechat_credential(
+            WechatCredentialTest(appid=cred["appid"].strip(), appsecret=cred["appsecret"].strip())
+        )
+        status = result.get("status", "error")
+        # warning = 凭证有效但未认证，仍可定时生成；发布可能仅草稿
+        ok = status in ("success", "warning")
+        return {"success": ok, "message": result.get("message", "验证失败")}
     except Exception as e:
+        log.print_log(f"[Scheduler] 公众号连接检测异常: {e}", "error")
         return {"success": False, "message": f"检测异常: {str(e)}"}

@@ -7,8 +7,9 @@
 .env.*
 *.env
 scripts/gitee-release.env
-scripts/cloud-update.env
 scripts/update-mirror.env
+scripts/usage-stats.env
+scripts/.xboom-credentials.local.txt
 secrets/api_keys.yaml
 secrets/*.yaml
 !secrets/api_keys.example.yaml

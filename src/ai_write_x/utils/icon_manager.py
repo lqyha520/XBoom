@@ -24,7 +24,7 @@ class WindowIconManager:
         else:  # Linux
             return utils.get_res_path("branding/app_icon.png", str(gui_dir))
 
-    def set_window_icon_windows(self, window_title="AIWriteX"):
+    def set_window_icon_windows(self, window_title="小爆来咯"):
         """Windows 平台设置窗口图标"""
         if platform.system() != "Windows" or not Path(self.icon_path).exists():
             return
@@ -85,7 +85,7 @@ class WindowIconManager:
         except Exception:
             pass
 
-    def setup_icon_async(self, window_title="AIWriteX"):
+    def setup_icon_async(self, window_title="小爆来咯"):
         """异步设置图标"""
         if platform.system() == "Windows":
             threading.Thread(

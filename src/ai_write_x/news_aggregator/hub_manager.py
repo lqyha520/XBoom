@@ -52,8 +52,20 @@ class NewsHubManager:
         self.aggregation_task = None
         self.callbacks = []
         
-        # 缓存路径
-        self.cache_path = "knowledge/newshub_cache.json"
+        # 缓存路径（统一写入用户数据目录，避免打包后相对路径失效）
+        from src.ai_write_x.utils.path_manager import PathManager
+        import os
+
+        knowledge_dir = PathManager.get_app_data_dir() / "knowledge"
+        knowledge_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_path = str(knowledge_dir / "newshub_cache.json")
+        legacy_cache = os.path.join("knowledge", "newshub_cache.json")
+        if not os.path.exists(self.cache_path) and os.path.exists(legacy_cache):
+            try:
+                import shutil
+                shutil.copy2(legacy_cache, self.cache_path)
+            except Exception:
+                pass
         
         log.print_log("[NewsHub] 管理器初始化完成")
     
@@ -550,7 +562,7 @@ class NewsHubManager:
                         "title": c.title,
                         "summary": c.summary,
                         "url": c.metadata.get("url", ""),
-                        "source": c.metadata.get("source", "热点聚合"),
+                        "source": c.metadata.get("source", "选题中心"),
                         "score": c.score.overall,
                         "keywords": c.keywords,
                         "published_at": c.metadata.get("published_at", datetime.now()).isoformat() if isinstance(c.metadata.get("published_at"), datetime) else str(c.metadata.get("published_at"))
@@ -568,18 +580,27 @@ class NewsHubManager:
         except Exception as e:
             log.print_log(f"[NewsHub] 缓存结果失败: {e}", "error")
 
-    def get_cached_news(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """从缓存加载最近的新闻"""
+    def get_cache_snapshot(self, limit: int = 200) -> Dict[str, Any]:
+        """读取缓存快照（新闻 + 趋势 + 时间）"""
         import os
+
+        empty = {"contents": [], "trends": [], "generated_at": None}
         if not os.path.exists(self.cache_path):
-            return []
-            
+            return empty
         try:
             with open(self.cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("contents", [])[:limit]
-        except Exception as e:
-            return []
+            return {
+                "contents": data.get("contents", [])[:limit],
+                "trends": data.get("trends", []),
+                "generated_at": data.get("generated_at"),
+            }
+        except Exception:
+            return empty
+
+    def get_cached_news(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """从缓存加载最近的新闻"""
+        return self.get_cache_snapshot(limit=limit).get("contents", [])
 
 
 # 便捷函数

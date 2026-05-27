@@ -13,15 +13,15 @@ try {
 }
 
 try {
-    Get-Process -Name 'AIWriteX' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process -Name 'XBoom' -ErrorAction SilentlyContinue | Stop-Process -Force
 } catch {}
 Start-Sleep -Milliseconds 500
 
 if (Test-Path '.\build') {
     Remove-Item '.\build' -Recurse -Force -ErrorAction SilentlyContinue
 }
-if (Test-Path '.\dist\AIWriteX') {
-    cmd /c rmdir /s /q ".\dist\AIWriteX"
+if (Test-Path '.\dist\XBoom') {
+    cmd /c rmdir /s /q ".\dist\XBoom"
 }
 
 & $python -m PyInstaller '.\aiwritex_windows.spec' --noconfirm

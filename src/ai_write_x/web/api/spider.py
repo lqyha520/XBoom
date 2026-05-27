@@ -59,7 +59,7 @@ async def get_articles(
                 articles.append({
                     "id": item.get("id"),
                     "title": item.get("title"),
-                    "source": "热点聚合", # 统一标记为热点聚合
+                    "source": "选题中心", # 统一标记为选题中心
                     "url": item.get("url"),
                     "save_date": item.get("published_at", "")[:10] if item.get("published_at") else ""
                 })

@@ -119,33 +119,41 @@ class BottomProgressManager {
 
     activateStage(stageId) {
         let foundNode = false;
-        let lineIdx = 0;
 
         for (let i = 0; i < this.nodes.length; i++) {
             const node = this.nodes[i];
             const nid = node.getAttribute('data-stage');
 
+            node.classList.remove('pending');
+
             if (foundNode) {
-                // Future nodes
+                node.classList.remove('active', 'done');
+                node.classList.add('pending');
             } else if (nid === stageId) {
                 node.classList.add('active');
-                node.classList.remove('done');
+                node.classList.remove('done', 'pending');
                 if (i > 0 && this.lines[i - 1]) {
                     this.lines[i - 1].classList.add('active');
                 }
                 foundNode = true;
 
-                // V13.0: 注入量子脉冲频率
-                const pulseRates = { 'writing': '1.5s', 'reflexion': '0.8s', 'review': '2s', 'visual': '3s' };
+                const pulseRates = { writing: '1.5s', reflexion: '0.8s', review: '2s', visual: '3s' };
                 node.style.setProperty('--pulse-duration', pulseRates[stageId] || '2s');
             } else {
                 node.classList.add('done');
-                node.classList.remove('active');
+                node.classList.remove('active', 'pending');
                 if (i > 0 && this.lines[i - 1]) {
                     this.lines[i - 1].classList.add('done');
                     this.lines[i - 1].classList.remove('active');
                 }
             }
+        }
+
+        const hint = document.getElementById('workflow-stage-hint');
+        const activeNode = this.nodes.find((n) => n.classList.contains('active'));
+        if (hint) {
+            const label = activeNode?.querySelector('.wf-label')?.textContent?.trim();
+            hint.textContent = label ? `当前：${label}` : '';
         }
     }
 
@@ -188,7 +196,7 @@ class BottomProgressManager {
             setTimeout(() => {
                 this.progressEl.classList.add('hidden');
                 this.nodes.forEach(n => {
-                    n.classList.remove('active', 'done');
+                    n.classList.remove('active', 'done', 'pending');
                     const detailEl = n.querySelector('.node-detail');
                     if (detailEl) detailEl.remove();
                 });

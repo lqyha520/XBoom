@@ -2,6 +2,7 @@ import os
 import glob
 import platform
 from pathlib import Path
+from src.ai_write_x.branding.install import APP_SLUG
 from src.ai_write_x.utils import utils
 
 
@@ -15,11 +16,11 @@ class PathManager:
             return Path(__file__).parent.parent.parent.parent
 
         if platform.system() == "Darwin":
-            return Path.home() / "Library/Application Support/AIWriteX"
+            return Path.home() / "Library/Application Support" / APP_SLUG
         elif platform.system() == "Windows":
-            return Path(os.environ.get("APPDATA", "")) / "AIWriteX"
+            return Path(os.environ.get("APPDATA", "")) / APP_SLUG
         else:
-            return Path.home() / ".config/AIWriteX"
+            return Path.home() / ".config" / APP_SLUG
 
     @staticmethod
     def get_config_dir():

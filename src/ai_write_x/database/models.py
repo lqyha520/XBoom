@@ -77,6 +77,7 @@ class ScheduledTask(SQLModel, table=True):
     interval_hours: int = Field(default=0)
     article_count: int = Field(default=1)
     use_ai_beautify: bool = Field(default=True)
+    last_run_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

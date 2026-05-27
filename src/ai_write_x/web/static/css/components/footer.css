@@ -9,12 +9,54 @@
     overflow: hidden;
 }  
   
-/* 左侧固定品牌信息 */  
-.footer-left {  
-    flex-shrink: 0;  
-    display: flex;  
-    align-items: center;  
-}  
+/* 左侧：应用状态 + 版本 */
+.footer-left {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.app-footer .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: rgba(var(--primary-color-rgb, 108, 92, 231), 0.08);
+    color: var(--primary-color);
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid rgba(var(--primary-color-rgb, 108, 92, 231), 0.1);
+    white-space: nowrap;
+}
+
+.app-footer .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--success-color, #10b981);
+    box-shadow: 0 0 10px var(--success-color);
+    animation: footerStatusPulse 2s infinite ease-in-out;
+    flex-shrink: 0;
+}
+
+@keyframes footerStatusPulse {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.6;
+        transform: scale(1.2);
+    }
+}
+
+.footer-left .ws-status-dot {
+    margin-right: 0;
+}
   
 .footer-brand {  
     font-size: 13px;  

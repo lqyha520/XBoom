@@ -48,6 +48,11 @@ class UnifiedContentWorkflow:
     """统一的内容工作流编排器"""
 
     def __init__(self):
+        try:
+            from src.ai_write_x.core.system_init import initialize_global_tools
+            initialize_global_tools()
+        except Exception as e:
+            lg.print_log(f"工具注册跳过: {e}", "warning")
         self.content_engine = None
         # 移除所有旧创意模块，只保留维度化创意引擎
         self.platform_adapters = {
