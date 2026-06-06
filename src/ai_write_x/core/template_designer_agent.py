@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from src.ai_write_x.core.base_framework import AgentConfig
 from crewai import Agent
 from src.ai_write_x.utils import log
+from src.ai_write_x.core.prompt_loader import prompt_loader
 
 
 class TemplateDesignerAgent(Agent):
@@ -23,28 +24,7 @@ class TemplateDesignerAgent(Agent):
     
     def _get_system_prompt(self) -> str:
         """获取系统提示词"""
-        return """你是一位专业的视觉设计师和前端开发专家。
-你的任务是根据文章的主题、情感和结构，设计并生成独特的HTML模板。
-
-设计原则：
-1. 主题适配 - 模板风格必须贴合文章主题（科技、生活、商业、艺术等）
-2. 情感共鸣 - 通过配色和排版传达文章的情感基调
-3. 结构优化 - 根据内容结构选择合适的布局方式
-4. 视觉层次 - 使用字体大小、颜色、间距创造清晰的视觉层次
-5. 现代美学 - 运用渐变、阴影、圆角等现代设计元素
-
-技术要求：
-- 使用内联CSS样式（style属性）
-- 确保响应式设计（适配移动端）
-- 使用Google Fonts字体
-- 添加适当的SVG装饰元素
-- 保持代码简洁高效
-
-输出要求：
-- 只输出完整的HTML代码
-- 不要包含任何解释文字
-- 使用占位符 {{content}} 标记内容插入位置
-"""
+        return prompt_loader.get_template_designer("template_designer", "system_prompt")
     
     def get_task_prompt(self, title: str, content: str, topic: str = "", 
                        emotions: list = None, keywords: list = None) -> str:
@@ -52,45 +32,22 @@ class TemplateDesignerAgent(Agent):
         emotions_str = ", ".join(emotions) if emotions else "待分析"
         keywords_str = ", ".join(keywords[:8]) if keywords else "待提取"
         
-        # 分析内容特征
         content_length = len(content)
         has_sections = "##" in content or "第" in content[:100]
         has_lists = "- " in content or "1." in content
         has_quotes = '"' in content
         
-        return f"""请为以下文章设计一个独特的HTML模板：
-
-【文章标题】
-{title}
-
-【主题分类】
-{topic or "自动识别"}
-
-【情感基调】
-{emotions_str}
-
-【关键词】
-{keywords_str}
-
-【内容特征】
-- 字数：约{content_length}字
-- 包含章节：{'是' if has_sections else '否'}
-- 包含列表：{'是' if has_lists else '否'}
-- 包含引用：{'是' if has_quotes else '否'}
-
-【内容预览】
-{content[:500]}...
-
-【设计要求】
-1. 根据主题选择配色方案（科技-蓝/紫、生活-橙/粉、商业-蓝/灰、自然-绿）
-2. 设计吸引人的头部区域，包含标题和主题标签
-3. 内容区域需要良好的阅读体验（适当的行高、段落间距）
-4. 添加与主题相关的SVG装饰元素
-5. 设计简洁的页脚
-6. 使用 {{content}} 作为内容占位符
-
-请生成完整的HTML代码（包含DOCTYPE、html、head、body），使用内联样式。
-"""
+        return prompt_loader.get_template_designer("template_designer", "task_prompt").format(
+            title=title,
+            topic=topic or "自动识别",
+            emotions_str=emotions_str,
+            keywords_str=keywords_str,
+            content_length=content_length,
+            has_sections='是' if has_sections else '否',
+            has_lists='是' if has_lists else '否',
+            has_quotes='是' if has_quotes else '否',
+            content_preview=content[:500],
+        )
     
     async def design_template(self, title: str, content: str, topic: str = "",
                              emotions: list = None, keywords: list = None) -> str:

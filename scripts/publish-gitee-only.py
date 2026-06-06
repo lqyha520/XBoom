@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Publish current version to Gitee Release (no PowerShell encoding issues)."""
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def main() -> int:
         return 1
 
     owner = gitee.get("GITEE_OWNER", "lqyha520")
-    repo = gitee.get("GITEE_REPO", "AIWriteX-main")
+    repo = gitee.get("GITEE_REPO", "XBoom")
     branch = gitee.get("GITEE_BRANCH", "master")
 
     sys.path.insert(0, str(ROOT))
@@ -59,19 +59,28 @@ def main() -> int:
     mirror_base = mirror.get("MIRROR_BASE_URL", "").rstrip("/")
     if not mirror_base:
         print(
-            "请在 scripts/update-mirror.env 配置 MIRROR_BASE_URL（腾讯云 updates 目录）",
+            "璇峰湪 scripts/update-mirror.env 閰嶇疆 MIRROR_BASE_URL锛堣吘璁簯 updates 鐩綍锛?,
             file=sys.stderr,
         )
         return 1
     download_url = f"{mirror_base}/{installer_name}"
 
+    existing_policy = {}
+    local_policy_path = ROOT / "version-policy.json"
+    if local_policy_path.exists():
+        try:
+            existing_policy = json.loads(local_policy_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    min_supported = existing_policy.get("min_supported_version") or "1.0.4"
+
     policy = {
         "latest_version": version,
-        "min_supported_version": "1.0.0",
+        "min_supported_version": min_supported,
         "auto_update_on_startup": True,
         "auto_update_silent": True,
         "download_url": download_url,
-        "release_notes": f"小爆来咯 v{version} 正式版",
+        "release_notes": f"灏忕垎鏉ュ挴 v{version}",
         "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     policy_path = ROOT / "version-policy.json"
@@ -97,7 +106,7 @@ def main() -> int:
 
         body = {
             "tag_name": tag,
-            "name": f"小爆来咯 {tag}",
+            "name": f"灏忕垎鏉ュ挴 {tag}",
             "body": policy["release_notes"],
             "target_commitish": branch,
             "prerelease": False,
@@ -129,7 +138,7 @@ def main() -> int:
         if upload.returncode != 0:
             return upload.returncode
     else:
-        print("未配置 SSH_HOST，请手动上传安装包与 version-policy.json 到腾讯云", file=sys.stderr)
+        print("鏈厤缃?SSH_HOST锛岃鎵嬪姩涓婁紶瀹夎鍖呬笌 version-policy.json 鍒拌吘璁簯", file=sys.stderr)
 
     print(f"Done: https://gitee.com/{owner}/{repo}/releases/tag/{tag}")
     print(f"download_url: {download_url}")
@@ -138,3 +147,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

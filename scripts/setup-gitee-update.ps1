@@ -1,4 +1,4 @@
-# Setup Gitee repo + Release for CN auto-update
+﻿# Setup Gitee repo + Release for CN auto-update
 # Requires GITEE_TOKEN in scripts\gitee-release.env
 
 $ErrorActionPreference = 'Stop'
@@ -26,7 +26,7 @@ if (-not $GITEE_TOKEN) {
 }
 
 $Owner = if ($GITEE_OWNER) { $GITEE_OWNER } else { 'lqyha520' }
-$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'AIWriteX-main' }
+$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'XBoom' }
 $ApiBase = "https://gitee.com/api/v5"
 $Headers = @{ 'User-Agent' = 'AIWriteX-Setup' }
 
@@ -89,3 +89,4 @@ if (-not $releases -or @($releases).Count -lt 1) {
 $latest = @($releases)[0]
 Write-Host "Latest: $($latest.tag_name)" -ForegroundColor Green
 Write-Host "https://gitee.com/$Owner/$Repo/releases"
+

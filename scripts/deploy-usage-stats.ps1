@@ -97,8 +97,9 @@ Write-Host ""
 
 & ssh.exe @sshArgs $Remote "mkdir -p '$RemoteDir'"
 
-Write-Host "上传 report.php、config.php ..."
+Write-Host "上传 report.php、menu_access_check.php、config.php ..."
 & scp.exe @scpArgs (Join-Path $StatsSrc 'report.php') "${Remote}:${RemoteDir}/report.php"
+& scp.exe @scpArgs (Join-Path $StatsSrc 'menu_access_check.php') "${Remote}:${RemoteDir}/menu_access_check.php"
 & scp.exe @scpArgs (Join-Path $StatsSrc 'config.php') "${Remote}:${RemoteDir}/config.php"
 
 if (-not $SkipDbInit) {

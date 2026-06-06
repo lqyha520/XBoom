@@ -18,6 +18,7 @@ class TaskCreate(BaseModel):
     interval_hours: int = 0
     article_count: int = 1
     use_ai_beautify: bool = True
+    collection_mode: bool = False
 
 class TaskUpdate(BaseModel):
     status: Optional[str] = None
@@ -39,6 +40,7 @@ async def get_tasks():
         "interval_hours": t.interval_hours,
         "article_count": t.article_count,
         "use_ai_beautify": t.use_ai_beautify,
+        "collection_mode": getattr(t, "collection_mode", False),
         "status": t.status,
         "last_run_at": t.last_run_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(t, "last_run_at", None) else None,
         "created_at": t.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -60,7 +62,8 @@ async def create_task(data: TaskCreate):
             is_recurring=data.is_recurring,
             interval_hours=data.interval_hours,
             article_count=data.article_count,
-            use_ai_beautify=data.use_ai_beautify
+            use_ai_beautify=data.use_ai_beautify,
+            collection_mode=data.collection_mode
         )
         if task:
             return {"status": "success", "id": str(task.id)}

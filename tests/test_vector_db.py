@@ -3,7 +3,7 @@
 """
 import asyncio
 import sys
-sys.path.insert(0, 'C:/Users/Administrator.DESKTOP-EGNE9ND/Desktop/AIxs/AIWriteX-main')
+sys.path.insert(0, '.')
 
 from src.ai_write_x.core.vector_db import (
     VectorDBManager, VectorDBType, get_vector_db_manager

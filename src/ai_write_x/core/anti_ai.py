@@ -11,47 +11,54 @@ class AntiAIEngine:
     """
 
     @classmethod
-    def pulverize(cls, text: str) -> str:
+    def pulverize(cls, text: str, mode: str = "deep") -> str:
         """
-        V13.0 全域粉碎 2.0 (The Continuum Pulse)：
-        集成语言指纹偏移算法与全链路逻辑干扰，实现深度去 AI 化。
+        V14.0 分档反AI化引擎：
+        - mode="light": 轻度去AI化，仅处理最明显的AI痕迹（连接词替换、标点变化、填充词）
+        - mode="deep": 深度去AI化，全链路处理（默认，与原逻辑一致）
         """
         if not text:
             return text
-            
-        # 1. 结构与排版解构
+
+        if mode == "light":
+            return cls._pulverize_light(text)
+
+        return cls._pulverize_deep(text)
+
+    @classmethod
+    def _pulverize_light(cls, text: str) -> str:
+        if not text:
+            return text
+
         text = cls._degrade_markdown(text)
-        text = cls._flatten_lists(text)
-        text = cls._randomize_paragraphs(text)
-        text = cls._amplify_paragraph_variance(text)
-        
-        # 2. 逻辑、节律与指纹偏移 (V13.0 核心)
-        text = cls._apply_linguistic_fingerprint_shift(text)
-        text = cls._break_sentence_symmetry(text)
-        text = cls._vary_sentence_complexity(text)
-        text = cls._inject_logical_breathing(text)
-        
-        # 3. 词法与语义混淆
         text = cls._inject_human_transitions(text)
         text = cls._inject_filler_words(text)
-        text = cls._fuzzify_numbers(text)
-        text = cls._inject_pseudo_citations(text)
-        text = cls._inject_context_echoes(text)
-        
-        # 4. 情绪与熵盾增强
-        text = cls._inject_emotional_fluctuation(text)
-        text = cls._inject_info_density_fluctuation(text)
-        text = cls._apply_entropy_shield(text)
-        text = cls._inject_human_structural_flaws(text)
-        
-        # 5. 风格跳跃与终极模糊
-        text = cls._apply_random_style_entropy(text)
-        text = cls._inject_style_jumps(text)
-        text = cls._apply_rhetorical_perturbation(text)
-        text = cls._apply_semantic_blur(text)
-        text = cls._inject_contextual_anchoring(text)
+        text = cls._break_sentence_symmetry(text)
         text = cls._vary_punctuation(text)
-        
+        text = cls._apply_linguistic_fingerprint_shift(text)
+
+        return text.strip()
+
+    @classmethod
+    def _pulverize_deep(cls, text: str) -> str:
+        if not text:
+            return text
+
+        # 1. 安全的连接词替换（不破坏结构）
+        text = cls._inject_human_transitions(text)
+
+        # 2. 标点微调（低破坏性）
+        text = cls._vary_punctuation(text)
+
+        # 3. 句式对称性打破（低概率触发）
+        text = cls._break_sentence_symmetry(text)
+
+        # 4. 语言指纹偏移（低破坏性词汇替换）
+        text = cls._apply_linguistic_fingerprint_shift(text)
+
+        # 5. 清理AI味结尾标题（结语、总结、写在最后、结论等）
+        text = cls._remove_ai_conclusion_headers(text)
+
         return text.strip()
 
     @classmethod
@@ -164,7 +171,7 @@ class AntiAIEngine:
                 and '[[V-SCENE' not in paragraphs[i+1]
                 and '[图片解析' not in p
                 and '>' not in p):  # 不合并引用块
-                if random.random() > 0.65:
+                if random.random() > 0.8:
                     connector = random.choice(connectors)
                     p = p.strip() + connector + paragraphs[i+1].strip()
                     i += 1
@@ -262,7 +269,7 @@ class AntiAIEngine:
         result_lines = []
         
         for i, line in enumerate(lines):
-            if i >= 2 and random.random() > 0.6:
+            if i >= 2 and random.random() > 0.75:
                 prev2 = lines[i-2].strip() if i >= 2 else ""
                 prev1 = lines[i-1].strip() if i >= 1 else ""
                 curr = line.strip()
@@ -280,32 +287,25 @@ class AntiAIEngine:
     def _inject_filler_words(cls, text: str) -> str:
         """V3: 口语化填充词注入 — 扩充至20+种多样化填充词库"""
         fillers = [
-            "说实话，", "怎么说呢，", "不得不说，",
-            "坦白讲，", "你可能没想到，", "有一说一，",
-            # V3新增：更丰富的口语化填充词
+            "说实话，", "怎么说呢，", "坦白讲，",
             "老实说，", "讲真的，", "平心而论，",
-            "客观来看，", "往大了说，", "站在读者角度，",
-            "说个冷知识，", "这里有个小细节，", "很多人不知道的是，",
-            "从业内视角来看，", "说到这个我有个小发现，", "换个角度想想，",
-            "这一点我觉得很关键，", "跟大家分享一个观察，",
+            "客观来看，", "换个角度想想，",
         ]
         
         paragraphs = text.split('\n\n')
         inject_count = 0
-        max_injects = 2
+        max_injects = 1
         
         for i in range(len(paragraphs)):
             p = paragraphs[i].strip()
-            # 仅对非标题、非引用、非占位符的普通段落注入
             if (inject_count < max_injects 
                 and p and not p.startswith('#') 
                 and not p.startswith('>') 
                 and not p.startswith('[[')
                 and not p.startswith('**')
                 and not p.startswith('[图片')
-                and len(p) > 40
-                and random.random() > 0.75):
-                # 直接拼接，不要修改原文第一个字的大小写
+                and len(p) > 60
+                and random.random() > 0.85):
                 paragraphs[i] = random.choice(fillers) + p
                 inject_count += 1
         
@@ -379,6 +379,47 @@ class AntiAIEngine:
                 result_parts.append(part + '。')
         
         return ''.join(result_parts)
+
+    @classmethod
+    def _remove_ai_conclusion_headers(cls, text: str) -> str:
+        """清理AI生成的结语/总结类标题，保留内容本身
+        
+        匹配模式：
+        - ## 结语：xxx
+        - ### 总结：xxx
+        - **结语**：xxx
+        - 结语：xxx
+        - 写在最后：xxx
+        - 结论：xxx
+        """
+        import re
+
+        # AI味结尾标题关键词
+        conclusion_patterns = [
+            r'^#{1,4}\s*(?:结语|总结|写在最后|结论|收尾|尾声|后记)[：:]\s*',
+            r'^(?:\*\*)?(?:结语|总结|写在最后|结论|收尾|尾声|后记)(?:\*\*)?[：:]\s*',
+            r'^>?\s*(?:结语|总结|写在最后|结论|收尾|尾声|后记)[：:]\s*',
+        ]
+
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            stripped = line.strip()
+            matched = False
+            for pattern in conclusion_patterns:
+                if re.match(pattern, stripped):
+                    # 移除标题行，保留后续内容（如果有实质内容的话）
+                    remaining = re.sub(pattern, '', stripped).strip()
+                    if remaining and len(remaining) > 10:
+                        # 标题后有实质内容，保留内容但去掉标题前缀
+                        cleaned_lines.append(line.replace(stripped, remaining))
+                    # 否则整行删除
+                    matched = True
+                    break
+            if not matched:
+                cleaned_lines.append(line)
+
+        return '\n'.join(cleaned_lines)
 
     @classmethod
     def _fuzzify_numbers(cls, text: str) -> str:
@@ -519,7 +560,7 @@ class AntiAIEngine:
                 and not p.startswith('[图片')
                 and not p.startswith('**')
                 and len(p) > 50
-                and random.random() > 0.65):
+                and random.random() > 0.8):
                 echo = random.choice(echo_templates)
                 paragraphs[i] = echo + p
                 inject_count += 1
@@ -540,7 +581,7 @@ class AntiAIEngine:
         new_paragraphs = []
         for p in paragraphs:
             # 20%概率将一个较长段落(包含多句)首句独立成段
-            if random.random() < 0.2 and len(p) > 100 and not p.startswith('#') and '。' in p[:50]:
+            if random.random() < 0.12 and len(p) > 100 and not p.startswith('#') and '。' in p[:50]:
                 first_period = p.find('。')
                 # 寻找第一句结束(>10字符, <50字符)
                 if 10 < first_period < 50:
@@ -629,7 +670,7 @@ class AntiAIEngine:
         paragraphs = text.split('\n\n')
         for i in range(len(paragraphs)):
             p = paragraphs[i].strip()
-            if len(p) > 120 and random.random() < 0.25 and not p.startswith('#'):
+            if len(p) > 120 and random.random() < 0.15 and not p.startswith('#'):
                 # 在第2或第3句开头插入呼吸感连接词
                 sentences = re.split(r'([。！？])', p)
                 if len(sentences) >= 5: # 至少2句+2个标点
@@ -790,19 +831,18 @@ class AntiAIEngine:
 
     @classmethod
     def get_style_mimicry_prompt(cls) -> str:
-        """V4增强：风格伪装提示词 — 新增数字模糊、句式变化、前后呼应等高级拟人策略"""
         return (
-            "【去AI味强制指令（V4增强）】：\n"
-            "1. 禁止使用高度对称的排比句、'首先/其次/最后'等机械结构。\n"
-            "2. 使用长短句交错的行文，允许使用带有些许主观色彩的反问句。\n"
-            "3. 行文必须像真人专家在直接向读者对话，而非AI在背诵条目。\n"
-            "4. 【信息不对称表达】：文中至少1处使用'很多人不知道的是...'、'业内有个不成文的规矩...'等仅有经验者才会说的话术。\n"
-            "5. 【个人经验置入】：在合适的段落自然地融入'我之前了解到'、'身边有朋友遇到过类似情况'等个人化表达。\n"
-            "6. 【阅读互动暗示】：间歇性使用'你有没有想过'、'接下来这部分可能会颠覆你的认知'等与读者互动的手法。\n"
-            "7. 【节奏变化】：重要信息前用短句铺垫(如'重点来了。')，阐述后用长句展开分析。\n"
-            "8. 【数字自然化】：避免堆砌精确数字，适当使用'近百''数千''几成'等模糊表达，这更像人类记忆中的数字描述。\n"
-            "9. 【前后呼应】：在文章后半段至少1次自然回顾前文提到的观点或案例，形成'首尾呼应'的真人写作风格。\n"
-            "10. 【V5-信息密度波动】：不要全篇都是紧凑的高密度干货。在两段硬核分析之间，尝试插入一句完全口语化的个人感慨或闲扯，营造出'认真思考后喝了口水'的松弛感。\n"
+            "【写作风格指令】：\n"
+            "1. 用真人专家的口吻写作，像在跟读者面对面聊天，不要像百科词条或AI在罗列要点。\n"
+            "2. 禁止使用'首先/其次/最后''一方面/另一方面'等机械排比结构。用自然的过渡方式衔接段落。\n"
+            "3. 句式长短交错：关键结论用短句（10字以内），阐述分析用长句。避免全篇句长一致。\n"
+            "4. 适当使用反问句、设问句引导读者思考，如'为什么会这样？''难道就没有更好的办法吗？'\n"
+            "5. 数字表达自然化：用'近百''数千''过半'等约数代替堆砌精确数据，除非数据本身是核心论据。\n"
+            "6. 在合适处自然融入个人视角：'我注意到''身边有不少人''据我观察'等，但不要每段都加。\n"
+            "7. 段落长度要有变化：有的段落只写一两句话点明观点，有的段落详细展开，不要每段都差不多长。\n"
+            "8. 避免空洞的总结段：不要写'总而言之''综上所述'这类收尾，而是用一个具体的观点或画面结束全文。\n"
+            "9. 不要在文末堆砌行动号召（'让我们一起''赶快行动吧'），这非常AI味。\n"
+            "10. 用词要有变化：同一个概念不要反复用同一个词，换用同义词、近义词或具体描述来表达。\n"
             "(注意：如果系统要求你输出 JSON格式、工具参数调用、或是包含 Thought: / Action: 等流程控制的格式，"
-            "请你必须严格遵守特定的格式要求，仅在正文内容本身应用上述去AI味风格。千万不要破坏系统要求的语法格式！)"
+            "请严格遵守格式要求，仅在正文内容本身应用上述风格。)"
         )

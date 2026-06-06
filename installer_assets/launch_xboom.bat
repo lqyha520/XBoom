@@ -1,0 +1,4 @@
+@echo off
+set AIWRITEX_DISABLE_BROWSER_FALLBACK=1
+set AIWRITEX_BROWSER_GUI=0
+start /B "" "%~dp0XBoom.exe"

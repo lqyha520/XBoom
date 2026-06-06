@@ -132,7 +132,8 @@ def run(inputs):
             "reference_ratio": inputs.get("reference_ratio", 0.0),
             "reference_content": inputs.get("reference_content", ""),
             "date_str": inputs.get("date_str", "近期 (以系统时间推测)"),
-            "fast_mode": inputs.get("fast_mode", False)
+            "fast_mode": inputs.get("fast_mode", False),
+            "collection_mode": inputs.get("collection_mode", False)
         }
 
         # V18.0: 蜂群并发逻辑判定
@@ -200,7 +201,9 @@ def ai_write_x_run(config_data=None):
         "urls": urls,
         "reference_ratio": reference_ratio,
         "reference_content": config_data.get("reference_content", "") if config_data else "",
-        "date_str": config_data.get("date_str", "近期 (以系统时间推测)") if config_data else "近期 (以系统时间推测)"
+        "date_str": config_data.get("date_str", "近期 (以系统时间推测)") if config_data else "近期 (以系统时间推测)",
+        "fast_mode": config_data.get("fast_mode", False) if config_data else False,
+        "collection_mode": config_data.get("collection_mode", False) if config_data else False
     }
 
     if config_data:

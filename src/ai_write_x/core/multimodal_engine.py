@@ -109,6 +109,8 @@ class ImageGenerator:
                 image_path = await self._generate_modelscope(prompt, size)
             elif img_api_type == "ali":
                 image_path = await self._generate_ali(prompt, size)
+            elif img_api_type == "agnes":
+                image_path = await self._generate_agnes(prompt, size)
             elif img_api_type == "comfyui":
                 image_path = await self._generate_comfyui(prompt, style, size)
             else:
@@ -161,6 +163,17 @@ class ImageGenerator:
     async def _generate_ali(self, prompt: str, size: str) -> Path:
         """使用阿里通义万相生成"""
         file_name = f"ali_{hashlib.md5(prompt.encode()).hexdigest()[:8]}.png"
+        output_path = self.cache_dir / file_name
+        await asyncio.sleep(0.1)
+        
+        if not output_path.exists():
+            output_path.touch()
+        
+        return output_path
+    
+    async def _generate_agnes(self, prompt: str, size: str) -> Path:
+        """使用 Agnes Image API 生成"""
+        file_name = f"agnes_{hashlib.md5(prompt.encode()).hexdigest()[:8]}.png"
         output_path = self.cache_dir / file_name
         await asyncio.sleep(0.1)
         

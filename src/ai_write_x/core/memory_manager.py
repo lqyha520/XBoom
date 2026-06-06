@@ -123,8 +123,16 @@ class MemoryManager:
         if not tokens_a or not tokens_b:
             return 0.0
         
-        # 构建 IDF（基于记忆库中的所有话题作为背景语料）
-        all_docs = [item["term"] for item in self.memory.get("topics", [])]
+        # 构建 IDF（基于 SQLite 记忆库中的所有话题作为背景语料）
+        try:
+            from src.ai_write_x.database import get_session
+            from src.ai_write_x.database.models import Topic
+            from sqlmodel import select
+            with get_session() as session:
+                db_topics = session.exec(select(Topic)).all()
+                all_docs = [t.title for t in db_topics]
+        except Exception:
+            all_docs = []
         all_docs.extend([text_a, text_b])  # 加入当前两个文本
         
         doc_count = len(all_docs)
@@ -222,6 +230,7 @@ class MemoryManager:
                         quality_hint = " ⚠低质量"
                 parts.append(f"[{m['term']}] (相似度{m['similarity']}, {time_str}{quality_hint})")
             
+            context = "【历史话题语义共振】：\n" + "\n".join(parts)
             return context
         except Exception as e:
             from src.ai_write_x.utils import log

@@ -93,9 +93,18 @@ def main() -> int:
         )
         setup_path = setup_candidates[0] if setup_candidates else None
 
+    existing_policy = {}
+    local_policy_path = ROOT / "version-policy.json"
+    if local_policy_path.exists():
+        try:
+            existing_policy = json.loads(local_policy_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    min_supported = existing_policy.get("min_supported_version") or "1.0.4"
+
     policy = {
         "latest_version": version,
-        "min_supported_version": version,
+        "min_supported_version": min_supported,
         "auto_update_on_startup": True,
         "auto_update_silent": True,
         "release_notes": f"小爆来咯 v{version}",

@@ -54,3 +54,10 @@ class TopicDeduplicator:
             return
         db_manager.add_topic(topic)
 
+    def get_recent_topics(self, days: int = 7):
+        """获取近 N 天内已生成的话题标题列表"""
+        try:
+            return db_manager.get_recent_topics(days=days)
+        except Exception:
+            return []
+

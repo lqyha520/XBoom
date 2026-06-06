@@ -128,30 +128,31 @@ if ($env:SSH_PASSWORD -and (Test-Path $pyUpload)) {
 $sshCmd = Get-Command ssh.exe -ErrorAction SilentlyContinue
 $scpCmd = Get-Command scp.exe -ErrorAction SilentlyContinue
 if (-not $sshCmd -or -not $scpCmd) {
-    Write-Host "未找到 OpenSSH（ssh/scp）。可设置环境变量 SSH_PASSWORD 使用 Python 上传，或启用 OpenSSH 客户端。" -ForegroundColor Red
+    Write-Host "OpenSSH not found (ssh/scp). Set SSH_PASSWORD for Python upload or enable OpenSSH client." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "版本: v$Version"
-Write-Host "目标: ${Remote}:${RemoteDir}"
-Write-Host "安装包: $SetupFile ($([math]::Round((Get-Item $SetupFile).Length / 1MB, 1)) MB)"
-Write-Host "策略: $PolicyFile"
-Write-Host "用户下载: $($MIRROR_BASE_URL.TrimEnd('/'))/$InstallerName"
+Write-Host "Version: v$Version"
+Write-Host "Target: ${Remote}:${RemoteDir}"
+$setupSizeMb = [math]::Round((Get-Item $SetupFile).Length / 1MB, 1)
+Write-Host ("Installer: {0} ({1} MB)" -f $SetupFile, $setupSizeMb)
+Write-Host "Policy: $PolicyFile"
+Write-Host "Download URL: $($MIRROR_BASE_URL.TrimEnd('/'))/$InstallerName"
 Write-Host ""
 
 $sshArgs = Get-SshBaseArgs
 $scpArgs = Get-ScpBaseArgs
 
-Write-Host "创建远程目录..."
+Write-Host "Create remote dir..."
 & ssh.exe @sshArgs $Remote "mkdir -p '$RemoteDir'"
 
-Write-Host "上传 version-policy.json ..."
+Write-Host "Upload version-policy.json ..."
 & scp.exe @scpArgs $PolicyFile "${Remote}:${RemoteDir}/version-policy.json"
 
-Write-Host "上传安装包（约 1～3 分钟，视带宽而定）..."
+Write-Host "Upload installer (about 1-3 minutes)..."
 & scp.exe @scpArgs $SetupFile "${Remote}:${RemoteDir}/$InstallerName"
 
 Write-Host ""
-Write-Host "上传完成。请在浏览器验证:" -ForegroundColor Green
+Write-Host "Upload completed. Verify in browser:" -ForegroundColor Green
 Write-Host "  $($MIRROR_BASE_URL.TrimEnd('/'))/version-policy.json"
 Write-Host "  $($MIRROR_BASE_URL.TrimEnd('/'))/$InstallerName"

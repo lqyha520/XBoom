@@ -93,7 +93,7 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
         self._cache_hits += 1
         return entry
     
-    def _set_cache(self, key: str, status_code: int, headers: Dict, body: bytes):
+    def _set_cache(self, key: str, status_code: int, headers: Dict, body: bytes, path: str = ""):
         """设置缓存"""
         # 简单的 LRU: 如果缓存满了，清除一半
         if len(self._cache) >= self.max_cache_size:
@@ -105,13 +105,30 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
             "status_code": status_code,
             "headers": headers,
             "body": body,
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "path": path
         }
     
+    def _invalidate_path(self, path: str):
+        base_path = path.rstrip("/")
+        keys_to_remove = set()
+        for key, entry in self._cache.items():
+            cached_path = entry.get("path", "").rstrip("/")
+            if not cached_path:
+                continue
+            if cached_path == base_path or cached_path.startswith(base_path + "/"):
+                keys_to_remove.add(key)
+            if base_path.startswith(cached_path):
+                keys_to_remove.add(key)
+        for k in keys_to_remove:
+            del self._cache[k]
+    
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # 跳过非 GET 请求和排除的路径
         if request.method != "GET":
-            return await call_next(request)
+            response = await call_next(request)
+            if response.status_code < 400:
+                self._invalidate_path(request.url.path)
+            return response
         
         for exclude in self.exclude_paths:
             if request.url.path.startswith(exclude):
@@ -147,7 +164,7 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
             headers.pop("content-length", None)
             headers.pop("Content-Length", None)
             
-            self._set_cache(cache_key, response.status_code, headers, body)
+            self._set_cache(cache_key, response.status_code, headers, body, request.url.path)
             
             # 返回新的响应
             return Response(

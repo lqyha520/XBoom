@@ -1,9 +1,10 @@
-{
-    "latest_version": "1.0.0",
-    "min_supported_version": "1.0.0",
+﻿{
+    "latest_version": "1.1.0",
+    "min_supported_version": "1.0.4",
     "auto_update_on_startup": true,
     "auto_update_silent": true,
-    "release_notes": "小爆来咯 v1.0.0 正式版",
-    "published_at": "2026-05-22T00:00:00Z",
+    "release_notes": "灏忕垎鏉ュ挴 v1.1.0 - 鎻愮ず璇嶅閮ㄥ寲銆佺嫭绔嬩簨瀹炴牳鏌ャ€佸畾鍚戜慨澶嶃€佸弽AI鍖栧垎妗ｃ€佸Agent鍗忎綔",
+    "published_at": "2026-05-28T06:00:00Z",
     "download_url": "https://updates.bcxtech.cn/updates/XBoom-Setup.exe"
 }
+

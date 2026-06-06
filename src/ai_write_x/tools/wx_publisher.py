@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 from datetime import datetime, timedelta
@@ -272,6 +272,44 @@ class WeixinPublisher:
 
         return img_url
 
+    def _generate_img_by_agnes(self, prompt, size="1024*1024"):
+        """使用Agnes Image API生成图片 (OpenAI兼容格式)"""
+        image_dir = PathManager.get_image_dir()
+        img_url = None
+        log.print_log(f"[图像生成] 开始使用Agnes生成图片...")
+        log.print_log(f"[图像生成] 模型: {self.img_api_model}, 尺寸: {size}")
+
+        try:
+            log.print_log("[图像生成] 正在调用 Agnes API...")
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=self.img_api_key,
+                base_url="https://apihub.agnes-ai.com/v1"
+            )
+            response = client.images.generate(
+                model=self.img_api_model or "agnes-image-2.1-flash",
+                prompt=prompt,
+                n=1,
+                size=size.replace("*", "x")
+            )
+
+            if response.data and len(response.data) > 0:
+                img_download_url = response.data[0].url
+
+                # Download
+                file_name = f"agnes_{int(time.time()*1000)}.png"
+                file_path = os.path.join(image_dir, file_name)
+                with open(file_path, "wb+") as f:
+                    f.write(requests.get(img_download_url).content)
+                img_url = file_path
+                log.print_log(f"[图像生成] 图片保存成功: {file_path}")
+            else:
+                log.print_log("[图像生成] Agnes API调用失败或返回空数据", "error")
+        except Exception as e:
+            log.print_log(f"[图像生成] Agnes API调用异常: {e}", "error")
+
+        return img_url
+
     def _generate_img_by_comfyui(self, prompt, size="1024*1024"):
         """使用ComfyUI API生成图片"""
         import json
@@ -439,6 +477,8 @@ class WeixinPublisher:
             img_url = self._generate_img_by_ali(prompt, size)
         elif self.img_api_type == "modelscope":
             img_url = self._generate_img_by_modelscope(prompt, size)
+        elif self.img_api_type == "agnes":
+            img_url = self._generate_img_by_agnes(prompt, size)
         elif self.img_api_type == "comfyui":
             img_url = self._generate_img_by_comfyui(prompt, size)
         elif self.img_api_type == "picsum":

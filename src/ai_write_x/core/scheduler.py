@@ -97,6 +97,8 @@ class SchedulerService:
                 "use_ai_beautify": task.use_ai_beautify
             }
             
+            is_collection = getattr(task, "collection_mode", False)
+            
             # 如果话题为空，尝试自动拾取热点话题（复用立马生成的逻辑）
             original_topic = task.topic.strip() if task.topic else ""
             
@@ -134,19 +136,63 @@ class SchedulerService:
                         current_topic = f"深入探讨：热点解析系列 {i+1}"
                         log.print_log(f"⚠️ [Scheduler] 自动拾取话题失败: {e}，将使用备用安全话题", "warning")
                 else:
-                    if i == 0:
-                        current_topic = original_topic
+                    from src.ai_write_x.core.llm_client import LLMClient
+                    llm = LLMClient()
+                    recent_topics = deduplicator.get_recent_topics(days=7) if hasattr(deduplicator, 'get_recent_topics') else []
+                    all_excluded = list(set(recent_topics + used_topics_in_batch))
+                    excluded_str = '、'.join(all_excluded[:20]) if all_excluded else '无'
+                    
+                    if is_collection:
+                        sub_prompt = (
+                            f"你是一个资深内容策划编辑。核心系列是「{original_topic}」，请为今天的文章生成一个子话题标题。\n"
+                            f"要求：\n"
+                            f"1. 子话题必须属于「{original_topic}」领域，但切入点要新颖独特\n"
+                            f"2. 子话题要有悬念或痛点，能引发读者好奇心\n"
+                            f"3. 不要与以下已用选题重复或过于相似：{excluded_str}\n"
+                            f"4. 只输出子话题本身，不要包含「{original_topic}」前缀，不要冒号，不要任何解释或标点包裹\n"
+                            f"5. 最终标题格式为「{original_topic}：{{你生成的子话题}}」"
+                        )
                     else:
-                        # 如果是同一任务生成多篇且有初始话题，使用 AI 进行发散，防止内容高度重复
-                        from src.ai_write_x.core.llm_client import LLMClient
-                        llm = LLMClient()
-                        prompt = f"基于核心话题 '{original_topic}'，请提供一个相关的、不重复且具有深度的新闻观察切入点标题。只需输出标题，不要任何解释。已知已生成的标题: {', '.join(used_topics_in_batch)}"
-                        try:
-                            current_topic = llm.chat([{"role": "user", "content": prompt}]).strip().strip('"').strip("'")
-                            log.print_log(f"🧠 [Scheduler] 基于原话题发散新角度: {current_topic}", "info")
-                        except Exception as e:
-                            current_topic = f"{original_topic} (深度解析系列 {i+1})"
-                            log.print_log(f"⚠️ [Scheduler] 话题发散失败: {e}，使用系列标题", "warning")
+                        sub_prompt = (
+                            f"你是一个资深内容策划编辑。核心领域是「{original_topic}」，请基于该领域生成一个具体的、有吸引力的文章标题作为今日选题。\n"
+                            f"要求：\n"
+                            f"1. 必须属于「{original_topic}」领域，但切入点要新颖独特\n"
+                            f"2. 标题要有悬念或痛点，能引发读者好奇心\n"
+                            f"3. 不要与以下已用选题重复或过于相似：{excluded_str}\n"
+                            f"4. 只输出一个标题，不要任何解释、序号或标点包裹"
+                        )
+                    try:
+                        diverged = llm.chat([{"role": "user", "content": sub_prompt}], temperature=0.9).strip().strip('"').strip("'").strip('《》')
+                        if is_collection and diverged:
+                            if not diverged.startswith(original_topic):
+                                diverged = f"{original_topic}：{diverged}"
+                        if diverged and not deduplicator.is_duplicate(diverged) and diverged not in used_topics_in_batch:
+                            current_topic = diverged
+                            log.print_log(f"🧠 [Scheduler] {'合集' if is_collection else ''}发散新角度: {current_topic}", "info")
+                        else:
+                            if is_collection:
+                                retry_prompt = (
+                                    f"核心系列「{original_topic}」，请生成一个与已有选题完全不同的子话题。"
+                                    f"已用选题：{excluded_str}。只输出子话题本身，不要包含前缀。"
+                                )
+                            else:
+                                retry_prompt = (
+                                    f"核心领域「{original_topic}」，请生成一个与已有选题完全不同的文章标题。"
+                                    f"已用选题：{excluded_str}。只输出标题。"
+                                )
+                            diverged2 = llm.chat([{"role": "user", "content": retry_prompt}], temperature=1.0).strip().strip('"').strip("'").strip('《》')
+                            if is_collection and diverged2:
+                                if not diverged2.startswith(original_topic):
+                                    diverged2 = f"{original_topic}：{diverged2}"
+                            if diverged2:
+                                current_topic = diverged2
+                                log.print_log(f"🧠 [Scheduler] 二次发散成功: {current_topic}", "info")
+                            else:
+                                current_topic = original_topic
+                                log.print_log(f"⚠️ [Scheduler] 二次发散仍重复，使用原话题: {current_topic}", "warning")
+                    except Exception as e:
+                        current_topic = original_topic
+                        log.print_log(f"⚠️ [Scheduler] 话题发散失败: {e}，使用原话题", "warning")
 
                 # 记录已使用的话题，防止本批次内重复
                 used_topics_in_batch.append(current_topic)
@@ -159,6 +205,9 @@ class SchedulerService:
                 # 确保 kwargs 不含有 'topic'，因为它是作为位置参数传递的
                 if "topic" in kwargs:
                     kwargs.pop("topic")
+                
+                if is_collection:
+                    kwargs["collection_mode"] = True
                 
                 results = workflow.execute(topic=current_topic, **kwargs)
                 

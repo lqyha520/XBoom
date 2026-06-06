@@ -4,7 +4,7 @@
 import asyncio
 import sys
 import random
-sys.path.insert(0, 'C:/Users/Administrator.DESKTOP-EGNE9ND/Desktop/AIxs/AIWriteX-main')
+sys.path.insert(0, '.')
 
 from src.ai_write_x.core.swarm.swarm_agent import (
     AgentNode, ReasoningAgent, CreativeAgent, ResearchAgent

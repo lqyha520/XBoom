@@ -18,6 +18,7 @@ from collections import Counter
 import hashlib
 
 from src.ai_write_x.utils import log
+from src.ai_write_x.core.prompt_loader import prompt_loader
 
 
 class QualityMetric(Enum):
@@ -1603,34 +1604,18 @@ class ContentQualityEngine:
             # 获取内容样本（前1000字用于分析）
             content_sample = analysis_result.original_content[:1000]
 
-            ai_prompt = f"""你是一位资深的内容编辑和写作专家。请根据以下质量分析数据，为这篇文章生成3-5条具体、可操作的优化建议。
-
-## 质量分析数据：
-- 综合评分: {analysis_data['overall_score']:.1f}/100
-- AI检测概率: {analysis_data['ai_detection_score']:.1f}% (越低越好)
-- 原创性评分: {analysis_data['originality_score']:.1f}% (越高越好)
-
-## 详细指标：
-{json.dumps(analysis_data['metrics'], ensure_ascii=False, indent=2)}
-
-## 内容样本：
-{content_sample}
-
-## 基础建议参考：
-{chr(10).join([f"- {s}" for s in base_suggestions[:5]])}
-
-## 要求：
-1. 基于实际内容问题，给出具体、可操作的改进建议
-2. 避免空泛的套话，每条建议都要针对这篇文章的实际情况
-3. 建议要具体，比如"将第3段的排比句改为递进关系"而不是"改善句式"
-4. 返回3-5条建议，按优先级排序
-5. 格式：每条建议一行，不要编号
-
-## 个性化优化建议："""
+            ai_prompt = prompt_loader.get_quality("quality_suggestion", "prompt").format(
+                overall_score=overall_score,
+                ai_detection_score=ai_detection_score,
+                originality_score=originality_score,
+                metrics=metrics_str,
+                content_sample=content[:500],
+                base_suggestions=base_suggestions_str,
+            )
 
             llm = LLMClient()
             messages = [
-                {"role": "system", "content": "你是一位资深的内容编辑和写作专家。"},
+                {"role": "system", "content": prompt_loader.get_quality("quality_suggestion", "system_prompt")},
                 {"role": "user", "content": ai_prompt}
             ]
             # 禁用语义缓存
@@ -1872,76 +1857,15 @@ class TitleOptimizer:
             platform_hint = platform_requirements.get(
                 platform, platform_requirements[""])
 
-            prompt = f"""你是一位资深的新媒体标题优化专家。请为以下文章生成5个更具吸引力的标题。
-
-## 原标题
-{title}
-
-## 内容摘要
-{content_summary}
-
-## 平台要求
-{platform_hint}
-
-## 爆款标题公式（必须遵循）
-标题必须包含以下元素中的至少2个：
-- 问号？（制造悬念）
-- 感叹号！（情绪强烈）
-- 引号""（引用或强调）
-- 数字（具体可信）
-- 省略号...（意犹未尽）
-
-**注意：标题中禁止使用Emoji表情符号，确保在所有平台都能正常显示**
-
-## 爆款标题类型（5种必须全生成）
-1. **悬念型**：用"为什么""竟然""真相是""揭秘"等词制造悬念
-   示例：《为什么90%的人都在错误理财？真相让人震惊！》
-
-2. **数字型**：用具体数据增强可信度
-   示例：《月入3000到3万，我只做了这3件事》
-
-3. **冲突型**：制造强烈反差或对立
-   示例：《年薪百万的他，却在凌晨3点捡垃圾》
-
-4. **情绪型**：激发恐惧、愤怒、好奇或共鸣
-   示例：《小心！你家的这种电器正在偷走你的寿命》
-
-5. **实用型**：突出价值和利益点
-   示例：《3分钟学会这个技巧，让你效率提升10倍》
-
-**重要：所有标题禁止包含Emoji表情，只使用纯文字和标点符号**
-
-## 要求
-1. 生成5个不同风格的标题（严格按上述5种类型）
-2. 每个标题长度在15-30字之间
-3. 每个标题必须包含至少2个爆款元素（问号、感叹号、数字、省略号等）
-4. **严禁使用Emoji表情符号**，确保标题在所有平台都能正常显示
-5. 符合平台调性，避免低俗标题党
-6. 突出文章核心卖点
-
-## 输出格式（严格遵循，编号与冒号之间不要空格）
-标题1：悬念型标题正文（15-30字）
-说明：一句话解释
-
-标题2：数字型标题正文
-说明：一句话解释
-
-标题3：冲突型标题正文
-说明：一句话解释
-
-标题4：情绪型标题正文
-说明：一句话解释
-
-标题5：实用型标题正文
-说明：一句话解释
-
-在最有吸引力的那一行标题末尾加上 [⭐推荐]
-
-## 开始生成"""
+            prompt = prompt_loader.get_quality("title_optimizer", "prompt").format(
+                title=title,
+                content_summary=content[:300],
+                platform_hint=platform_hint,
+            )
 
             llm = LLMClient()
             messages = [
-                {"role": "system", "content": "你是一位资深的新媒体标题优化专家，擅长创作爆款标题。"},
+                {"role": "system", "content": prompt_loader.get_quality("title_optimizer", "system_prompt")},
                 {"role": "user", "content": prompt}
             ]
             # 禁用语义缓存，确保每次生成不同的标题

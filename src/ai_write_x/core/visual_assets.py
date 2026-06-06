@@ -1,6 +1,7 @@
 import re
 from typing import Optional, Tuple
 from src.ai_write_x.core.llm_client import LLMClient
+from src.ai_write_x.core.prompt_loader import prompt_loader
 import src.ai_write_x.utils.log as lg
 import threading
 import time
@@ -32,6 +33,228 @@ class HeartbeatLogger:
 
 class VisualAssetsManager:
     """视觉资产管理器：负责文本到图像的自动化提示词生成与后台同步渲染链路"""
+
+    DEFAULT_COMFY_WORKFLOW_FILENAME = "z-image专用nf4快速备份.json"
+
+    _visual_translation_cache = {}
+    _paragraph_scene_cache = {}
+    _visual_translation_lock = threading.Lock()
+
+    _VSCENE_LINE_RE = re.compile(
+        r'\[\[V-SCENE:\s*(.+?)\s*(?:\((.*?)\))?\s*(?:\|\s*(.+?)\s*)?\|\s*([\d\.:]+)\s*\]\]',
+        re.DOTALL,
+    )
+
+    @staticmethod
+    def _count_english_words(text: str) -> int:
+        return len(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text or ""))
+
+    @classmethod
+    def _get_scene_word_bounds(cls) -> Tuple[int, int]:
+        settings = cls._get_runtime_settings()
+        min_words = cls._coerce_int(settings.get("visual_scene_min_words"), default=25, minimum=15, maximum=40)
+        max_words = cls._coerce_int(settings.get("visual_scene_max_words"), default=50, minimum=25, maximum=80)
+        if max_words < min_words:
+            max_words = min_words + 10
+        return min_words, max_words
+
+    @classmethod
+    def _sanitize_english_visual_text(cls, text: str) -> str:
+        result = re.sub(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]+', ' ', text or "")
+        result = re.sub(r'^```[a-z]*\s*', '', result, flags=re.I)
+        result = re.sub(r'```$', '', result)
+        result = re.sub(r'\s+', ' ', result).strip()
+        return result
+
+    @classmethod
+    def _translate_to_visual_english(cls, chinese_text: str, max_retries: int = 1) -> str:
+        """将中文片段转为英文画面描述句（质量优先，约 25~50 词）。"""
+        if not chinese_text or not chinese_text.strip():
+            return ""
+        has_chinese = bool(re.search(r'[\u4e00-\u9fff]', chinese_text))
+        if not has_chinese:
+            return chinese_text.strip()
+        min_words, max_words = cls._get_scene_word_bounds()
+        cache_key = f"desc:{chinese_text.strip()[:400]}:{min_words}:{max_words}"
+        with cls._visual_translation_lock:
+            if cache_key in cls._visual_translation_cache:
+                return cls._visual_translation_cache[cache_key]
+        try:
+            llm = LLMClient()
+            prompt = (
+                f"将以下中文内容转换为适合 AI 绘画的英文画面描述。\n"
+                f"要求：输出恰好 1 句英文，{min_words}~{max_words} 个英文词；"
+                f"包含主体、环境、构图/镜头、光线；photorealistic editorial 风格；"
+                f"不要列表、不要解释、不要中文、不要引号。\n\n"
+                f"{chinese_text[:400]}"
+            )
+            settings = cls._get_runtime_settings()
+            timeout = cls._coerce_int(
+                settings.get("visual_paragraph_llm_timeout"),
+                default=20,
+                minimum=8,
+                maximum=60,
+            )
+            result = llm.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.35,
+                timeout=float(timeout),
+                max_retries_override=max_retries,
+            ).strip()
+            result = cls._sanitize_english_visual_text(result)
+            if cls._count_english_words(result) < 8:
+                result = (
+                    "editorial photography, medium wide shot, "
+                    "professional editorial concept inspired by the article theme, "
+                    "natural soft lighting, detailed environment, photorealistic, 8k"
+                )
+            with cls._visual_translation_lock:
+                cls._visual_translation_cache[cache_key] = result
+            return result
+        except Exception as e:
+            lg.print_log(f"[VisualAssets] 画面描述生成失败: {e}, 使用通用描述", "warning")
+            fallback = (
+                "editorial photography, medium wide shot, professional editorial scene, "
+                "natural lighting, detailed environment, photorealistic, 8k, detailed"
+            )
+            with cls._visual_translation_lock:
+                cls._visual_translation_cache[cache_key] = fallback
+            return fallback
+
+    @classmethod
+    def _extract_vscene_line(cls, raw: str) -> Optional[str]:
+        if not raw:
+            return None
+        text = raw.strip()
+        match = cls._VSCENE_LINE_RE.search(text)
+        if match:
+            return match.group(0).strip()
+        for line in text.splitlines():
+            line = line.strip().strip("*")
+            if "V-SCENE:" in line and "[[" in line:
+                fixed = line if line.startswith("[[") else f"[[{line.lstrip('[')}"
+                if fixed.endswith("]]"):
+                    return fixed
+        return None
+
+    @classmethod
+    def _normalize_vscene_line(cls, line: str, is_cover: bool) -> str:
+        from src.ai_write_x.core.article_polish import append_no_text_negative
+
+        match = cls._VSCENE_LINE_RE.search(line)
+        if not match:
+            return line
+        pos = cls._sanitize_english_visual_text(match.group(1).strip())
+        neg = append_no_text_negative(
+            cls._sanitize_english_visual_text((match.group(3) or "").strip())
+            or "bad anatomy, blurry, low quality, duplicate subject"
+        )
+        ratio = (match.group(4) or "").strip() or ("2.35:1" if is_cover else "16:9")
+        if is_cover and ratio in ("16:9", "4:3", "3:4"):
+            ratio = "2.35:1"
+        min_words, _ = cls._get_scene_word_bounds()
+        if cls._count_english_words(pos) < min_words // 2:
+            pos = (
+                f"{pos}, editorial photography, photorealistic, natural lighting, "
+                "detailed environment, coherent perspective, 8k, detailed"
+            ).strip(", ")
+        pos = (
+            f"{pos}, absolutely no text, no words, no letters, no Chinese characters, "
+            "no subtitles, no watermark"
+        )
+        return f"[[V-SCENE: {pos} | {neg} | {ratio}]]"
+
+    @classmethod
+    def _build_vscene_fallback(cls, snippet: str, is_cover: bool = False) -> str:
+        """LLM 不可用时的模板兜底（仍使用完整英文描述句，而非 3~8 关键词）。"""
+        cleaned = cls._clean_visual_text(snippet)
+        if not cleaned:
+            cleaned = "article theme scene"
+        scene_desc = cls._translate_to_visual_english(cleaned[:400])
+        ratio = "2.35:1" if is_cover else "16:9"
+        composition = (
+            "cinematic hero cover, wide environmental composition, strong focal subject"
+            if is_cover
+            else "editorial photography, medium wide shot, clear single-subject composition"
+        )
+        pos_prompt = (
+            f"{composition}, {scene_desc}, natural lighting, detailed environment, "
+            "coherent perspective, professional color grading, photorealistic, 8k, detailed"
+        )
+        neg_prompt = (
+            "text, words, letters, typography, Chinese characters, watermark, logo, "
+            "subtitle, bad anatomy, blurry face, duplicate features, low detail"
+        )
+        return f"[[V-SCENE: {pos_prompt} | {neg_prompt} | {ratio}]]"
+
+    @classmethod
+    def _generate_vscene_from_paragraph(
+        cls,
+        paragraph: str,
+        is_cover: bool = False,
+        title_hint: str = "",
+    ) -> str:
+        """按段落调用 LLM 生成单条 V-SCENE（质量优先）。"""
+        cleaned = cls._clean_visual_text(paragraph)
+        if len(cleaned) < 12:
+            return cls._build_vscene_fallback(paragraph, is_cover=is_cover)
+
+        min_words, max_words = cls._get_scene_word_bounds()
+        settings = cls._get_runtime_settings()
+        timeout = cls._coerce_int(
+            settings.get("visual_paragraph_llm_timeout"),
+            default=20,
+            minimum=8,
+            maximum=60,
+        )
+        cache_key = f"vscene:{is_cover}:{title_hint[:80]}:{cleaned[:500]}:{min_words}:{max_words}"
+        with cls._visual_translation_lock:
+            if cache_key in cls._paragraph_scene_cache:
+                return cls._paragraph_scene_cache[cache_key]
+
+        cover_ratio = "2.35:1"
+        body_ratio = "16:9"
+        role_hint = "本图为文章封面，需有视觉冲击与明确主体。" if is_cover else "本图为正文配图，需贴合本段叙事。"
+        title_hint = (title_hint or "（无）").strip()[:120]
+        paragraph_text = cleaned[:800]
+
+        system_prompt = prompt_loader.get_visual("paragraph_scene", "system_prompt").format(
+            min_words=min_words,
+            max_words=max_words,
+            cover_ratio=cover_ratio,
+            body_ratio=body_ratio,
+        )
+        user_prompt = prompt_loader.get_visual("paragraph_scene", "user_prompt").format(
+            role_hint=role_hint,
+            title_hint=title_hint,
+            paragraph=paragraph_text,
+        )
+
+        try:
+            llm = LLMClient()
+            raw = llm.chat(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.45,
+                timeout=float(timeout),
+                max_retries_override=0,
+            ).strip()
+            line = cls._extract_vscene_line(raw)
+            if line:
+                normalized = cls._normalize_vscene_line(line, is_cover=is_cover)
+                with cls._visual_translation_lock:
+                    cls._paragraph_scene_cache[cache_key] = normalized
+                return normalized
+            lg.print_log("[VisualAssets] 段落分镜未返回有效 V-SCENE，使用模板兜底", "warning")
+        except Exception as e:
+            lg.print_log(f"[VisualAssets] 段落分镜 LLM 失败: {e}，使用模板兜底", "warning")
+
+        fallback = cls._build_vscene_fallback(paragraph, is_cover=is_cover)
+        with cls._visual_translation_lock:
+            cls._paragraph_scene_cache[cache_key] = fallback
+        return fallback
     
     @staticmethod
     def _get_runtime_settings() -> dict:
@@ -73,13 +296,40 @@ class VisualAssetsManager:
         return text.strip()
 
     @staticmethod
-    def _enforce_no_text_prompt(prompt: str) -> str:
-        """统一给生图提示词追加“禁止图片文字”约束。"""
+    def _enforce_no_text_prompt(prompt: str, is_comfyui: bool = False) -> str:
+        """统一给生图提示词追加"禁止图片文字"约束。
+
+        说明：
+        - 先移除提示词中的中文字符（防止模型在图片中渲染中文文字）
+        - ComfyUI模式：正向提示词不加禁字后缀（避免模型误解），
+          负向提示词由专用CLIPTextEncode节点处理，效果更好。
+        - 其他API模式：正向和负向都加禁字约束。
+        """
         from src.ai_write_x.core.article_polish import append_no_text_negative
 
         clean = (prompt or "").strip()
         if not clean:
             return clean
+
+        clean = re.sub(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]+', ' ', clean)
+        clean = re.sub(r',\s*,', ',', clean)
+        clean = re.sub(r',\s*$', '', clean)
+        clean = re.sub(r'^\s*,\s*', '', clean)
+        clean = re.sub(r'\s+', ' ', clean).strip()
+
+        if is_comfyui:
+            if "--no" in clean:
+                pos, neg = clean.split("--no", 1)
+                return f"{pos.strip().rstrip(',')} --no {append_no_text_negative(neg.strip())}"
+            return f"{clean} --no {append_no_text_negative('')}"
+
+        positive_suffix = (
+            "absolutely no text, no words, no letters, no Chinese characters, "
+            "no subtitles, no captions, no watermark, no logo, no readable signs, "
+            "no UI text, no QR code, no barcode"
+        )
+        if positive_suffix.lower() not in clean.lower():
+            clean = f"{clean.rstrip(',')}, {positive_suffix}"
 
         if "--no" in clean:
             pos, neg = clean.split("--no", 1)
@@ -101,43 +351,82 @@ class VisualAssetsManager:
         return max(0, cls.get_target_image_count() - 1)
 
     @classmethod
-    def _build_fast_scene_prompt(cls, snippet: str, is_cover: bool = False) -> str:
-        cleaned = cls._clean_visual_text(snippet)
-        if not cleaned:
-            cleaned = "article theme scene"
+    def _resolve_comfy_workflow_path(cls) -> Tuple[str, str, list]:
+        """解析 ComfyUI 工作流 JSON 路径。返回 (路径, 文件名, 候选列表)。"""
+        import os
+        import shutil
+        from src.ai_write_x.config.config import Config
+        from src.ai_write_x.utils import utils
+        from src.ai_write_x.utils.path_manager import PathManager
 
-        settings = cls._get_runtime_settings()
-        excerpt_length = cls._coerce_int(
-            settings.get("fast_mode_prompt_excerpt_length"),
-            default=120,
-            minimum=40,
-            maximum=300,
-        )
-        short_text = cleaned[:excerpt_length]
-        ratio = "21:9" if is_cover else "16:9"
-        composition = (
-            "cinematic hero scene, wide environmental composition, strong focal subject"
-            if is_cover else
-            "editorial illustration, realistic scene, clear single-subject composition"
-        )
-        pos_prompt = (
-            f"{composition}, inspired by: {short_text}, natural lighting, detailed environment, "
-            "coherent perspective, high detail, professional color grading, 8k"
-        )
-        neg_prompt = (
-            "bad anatomy, blurry face, duplicate features, text distortion, watermark, "
-            "low detail, extra limbs, deformed hands"
-        )
-        return f"[[V-SCENE: {pos_prompt} | {neg_prompt} | {ratio}]]"
+        comfy_cfg = Config.get_instance().config.get("img_api", {}).get("comfyui", {}) or {}
+        custom = (comfy_cfg.get("workflow_file") or comfy_cfg.get("model") or "").strip()
+        if custom and not custom.lower().endswith(".json"):
+            custom = ""
+        workflow_filename = custom or cls.DEFAULT_COMFY_WORKFLOW_FILENAME
+
+        resource_workflow_path = utils.get_res_path(workflow_filename)
+        appdata_workflow_path = os.path.join(str(PathManager.get_app_data_dir()), workflow_filename)
+        base_dir = str(PathManager.get_base_dir())
+
+        candidates = []
+        if custom and os.path.isabs(custom):
+            candidates.append(custom)
+        candidates.extend([
+            appdata_workflow_path,
+            os.path.join(base_dir, workflow_filename),
+            os.path.join(base_dir, "workflows", workflow_filename),
+            os.path.join(str(PathManager.get_root_dir()), workflow_filename),
+            str(resource_workflow_path),
+        ])
+        if utils.get_is_release_ver():
+            candidates.extend([
+                os.path.join(base_dir, "_internal", workflow_filename),
+                os.path.join(base_dir, "_internal", "workflows", workflow_filename),
+            ])
+
+        if (
+            utils.get_is_release_ver()
+            and not os.path.isfile(appdata_workflow_path)
+            and resource_workflow_path
+            and os.path.isfile(resource_workflow_path)
+        ):
+            try:
+                os.makedirs(os.path.dirname(appdata_workflow_path), exist_ok=True)
+                shutil.copy2(resource_workflow_path, appdata_workflow_path)
+                lg.print_log(f"  [ComfyUI] 已将工作流复制到用户目录: {appdata_workflow_path}", "info")
+            except Exception as copy_e:
+                lg.print_log(f"  [ComfyUI] 工作流复制到用户目录失败: {copy_e}", "warning")
+
+        if os.path.isfile(appdata_workflow_path):
+            candidates.insert(0, appdata_workflow_path)
+
+        found = next((p for p in candidates if p and os.path.isfile(p)), "")
+        return found, workflow_filename, candidates
+
+    @classmethod
+    def _build_fast_scene_prompt(cls, snippet: str, is_cover: bool = False, title_hint: str = "") -> str:
+        """生成单条配图占位符（质量优先：按段落 LLM 分镜）。"""
+        return cls._generate_vscene_from_paragraph(snippet, is_cover=is_cover, title_hint=title_hint)
+
+    @classmethod
+    def _extract_article_title_hint(cls, markdown_text: str) -> str:
+        for line in markdown_text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                return cls._clean_visual_text(stripped.lstrip("#").strip())
+        return ""
 
     @classmethod
     def inject_image_prompts_fast(cls, markdown_text: str) -> str:
-        """极速模式使用的轻量提示词注入：避免先走重型 LLM 分镜分析。"""
+        """轻量注入：按段落 LLM 分镜（质量优先，不做全文重写）。"""
         if not markdown_text.strip():
             return markdown_text
 
         if "V-SCENE:" in markdown_text or "IMG_PROMPT:" in markdown_text:
             return markdown_text
+
+        title_hint = cls._extract_article_title_hint(markdown_text)
 
         lines = markdown_text.splitlines()
         blocks = []
@@ -163,15 +452,20 @@ class VisualAssetsManager:
         if not candidate_blocks:
             return markdown_text
 
-        settings = cls._get_runtime_settings()
         target_total = cls.get_target_image_count()
         prompt_limit = target_total
         prompt_count = min(prompt_limit, max(1, len(candidate_blocks)))
-        # 封面占 1 张，其余为正文配图
         body_slots = max(0, prompt_count - 1)
         chosen_blocks = candidate_blocks[: max(1, body_slots + 1)]
 
-        cover_prompt = cls._build_fast_scene_prompt(chosen_blocks[0], is_cover=True)
+        lg.print_log(
+            f"[VisualAssets] 按段落生成分镜（质量优先），共 {len(chosen_blocks)} 张，目标 {target_total} 张",
+            "info",
+        )
+
+        cover_prompt = cls._generate_vscene_from_paragraph(
+            chosen_blocks[0], is_cover=True, title_hint=title_hint
+        )
         updated_text = markdown_text
         first_non_heading = re.search(r'\n(?!#)(.+)', markdown_text)
         if first_non_heading:
@@ -181,10 +475,15 @@ class VisualAssetsManager:
             updated_text = cover_prompt + "\n\n" + updated_text
 
         for block in chosen_blocks[1:]:
-            marker = cls._build_fast_scene_prompt(block, is_cover=False)
+            marker = cls._generate_vscene_from_paragraph(
+                block, is_cover=False, title_hint=title_hint
+            )
             updated_text = updated_text.replace(block, f"{block}\n\n{marker}", 1)
 
-        lg.print_log(f"[VisualAssets] 极速模式已注入 {len(chosen_blocks)} 组配图提示词（目标共 {target_total} 张）", "info")
+        lg.print_log(
+            f"[VisualAssets] 已注入 {len(chosen_blocks)} 组高质量配图提示词（目标共 {target_total} 张）",
+            "info",
+        )
         return updated_text
 
     @classmethod
@@ -210,52 +509,11 @@ class VisualAssetsManager:
         safe_min = target_count
         safe_max = target_count
         
-        system_prompt = f'''你现在是顶级 **AI 视觉逆向工程师 (AI Vision Reverse-Engineer)**，负责将文章的叙事瞬间解构为像素级的绘画提示词。
-你的目标是生成 **生产级提示词集 (Production-Ready Prompt Set)**，实现 1:1 的视觉还原，彻底杜绝“脸部畸变、文字乱码、人物重复”。
-
-## 核心协议：精准扫描 (Strict Protocols)
-1. **WYSIWYG & 空间扫描 (Center-to-Edge)**：
-   - 必须描述主体人物的相对位置，避免多主体时出现“双生脸”。
-   - 扫描背景边际细节（如：数据中心的布线、砖块纹理、光网络纤维）。
-2. **术语精确化 (Terminology Precision)**：
-   - **服装剪裁**：禁止使用模糊词汇。必须指定：`cap sleeves`, `sleeveless`, `off-shoulder`, `mandarin collar`, `business suit with notched lapel`。
-   - **发型与特征**：精确到 `wispy air bangs`, `almond eyes`, `pore-level skin texture`。
-3. **物理与材质映射 (Physics Mapping)**：
-   - 区分材质：`silk` vs `matte cotton` vs `brushed metal`。
-   - 光影交互：引入 `Subsurface Scattering` (皮肤透光), `Rim light` (轮廓光), `Volumetric lighting` (体积光)。
-
-## 视觉纠偏策略 (V19.5 Core)
-- **严禁图片文字**：无论任何场景（屏幕/仪表盘/路牌/海报/书页），都必须避免出现可读文字与清晰字符；如必须出现屏幕元素，只能是抽象 UI 光斑/模糊图形/不可辨识符号，不得要求“清晰字体/可读图表/legible”等描述。
-- **防止人物重复**：明确主次，使用描述性差异化词汇（如：一位年长的引导者与一位年轻的记录者）。
-- **人脸保底**：强制加入 `detailed facial features`, `symmetrical face`, `soulful gaze`。
-
-## 占位符格式 (必须严格遵守)
-严格遵循：[[V-SCENE: <Part 1: Positive Prompt> (中文说明) | <Part 2: Negative Prompt> | <比例>]]
-
-【Part 1: Positive Prompt 要求】：
-[Medium/Style], [Camera/Framing], [Subject Attributes], [Clothing Precise Cuts], [Environment Details], [Lighting & Atmosphere], [Technical Specs: 8k, Unreal Engine 5 render style]
-
-【Part 2: Negative Prompt 要求】：
-必须包含：bad anatomy, blurry face, text distortion, watermark, headless, duplicate features, distorted text.
-
-## 约束准则
-- **数量限制**：正文插图（含封面）共 **{safe_min} 张**，请严格按此数量插入占位符，不要多也不要少。
-- **首图强制**：必须插入 2.35:1 的封面大图。
-- **构图**：16:9 (全景), 3:4 (人物), 4:3 (标准)。
-- **禁止诱导文字**：Part 1/Part 2 中禁止出现 `typography`、`caption`、`subtitle`、`logo`、`signage`、`legible`、`readable text` 等会诱导生成文字的描述。
-
-直接输出文章全貌，包括正文与占位符，不要任何解释。
-
-【严禁泄露给读者】：
-- 禁止输出「场景描述」「画面描述」「配图描述」等可见标签或说明段落
-- 禁止把英文提示词、Negative Prompt 作为正文展示
-- 占位符必须且只能是独立一行的 [[V-SCENE: ...]]，不得加粗、不得放在引用块里
-
-【特别注意】：占位符格式 [[V-SCENE: ...]] 左右严禁出现 ** 或其他符号。'''
+        system_prompt = prompt_loader.get_visual("visual_engineer", "system_prompt").format(safe_min=safe_min)
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"文章长度约为 {content_len} 字符。请为以下内容插入配图占位符：\n\n{processing_text}"}
+            {"role": "user", "content": prompt_loader.get_visual("visual_engineer", "user_prompt").format(content_len=content_len, processing_text=processing_text)}
         ]
         
         try:
@@ -270,11 +528,18 @@ class VisualAssetsManager:
                 # 该步骤只用于“生成占位符”，对稳定性要求高：
                 # - 缩短超时，避免卡几分钟
                 # - 禁止重试，超时后直接降级到极速注入
+                settings = cls._get_runtime_settings()
+                visual_timeout = cls._coerce_int(
+                    settings.get("visual_paragraph_llm_timeout"),
+                    default=20,
+                    minimum=15,
+                    maximum=90,
+                )
                 enhanced_text = client.chat(
                     messages=messages,
                     temperature=0.7,
-                    timeout=20.0,
-                    max_retries_override=0,
+                    timeout=float(max(45, visual_timeout * 2)),
+                    max_retries_override=1,
                 )
             finally:
                 heartbeat.stop()
@@ -469,6 +734,7 @@ class VisualAssetsManager:
         api_bases = {
             "modelscope": "https://api-inference.modelscope.cn/v1",
             "ali": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "agnes": "https://apihub.agnes-ai.com/v1",
         }
         
         # 智能提取当前选中的配置
@@ -491,6 +757,17 @@ class VisualAssetsManager:
             extracted_model = img_type_cfg.get("model")
             if extracted_model:
                 img_api_model = extracted_model
+
+        # 统一提取 api_base (供所有分支使用)
+        actual_api_base = api_base
+        if img_api_type == "agnes":
+            actual_api_base = img_type_cfg.get("api_base", api_bases.get("agnes", ""))
+            agnes_key = img_type_cfg.get("api_key", "")
+            if agnes_key:
+                img_api_key = agnes_key
+            agnes_model = img_type_cfg.get("model", "")
+            if agnes_model:
+                img_api_model = agnes_model
             
         result_text = text_with_prompts
         generated_count = 0
@@ -520,10 +797,9 @@ class VisualAssetsManager:
                     img_path = u.download_and_save_image(download_url, str(image_dir))
                     
                 elif img_api_type in ("modelscope", "ali", "custom") and (api_base or img_api_type == "custom") and img_api_key:
-                    # OpenAI 兼容的图像 API
-                    #对于 custom 类型，我们直接从配置中拿基准地址, 上方已经正确提取
-                    actual_api_base = api_base
-                    
+                    # OpenAI 兼容的图像 API (ModelScope/Ali 使用异步任务模式，Custom 使用 requests)
+                    # 注意: Agnes 使用 OpenAI SDK 同步模式，不在此分支处理
+
                     if not actual_api_base:
                         lg.print_log(f"  [跳过] {img_api_type} API未配置 api_base", "warning")
                         continue
@@ -531,8 +807,8 @@ class VisualAssetsManager:
                     is_ali = img_api_type == "ali" or "dashscope" in actual_api_base.lower()
 
                     if idx > 0 and (is_modelscope or is_ali):
-                         lg.print_log("  [等待] 为避免并发限制，稍作停顿 (5秒)...")
-                         time.sleep(5)
+                         lg.print_log("  [等待] 为避免并发限制，稍作停顿 (2秒)...")
+                         time.sleep(2)
 
                     if is_modelscope or is_ali:
                         import requests
@@ -721,6 +997,78 @@ class VisualAssetsManager:
                                     f.write(req_lib.get(img_url, timeout=30, proxies=proxies).content)
                                 img_path = file_path
 
+                elif img_api_type == "agnes" and img_api_key:
+                    # Agnes 使用 OpenAI SDK 同步模式 (与 ModelScope/Ali 的异步任务模式不同)
+                    if not actual_api_base:
+                        lg.print_log("  [跳过] Agnes API未配置 api_base", "warning")
+                        continue
+                    # Agnes API 仅支持标准尺寸，将非标准尺寸映射到最接近的支持尺寸
+                    # Agnes 支持的尺寸: 1024x1024, 1152x768, 768x1152, 1152x864, 864x1152, 1360x768, 768x1360
+                    agnes_size_map = {
+                        "1024x436": "1360x768",   # 2.35:1 → 16:9 宽幅（最接近）
+                        "1024x576": "1360x768",   # 16:9 → Agnes 的 16:9
+                        "1024x768": "1152x768",   # 4:3 → 3:2（最接近）
+                        "768x1024": "768x1152",   # 3:4 → 2:3（最接近）
+                        "1024x1024": "1024x1024", # 1:1
+                    }
+                    raw_size = size.replace("*", "x")
+                    agnes_size = agnes_size_map.get(raw_size, "1024x1024")
+                    if agnes_size != raw_size:
+                        lg.print_log(f"  [Agnes] 尺寸映射: {raw_size} → {agnes_size}")
+                    from openai import OpenAI
+                    proxy = config.proxy
+                    http_client = None
+                    if proxy:
+                        import httpx
+                        http_client = httpx.Client(proxy=proxy)
+                    client = OpenAI(api_key=img_api_key, base_url=actual_api_base, http_client=http_client)
+                    try:
+                        lg.print_log(f"  [Agnes] 正在调用 agnes-image API (size={agnes_size})...")
+                        response = client.images.generate(
+                            model=img_api_model or "agnes-image-2.1-flash",
+                            prompt=prompt,
+                            n=1,
+                            size=agnes_size
+                        )
+                    except Exception as agnes_err:
+                        err_str = str(agnes_err)
+                        # 503/500 服务暂时不可用 → 短暂等待后重试一次
+                        if "503" in err_str or "500" in err_str or "ServiceUnavailable" in err_str:
+                            lg.print_log(f"  [Agnes] 服务暂时不可用，5秒后重试... ({err_str[:80]})", "warning")
+                            import time as _t
+                            _t.sleep(5)
+                            response = client.images.generate(
+                                model=img_api_model or "agnes-image-2.1-flash",
+                                prompt=prompt,
+                                n=1,
+                                size=agnes_size
+                            )
+                        # 429/401 → 切换 Key
+                        elif ("429" in err_str or "401" in err_str) and len(img_api_keys) > 1:
+                            current_img_key_idx = (current_img_key_idx + 1) % len(img_api_keys)
+                            img_api_key = img_api_keys[current_img_key_idx]
+                            lg.print_log(f"  [Failover] Agnes 图像接口故障，切换 Key {current_img_key_idx}...", "warning")
+                            client = OpenAI(api_key=img_api_key, base_url=actual_api_base, http_client=http_client)
+                            response = client.images.generate(
+                                model=img_api_model or "agnes-image-2.1-flash",
+                                prompt=prompt,
+                                n=1,
+                                size=agnes_size
+                            )
+                        else:
+                            raise agnes_err
+
+                    if response.data and len(response.data) > 0:
+                        img_url = response.data[0].url
+                        file_name = f"agnes_{int(time.time()*1000)}_{idx}.png"
+                        file_path = os.path.join(str(image_dir), file_name)
+                        proxy = config.proxy
+                        proxies = {"http": proxy, "https": proxy} if proxy else None
+                        with open(file_path, "wb") as f:
+                            f.write(req_lib.get(img_url, timeout=30, proxies=proxies).content)
+                        img_path = file_path
+                        lg.print_log(f"  ✅ Agnes 图片生成成功: {file_name}")
+
                 elif img_api_type == "comfyui":
                     # 通用 ComfyUI 支持 - 端口从用户配置中读取，不硬编码默认值
                     if not api_base:
@@ -740,44 +1088,20 @@ class VisualAssetsManager:
                         lg.print_log(f"  [提示] 请确认 ComfyUI 已启动并运行在 {comfy_base_url}", "warning")
                         continue
                     
-                    # 1. 尝试加载用户放在主目录的自定 z-image 专用配置文件
                     from src.ai_write_x.utils import utils
-                    workflow_filename = "z-image专用nf4快速备份.json"
-                    resource_workflow_path = utils.get_res_path(workflow_filename)
-                    comfy_workflow_candidates = [
-                        os.path.join(str(PathManager.get_app_data_dir()), workflow_filename),
-                        os.path.join(str(PathManager.get_base_dir()), workflow_filename),
-                        os.path.join(str(PathManager.get_root_dir()), workflow_filename),
-                        str(resource_workflow_path),
-                    ]
-                    
-                    # 打包模式特殊处理：PyInstaller onedir 模式下，文件可能在 _internal 子目录
-                    if utils.get_is_release_ver():
-                        internal_path = os.path.join(str(PathManager.get_base_dir()), "_internal", workflow_filename)
-                        comfy_workflow_candidates.append(internal_path)
-
-                    appdata_workflow_path = os.path.join(str(PathManager.get_app_data_dir()), workflow_filename)
-                    if (
-                        utils.get_is_release_ver()
-                        and not os.path.exists(appdata_workflow_path)
-                        and resource_workflow_path
-                        and os.path.exists(resource_workflow_path)
-                    ):
-                        try:
-                            import shutil
-                            shutil.copy2(resource_workflow_path, appdata_workflow_path)
-                            comfy_workflow_candidates.insert(0, appdata_workflow_path)
-                            lg.print_log(f"  [ComfyUI] 已将工作流复制到用户目录: {appdata_workflow_path}", "info")
-                        except Exception as copy_e:
-                            lg.print_log(f"  [ComfyUI] 工作流复制失败，将继续使用资源目录: {copy_e}", "warning")
-                    
-                    lg.print_log(f"  [ComfyUI] 正在查找工作流文件...", "info")
-                    lg.print_log(f"  [ComfyUI] 运行模式: {'打包版' if utils.get_is_release_ver() else '开发版'}", "info")
-                    for idx_c, candidate in enumerate(comfy_workflow_candidates, 1):
-                        exists = os.path.exists(candidate) if candidate else False
-                        lg.print_log(f"  [路径{idx_c}] {candidate} {'✅ 存在' if exists else '❌ 不存在'}", "info" if exists else "warning")
-                    
-                    comfy_workflow_path = next((p for p in comfy_workflow_candidates if p and os.path.exists(p)), "")
+                    comfy_workflow_path, workflow_filename, comfy_workflow_candidates = (
+                        cls._resolve_comfy_workflow_path()
+                    )
+                    lg.print_log(f"  [ComfyUI] 正在查找工作流: {workflow_filename}", "info")
+                    lg.print_log(
+                        f"  [ComfyUI] 运行模式: {'打包版' if utils.get_is_release_ver() else '开发版'}",
+                        "info",
+                    )
+                    if not comfy_workflow_path:
+                        for idx_c, candidate in enumerate(comfy_workflow_candidates, 1):
+                            lg.print_log(f"  [路径{idx_c}] {candidate} ❌ 不存在", "warning")
+                    else:
+                        lg.print_log(f"  [ComfyUI] 工作流文件: {comfy_workflow_path}", "info")
                     if not comfy_workflow_path:
                         if allow_placeholder_fallback:
                             lg.print_log(f"  [降级] 未找到 ComfyUI 工作流文件，自动切换为 Picsum 占位图", "warning")
@@ -806,9 +1130,39 @@ class VisualAssetsManager:
                     # 2. 动态替换长宽和提示词参数
                     w_str, h_str = size.split("*")
                     
-                    # 节点 34 是 CLIPTextEncode 提示词节点
+                    # 节点 34 是 CLIPTextEncode 正向提示词节点（按我们的专用工作流约定）
+                    # 重要：ComfyUI 的工作流一般是“正向/负向”分离的，
+                    # 不能指望模型理解 `--no ...` 语法，因此这里自动拆分并注入两个节点。
+                    from src.ai_write_x.core.article_polish import append_no_text_negative
+                    pos_for_comfy = prompt
+                    neg_for_comfy = task.get("neg_prompt") or ""
+                    if isinstance(pos_for_comfy, str) and "--no" in pos_for_comfy:
+                        p, n = pos_for_comfy.split("--no", 1)
+                        pos_for_comfy = p.strip().rstrip(",")
+                        neg_for_comfy = (n or "").strip()
+                    # ComfyUI正向提示词中移除"no text"类描述（由负向节点专门处理）
+                    _no_text_patterns = [
+                        r',?\s*absolutely no text[^,]*',
+                        r',?\s*no words[^,]*',
+                        r',?\s*no letters[^,]*',
+                        r',?\s*no Chinese characters[^,]*',
+                        r',?\s*no subtitles[^,]*',
+                        r',?\s*no captions[^,]*',
+                        r',?\s*no watermark[^,]*',
+                        r',?\s*no logo[^,]*',
+                        r',?\s*no readable signs[^,]*',
+                        r',?\s*no UI text[^,]*',
+                        r',?\s*no QR code[^,]*',
+                        r',?\s*no barcode[^,]*',
+                    ]
+                    for pat in _no_text_patterns:
+                        pos_for_comfy = re.sub(pat, '', pos_for_comfy, flags=re.I)
+                    pos_for_comfy = pos_for_comfy.strip().rstrip(',')
+                    # 统一加强"禁字"负向词库
+                    neg_for_comfy = append_no_text_negative(neg_for_comfy or "bad anatomy, blurry face")
+
                     if "34" in workflow_data and "inputs" in workflow_data["34"]:
-                        workflow_data["34"]["inputs"]["text"] = prompt
+                        workflow_data["34"]["inputs"]["text"] = pos_for_comfy
                         
                     # 节点 37 是 EmptyLatentImage 空白画布节点
                     if "37" in workflow_data and "inputs" in workflow_data["37"]:
@@ -820,20 +1174,62 @@ class VisualAssetsManager:
                             workflow_data["35"]["inputs"]["seed"] = random.randint(1000000000, 99999999999999)
                         
                         # V19.5 Revision: 自动注入负向提示词 (Negative Prompt Injection)
-                        neg_prompt = task.get("neg_prompt", "bad anatomy, blurry face, text distortion, watermark, duplicate features")
-                        # 启发式识别负向提示词节点：寻找 class_type 为 CLIPTextEncode 的节点，且 ID 不是 34
-                        for node_id, node_info in workflow_data.items():
-                            if node_info.get("class_type") == "CLIPTextEncode" and node_id != "34":
-                                if "inputs" in node_info and "text" in node_info["inputs"]:
+                        # 你的专用工作流里默认用 ConditioningZeroOut 作为 negative（并不接收文本），
+                        # 会导致负向提示词永远无法生效，所以这里做一次“工作流自愈”：
+                        # - 若存在独立的负向 CLIPTextEncode：直接写入
+                        # - 否则若检测到 ConditioningZeroOut(常见为节点 36)：将其替换成 CLIPTextEncode 负向节点
+                        neg_prompt = neg_for_comfy
+                        injected = False
+
+                        # 1) 优先检查节点36（约定为负向节点）
+                        if "36" in workflow_data:
+                            node_36 = workflow_data["36"]
+                            if node_36.get("class_type") == "CLIPTextEncode" and "inputs" in node_36 and "text" in node_36["inputs"]:
+                                node_36["inputs"]["text"] = neg_prompt
+                                lg.print_log(f"  [Negative] 已将负面提示词注入节点 36 (CLIPTextEncode)")
+                                injected = True
+                            elif node_36.get("class_type") == "ConditioningZeroOut":
+                                workflow_data["36"] = {
+                                    "inputs": {
+                                        "text": neg_prompt,
+                                        "clip": ["32", 0],
+                                    },
+                                    "class_type": "CLIPTextEncode",
+                                    "_meta": {"title": "CLIP负向文本编码(自动修复)"},
+                                }
+                                lg.print_log("  [Negative] 检测到 ConditioningZeroOut，已自动替换为负向 CLIPTextEncode 节点 36", "info")
+                                injected = True
+
+                        # 2) 兜底：扫描其他非节点34的CLIPTextEncode
+                        if not injected:
+                            for node_id, node_info in workflow_data.items():
+                                if node_id in ("34", "36"):
+                                    continue
+                                if node_info.get("class_type") == "CLIPTextEncode" and "inputs" in node_info and "text" in node_info["inputs"]:
                                     node_info["inputs"]["text"] = neg_prompt
                                     lg.print_log(f"  [Negative] 已将负面提示词注入节点 {node_id}")
+                                    injected = True
                                     break
 
-                        # V7.0 特有：NF4 优化 - 如果检测到是 NF4 工作流，注入质量增强词
+                        if not injected:
+                            lg.print_log("  [Negative] 未找到可注入的负向节点（将仅依赖正向禁字约束）", "warning")
+
+                        # V7.0 特有：NF4 优化 - 如果检测到是 NF4 工作流，注入质量增强词 + 调整采样参数
                         if "z_image_turbo_nvfp4" in str(workflow_data):
                             if "34" in workflow_data and "inputs" in workflow_data["34"]:
-                                prompt = f"{prompt}, high quality, high resolution, masterpiece, detailed, cinematic lighting"
-                                workflow_data["34"]["inputs"]["text"] = prompt
+                                pos_for_comfy = f"{pos_for_comfy}, high quality, high resolution, masterpiece, detailed, cinematic lighting"
+                                workflow_data["34"]["inputs"]["text"] = pos_for_comfy
+                            # NF4量化模型需提高CFG让负向提示词生效，同时增加步数补偿质量
+                            if "35" in workflow_data and "inputs" in workflow_data["35"]:
+                                ksampler = workflow_data["35"]["inputs"]
+                                old_cfg = ksampler.get("cfg", 1)
+                                old_steps = ksampler.get("steps", 9)
+                                if old_cfg <= 1.5:
+                                    ksampler["cfg"] = 3.5
+                                    lg.print_log(f"  [NF4优化] CFG {old_cfg} → 3.5（启用负向提示词引导）")
+                                if old_steps <= 9:
+                                    ksampler["steps"] = 12
+                                    lg.print_log(f"  [NF4优化] Steps {old_steps} → 12（补偿CFG提升）")
 
                     # 3. 先建立 WebSocket 连接，再提交任务（确保不丢消息）
                     img_filename = None
@@ -1154,18 +1550,29 @@ class VisualAssetsManager:
 
     @classmethod
     def _image_prompt_text(cls, topic: str, context: str = "", is_cover: bool = False) -> tuple:
-        base = (context or topic or "文章配图").strip()[:120]
-        subject = topic.strip()[:60] or base
+        raw_subject = (topic or "article theme").strip()[:60]
+        raw_context = (context or topic or "article illustration").strip()[:120]
+
+        subject_en = cls._translate_to_visual_english(raw_subject)
+        context_en = cls._translate_to_visual_english(raw_context)
+
+        if not subject_en or len(subject_en) < 3:
+            subject_en = "professional editorial concept"
+        if not context_en or len(context_en) < 3:
+            context_en = "editorial scene"
+
         ratio = "2.35:1" if is_cover else "16:9"
         if is_cover:
             pos = (
-                f"photo realistic cover image about {subject}, {base}, "
-                "natural lighting, single clear subject, absolutely no text no words no letters"
+                f"photo realistic cover image, {subject_en}, inspired by {context_en}, "
+                "natural lighting, single clear subject, cinematic composition, "
+                "absolutely no text no words no letters no Chinese characters"
             )
         else:
             pos = (
-                f"photo realistic scene about {subject}, {base}, "
-                "editorial photography, absolutely no text no words no letters no watermark"
+                f"photo realistic scene, {subject_en}, inspired by {context_en}, "
+                "editorial photography, coherent perspective, "
+                "absolutely no text no words no letters no Chinese characters no watermark"
             )
         return pos, ratio
 
@@ -1607,6 +2014,7 @@ class VisualAssetsManager:
             api_bases = {
                 "modelscope": "https://api-inference.modelscope.cn/v1",
                 "ali": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "agnes": "https://apihub.agnes-ai.com/v1",
             }
             img_type_cfg = img_config.get(img_api_type, {})
             if img_api_type == "custom" and isinstance(img_type_cfg, list):
@@ -1633,7 +2041,7 @@ class VisualAssetsManager:
                 from src.ai_write_x.utils import utils as u
                 img_path = u.download_and_save_image(download_url, str(image_dir))
                 
-            elif img_api_type in ("modelscope", "ali", "custom") and (api_base or img_api_type == "custom") and img_api_key:
+            elif img_api_type in ("modelscope", "ali", "agnes", "custom") and (api_base or img_api_type == "custom") and img_api_key:
                 # 复用原有 API 调用逻辑 (简化版，确保核心可用)
                 # ... (由于长度限制，这里通常应该调用一个更通用的 generate_image_sync 方法)
                 # 为了保持代码简洁且不破坏原有复杂逻辑，我们在这里直接声明一个 generate_image_sync 的代理调用

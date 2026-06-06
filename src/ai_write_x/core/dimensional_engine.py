@@ -444,6 +444,10 @@ class DimensionalCreativeEngine:
         prompt_parts.append(
             "\n【语言规范】：全文中文叙事；禁止用英文镜头/电影术语作章节标题；不要写成分镜脚本。"
         )
+        prompt_parts.append(
+            "\n【话题锚定（最高优先级）】：创意变换必须严格围绕原话题展开。变换的是表达方式、叙事视角和修辞手法，"
+            "绝不是话题本身。禁止将文章改写为与原话题无关的内容。原话题中的核心关键词必须在变换后的正文中出现。"
+        )
 
         return "\n".join(prompt_parts)
 
@@ -526,7 +530,7 @@ class DimensionalCreativeEngine:
             "topic": clean_topic,
             "content": content,
             "creative_prompt": creative_prompt,
-            "dimensions": dimensions_list,  # 使用转换后的格式
+            "dimensions": dimensions_list,
         }
 
         try:
@@ -638,6 +642,8 @@ class DimensionalCreativeEngine:
 
 你需要将这些维度的特点融合到内容中，创造出独特而富有创意的作品。
 保持内容的核心信息不变，但要在表达方式、风格、视角等方面体现出这些维度的特色。
+
+【话题锚定铁律】：你变换的只是表达方式和叙事角度，绝不是话题本身。变换后的文章必须仍然严格围绕原话题展开，原话题的核心关键词必须在正文中出现。禁止将文章改写为与原话题无关的创意故事。
 
 【极度重要的字数限制】：变换后的内容**绝对不能比原文字数短**！你必须通过你丰富的创意和详尽的补充细节，使变换后的文章变得比原来还要长，并且充斥着深度分析，严禁对其进行任何形式的粗糙总结、遗漏核心段落或内容压缩。""",
                 tools=[],

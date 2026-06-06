@@ -1,9 +1,9 @@
-{
-    "latest_version": "1.0.2",
-    "min_supported_version": "1.0.2",
+﻿{
+    "latest_version": "1.2.8",
+    "min_supported_version": "1.0.4",
     "auto_update_on_startup": true,
     "auto_update_silent": true,
-    "release_notes": "小爆来咯 v1.0.2",
-    "published_at": "2026-05-24T14:08:13Z",
-    "download_url": "https://updates.bcxtech.cn/updates/XBoom-Setup.exe"
+    "release_notes": "灏忕垎鏉ュ挴 v1.2.8锛氫慨澶嶆洿鏂板悗鏃犳硶鑷姩鍚姩鐨勯棶棰樸€佷紭鍖栦笅杞借繘搴︽潯浣撻獙",
+    "published_at": "2026-06-03T08:00:00Z",
+    "download_url": "https://updates.bcxtech.cn/updates/灏忕垎鏉ュ挴-Setup-v1.2.8.exe"
 }

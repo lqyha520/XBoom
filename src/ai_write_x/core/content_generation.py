@@ -96,7 +96,14 @@ class ContentGenerationEngine(BaseWorkflowFramework):
                 # 执行 CrewAI 流程 (Master Drafting)
                 from src.ai_write_x.config.config import Config
                 import src.ai_write_x.utils.log as lg
-                result = crew.kickoff(inputs=input_data)
+
+                _safe_inputs = dict(input_data)
+                for agent in self.agents.values():
+                    if hasattr(agent, "role") and "role" not in _safe_inputs:
+                        _safe_inputs["role"] = agent.role
+                    if hasattr(agent, "goal") and "goal" not in _safe_inputs:
+                        _safe_inputs["goal"] = agent.goal
+                result = crew.kickoff(inputs=_safe_inputs)
                 
                 # 检查结果是否为空
                 if not result or str(result).strip() == "":

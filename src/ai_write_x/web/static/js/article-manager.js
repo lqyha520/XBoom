@@ -147,9 +147,9 @@ class ArticleManager {
             const response = await fetch('/api/articles');
             if (response.ok) {
                 const result = await response.json();
-                // 与模板库保持一致,提取 data 字段
                 this.articles = result.data || [];
                 this.filterArticles();
+                this.renderStatusTree();
             }
         } catch (error) {
             console.error('加载文章失败:', error);
@@ -1112,9 +1112,6 @@ class ArticleManager {
     async refreshArticles() {
         try {
             await this.loadArticles();
-            this.renderStatusTree();
-            this.renderArticles();
-
             window.app?.showNotification('已刷新文章列表', 'success');
         } catch (error) {
             window.app?.showNotification('刷新失败: ' + error.message, 'error');
@@ -2110,12 +2107,15 @@ class ArticleManager {
             'info'
         );
 
-        // 切换到文章库视图（确保 modal 容器存在）
-        const articleViewLink = document.querySelector('[data-view="article-manager"]');
-        if (articleViewLink) {
-            articleViewLink.click();
-            // 等待视图切换完成
-            await new Promise(resolve => setTimeout(resolve, 500));
+        // 仅在当前不在文章库视图时才切换（避免重复切换导致闪烁）
+        const activeView = document.querySelector('.nav-item.active');
+        const isArticleView = activeView?.getAttribute('data-view') === 'article-manager';
+        if (!isArticleView) {
+            const articleViewLink = document.querySelector('[data-view="article-manager"]');
+            if (articleViewLink) {
+                articleViewLink.click();
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
         }
 
         // 调用 openReTemplateModal，它会自动设置文章并开始执行
@@ -2862,7 +2862,6 @@ class ArticleManager {
                     if (response.ok) {
                         window.app?.showNotification('文章已删除', 'success');
                         await this.loadArticles();
-                        this.renderStatusTree();
                     } else {
                         const error = await response.json();
                         window.app?.showNotification('删除失败: ' + (error.detail || '未知错误'), 'error');
@@ -2906,9 +2905,7 @@ class ArticleManager {
 
                 window.app?.showNotification(`删除完成: ${successCount}/${count}`, 'success');
 
-                // 更新数据  
                 await this.loadArticles();
-                this.renderStatusTree();
 
                 // 退出批量模式  
                 this.selectedArticles.clear();
@@ -3305,6 +3302,15 @@ class ArticleManager {
         }
     }
 
+    async refreshImages() {
+        try {
+            await this.loadImages();
+            window.app?.showNotification('已刷新图片列表', 'success');
+        } catch (error) {
+            window.app?.showNotification('刷新图片列表失败: ' + error.message, 'error');
+        }
+    }
+
     // 渲染图片卡片网格
     renderImageGallery(images) {
         const grid = document.getElementById('image-gallery-grid');
@@ -3318,20 +3324,32 @@ class ArticleManager {
         }
         if (emptyEl) emptyEl.style.display = 'none';
 
-        grid.innerHTML = images.map(img => `
-            <div class="image-gallery-card" style="background:var(--card-bg,#fff);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);transition:transform .2s,box-shadow .2s;border:1px solid var(--border-color,#e0e0e0)">
+        grid.innerHTML = images.map(img => {
+            const safeFilename = img.filename.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `
+            <div class="image-gallery-card" data-filename="${safeFilename}" style="background:var(--card-bg,#fff);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);transition:transform .2s,box-shadow .2s;border:1px solid var(--border-color,#e0e0e0)">
                 <div style="position:relative;aspect-ratio:1;overflow:hidden;cursor:pointer" onclick="window.open('${img.path}','_blank')">
-                    <img src="${img.path}" alt="${img.filename}" loading="lazy" style="width:100%;height:100%;object-fit:cover;transition:transform .3s" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                    <img src="${img.path}" alt="${safeFilename}" loading="lazy" style="width:100%;height:100%;object-fit:cover;transition:transform .3s" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
                 </div>
                 <div style="padding:10px 12px">
-                    <div style="font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${img.filename}">${img.filename}</div>
+                    <div style="font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${safeFilename}">${img.filename}</div>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
                         <span style="font-size:11px;color:var(--text-tertiary)">${img.size_display} · ${img.create_time}</span>
-                        <button onclick="window.articleManager?.deleteImage('${img.filename}')" style="background:none;border:none;cursor:pointer;color:var(--danger-color,#ef4444);font-size:14px;padding:2px 4px;border-radius:4px;transition:background .2s" title="删除" onmouseover="this.style.background='rgba(239,68,68,.1)'" onmouseout="this.style.background='none'">🗑️</button>
+                        <button class="img-delete-btn" data-filename="${safeFilename}" style="background:none;border:none;cursor:pointer;color:var(--danger-color,#ef4444);font-size:14px;padding:2px 4px;border-radius:4px;transition:background .2s" title="删除" onmouseover="this.style.background='rgba(239,68,68,.1)'" onmouseout="this.style.background='none'">🗑️</button>
                     </div>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
+
+        grid.querySelectorAll('.img-delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const filename = btn.dataset.filename;
+                if (filename) {
+                    this.deleteImage(filename);
+                }
+            });
+        });
     }
 
     // 删除单张图片

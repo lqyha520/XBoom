@@ -99,6 +99,18 @@ class DBManager:
         except Exception:
             return False
 
+    def get_recent_topics(self, days: int = 7) -> List[str]:
+        try:
+            from datetime import timedelta
+            with get_session() as session:
+                cutoff = datetime.now() - timedelta(days=days)
+                statement = select(Topic).where(Topic.created_at >= cutoff)
+                topics = session.exec(statement).all()
+                return [t.title for t in topics if t.title]
+        except Exception as e:
+            log.print_log(f"[DBManager] 获取近期话题失败: {e}", "warning")
+            return []
+
     # --- Article Operations ---
     def save_article(self, topic_title: str, content: str, fmt: str = "HTML", version: int = 1) -> Optional[Article]:
         try:
@@ -243,7 +255,8 @@ class DBManager:
 
     def add_scheduled_task(self, topic: str, execution_time: datetime, platform: str = "wechat", 
                            is_recurring: bool = False, interval_hours: int = 0,
-                           article_count: int = 1, use_ai_beautify: bool = True) -> Optional[ScheduledTask]:
+                           article_count: int = 1, use_ai_beautify: bool = True,
+                           collection_mode: bool = False) -> Optional[ScheduledTask]:
         try:
             with get_session() as session:
                 task = ScheduledTask(
@@ -253,7 +266,8 @@ class DBManager:
                     is_recurring=is_recurring,
                     interval_hours=interval_hours,
                     article_count=article_count,
-                    use_ai_beautify=use_ai_beautify
+                    use_ai_beautify=use_ai_beautify,
+                    collection_mode=collection_mode
                 )
                 session.add(task)
                 session.commit()

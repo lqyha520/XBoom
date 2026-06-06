@@ -39,14 +39,14 @@
     },
     "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "CLIP文本编码"
+      "title": "CLIP正向文本编码"
     }
   },
   "35": {
     "inputs": {
       "seed": 789805265906945,
-      "steps": 9,
-      "cfg": 1,
+      "steps": 12,
+      "cfg": 3.5,
       "sampler_name": "euler",
       "scheduler": "simple",
       "denoise": 1,
@@ -74,14 +74,15 @@
   },
   "36": {
     "inputs": {
-      "conditioning": [
-        "34",
+      "text": "text overlay, written text, printed text, painted text, engraved text, floating text, text bubble, speech bubble, title card, headline, article title, chapter heading, page header, text caption, subtitle bar, lower third, text watermark, text logo, text signature, text stamp, text label, text tag, calligraphy text, brush writing, hand lettering, chalk writing, neon sign text, signboard text, poster text, banner text, billboard text, book title text, magazine cover text, newspaper headline, document text, screen text, UI text, menu text, QR code, barcode, Chinese characters, Hanzi, Kanji, English letters, numbers, digits, garbled text, gibberish text, text distortion, deformed iris, double eyelashes, smudged pupils, extra fingers, fused fingers, malformed hands, bad anatomy, blurry face, duplicate features, color bleeding, oversaturated skin, grayish skin tone",
+      "clip": [
+        "32",
         0
       ]
     },
-    "class_type": "ConditioningZeroOut",
+    "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "条件零化"
+      "title": "CLIP负向文本编码(禁文字)"
     }
   },
   "37": {

@@ -41,9 +41,30 @@ def is_lifestyle_or_pet_topic(topic: str = "", content: str = "") -> bool:
     return any(kw in text for kw in keywords)
 
 
+# 注意：并非所有图片服务都支持专用 negative_prompt 字段或 `--no` 语法。
+# 我们仍维护一份“禁字负面词库”，供 prompt 拼接/解析时复用（尽量覆盖常见出字场景）。
 _NO_TEXT_NEG = (
-    "text, words, letters, typography, watermark, caption, subtitle, "
-    "Chinese characters, English text, logo, signature, bad anatomy, blurry"
+    # 文字叠加形态（Z-Image Turbo对具体形态描述响应更好）
+    "text overlay, written text, printed text, painted text, engraved text, floating text, "
+    "text bubble, speech bubble, title card, headline, article title, chapter heading, page header, "
+    "text caption, subtitle bar, lower third, "
+    # 文字载体
+    "text watermark, text logo, text signature, text stamp, text label, text tag, "
+    "calligraphy text, brush writing, hand lettering, chalk writing, "
+    "neon sign text, signboard text, poster text, banner text, billboard text, "
+    "book title text, magazine cover text, newspaper headline, document text, "
+    "screen text, UI text, menu text, "
+    # 语言/字符
+    "Chinese characters, Hanzi, Kanji, English letters, numbers, digits, "
+    # 机器码
+    "QR code, barcode, "
+    # 错误形态
+    "garbled text, gibberish text, text distortion, "
+    # Z-Image Turbo特有质量约束（具体化描述比泛化词更有效）
+    "deformed iris, double eyelashes, smudged pupils, "
+    "extra fingers, fused fingers, malformed hands, "
+    "bad anatomy, blurry face, duplicate features, "
+    "color bleeding, oversaturated skin, grayish skin tone"
 )
 
 _SCENE_LABEL_RE = re.compile(
@@ -344,5 +365,6 @@ def normalize_title_candidate(raw: str) -> str:
         if sep in title:
             title = title.split(sep, 1)[0].strip()
     title = title.replace("[⭐推荐]", "").replace("⭐推荐", "").strip()
+    title = re.sub(r"^(悬念型|数字型|冲突型|情绪型|实用型)[：:]\s*", "", title)
     title = re.sub(r"\s+", " ", title)
     return title

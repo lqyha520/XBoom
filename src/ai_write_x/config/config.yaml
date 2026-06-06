@@ -38,12 +38,12 @@ wechat:
     - appid: ''
       appsecret: ''
       author: 微笑
-      draft_only: true
+      draft_only: false
       call_sendall: false
-      sendall: true
+      sendall: false
       tag_id: 0
 api:
-  api_type: CustomAPI_1779879095949
+  api_type: agnes
   OpenRouter:
     key: OPENROUTER_API_KEY
     key_index: ''
@@ -179,7 +179,21 @@ api:
     - CustomAPI_1779639945233
     - CustomAPI_1779876098336
     - CustomAPI_1779640319374
-  custom: []
+    - CustomAPI_1779406666087
+  custom:
+    - name: agnes
+      provider: openai
+      api_base: https://apihub.agnes-ai.com/v1
+      api_key: []
+      model: agnes-2.0-flash
+      models:
+        - agnes-1.5-flash
+        - agnes-video-v2.0
+        - agnes-image-2.1-flash
+        - agnes-2.0-flash
+        - agnes-image-2.0-flash
+      tested: true
+      isCurrent: true
   gpt:
     key: OPENAI_API_KEY
     api_key: []
@@ -353,6 +367,19 @@ api:
     model_index: 0
     api_base: https://token.sensenova.cn/v1
     provider: openai
+  agnes:
+    key: OPENAI_API_KEY
+    api_key: []
+    key_index: ''
+    model:
+      - agnes-1.5-flash
+      - agnes-video-v2.0
+      - agnes-image-2.1-flash
+      - agnes-2.0-flash
+      - agnes-image-2.0-flash
+    model_index: 3
+    api_base: https://apihub.agnes-ai.com/v1
+    provider: openai
 auto_publish: false
 format_publish: true
 auto_delete_published: false
@@ -385,6 +412,11 @@ img_api:
   picsum:
     api_key: ''
     model: ''
+    api_base: ''
+  agnes:
+    api_key: ''
+    api_base: ''
+    model: agnes-image-2.1-flash
 strict_freshness: true
 aiforge_search_max_results: 20
 aiforge_search_min_results: 10
@@ -1131,9 +1163,9 @@ use_compress: true
 menu_access:
   enabled: true
   mysql:
-    host: "81.71.94.132"
+    host: 81.71.94.132
     port: 3306
     database: XBoom
     user: xboom
-    password: "4LBZ8n88Ijlyr6Lh"
+    password: 4LBZ8n88Ijlyr6Lh
     connect_timeout: 5

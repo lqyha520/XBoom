@@ -11,8 +11,23 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
 
+def _resolve_spider_dir() -> Path:
+    """开发环境与 PyInstaller/Nuitka 安装包下统一解析爬虫目录"""
+    from src.ai_write_x.utils import utils
+
+    candidates = []
+    if utils.get_is_release_ver():
+        candidates.append(Path(utils.get_res_path("src/ai_write_x/scrapers")))
+    candidates.append(Path(__file__).resolve().parent.parent / "scrapers")
+
+    for path in candidates:
+        if path.is_dir() and any(path.glob("*.py")):
+            return path
+    return candidates[-1]
+
+
 # 添加 src/ai_write_x/scrapers 到路径
-SPIDER_DIR = Path(__file__).parent.parent / "scrapers"
+SPIDER_DIR = _resolve_spider_dir()
 sys.path.insert(0, str(SPIDER_DIR))
 
 import sys
@@ -151,7 +166,7 @@ class SpiderRunner:
         if not os.path.exists(SPIDER_DIR):
             log.print_log(f"[SpiderRunner] 爬虫目录不存在: {SPIDER_DIR}", "error")
             return
-        
+
         # V18: 终极扩展，打造全网最强抓取能力
         spider_files = [
             # ========== V18新增：多平台热榜 ==========
@@ -465,9 +480,9 @@ class SpiderRunner:
         return [
             {
                 "name": name,
-                "display_name": info["name"],
+                "display_name": info.get("source") or info["name"],
                 "category": info["category"],
-                "enabled": info["enabled"]
+                "enabled": info["enabled"],
             }
             for name, info in self.spiders.items()
         ]
@@ -571,5 +586,12 @@ def get_task_status() -> Dict:
     }
 
 
-# 全局实例
-spider_runner = SpiderRunner()
+# 全局实例（安装包内同步预加载，避免资讯采集页打开时列表仍为空）
+def _create_global_spider_runner() -> SpiderRunner:
+    from src.ai_write_x.utils import utils
+
+    sync = utils.get_is_release_ver()
+    return SpiderRunner(sync_load=sync)
+
+
+spider_runner = _create_global_spider_runner()

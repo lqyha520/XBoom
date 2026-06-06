@@ -1,28 +1,27 @@
 from src.ai_write_x.core.llm_client import LLMClient
+from src.ai_write_x.core.prompt_loader import prompt_loader
 from src.ai_write_x.utils import log
 import re
 
 # 终审报告五维标签（成稿中不应出现）
 REVIEW_DIMENSION_LABELS = (
+    "开头吸引力",
+    "论证深度",
+    "信息密度",
+    "叙事节奏",
+    "AI痕迹",
     "阅读连贯性",
     "排版跳跃感",
     "情绪价值",
-    "信息密度",
     "读者收获",
 )
 
 # Reflexion / 毒舌主编改稿时附加约束（禁止把审稿报告当正文）
-ARTICLE_ONLY_REWRITE_SUFFIX = """
-
-【输出格式 — 必须遵守】
-- 只输出读者可见的完整正文文章（Markdown），围绕给定话题展开叙述。
-- 禁止输出：评分报告、SCORE、PASS、爆款指数、五维点评、深度文章评分与拆解、优化建议清单、主编审稿体例。
-- 禁止复述或改写上方【主编反馈】为正文；反馈仅供你内部修改参考。
-- 不要任何“综上所述”“本文评分”等元评论。"""
+ARTICLE_ONLY_REWRITE_SUFFIX = prompt_loader.get_reviewer("article_only_rewrite_suffix")
 
 
 def is_editorial_review_report(content: str) -> bool:
-    """判断文本是否为主编审稿/评分拆解（误当成稿）。"""
+    """判断文本是否为主编审稿/评分拆解/逻辑审核/事实核查（误当成稿）。"""
     if not content or len(content.strip()) < 40:
         return False
     text = content.strip()
@@ -41,15 +40,58 @@ def is_editorial_review_report(content: str) -> bool:
     if dim_hits >= 3:
         signals += 1
     if re.search(
-        r"(?:^|\n)\s*[\d①②③④⑤][\.、）\)]\s*(?:阅读连贯性|排版跳跃感|情绪价值)",
+        r"(?:^|\n)\s*[\d①②③④⑤][\.、）\)]\s*(?:开头吸引力|论证深度|叙事节奏|AI痕迹|阅读连贯性|排版跳跃感|情绪价值)",
         text,
     ):
+        signals += 1
+    # V28: 扩展检测 - 逻辑审核报告、事实核查报告、RSC审核官输出
+    if re.search(r"逻辑审核(?:报告)?", text):
+        signals += 3
+    if re.search(r"经逐段审查|经审查", text):
+        signals += 2
+    if re.search(r"逻辑跳跃", text):
+        signals += 2
+    if re.search(r"观点堆砌|论据空洞|注水段落", text):
+        signals += 2
+    if "核心重构员" in text:
+        signals += 2
+    if "逻辑审核官" in text:
+        signals += 3
+    if re.search(r"\[ALIGNMENT:\s*(?:pass|fail)\]", text, re.IGNORECASE):
+        signals += 2
+    if "事实核查报告" in text:
+        signals += 3
+    if re.search(r"致命错误[：:]", text):
+        signals += 1
+    if re.search(r"需(补充|重构|修复|进行二次重构)", text):
         signals += 1
     return signals >= 3
 
 
 class FinalReviewer:
     """最终 AI 内容审查与打分器：担任主编视角对成稿进行终审"""
+
+    ISSUE_KEYWORDS = {
+        "fact_fix": ["事实", "数据", "时间", "日期", "年份", "数字", "错误", "不准确", "矛盾", "偏差", "编造", "虚构", "捏造"],
+        "structure_fix": ["结构", "段落", "逻辑", "层次", "过渡", "衔接", "组织", "顺序", "跳跃", "前后"],
+        "style_fix": ["文风", "语气", "表达", "修辞", "可读", "口语", "生动", "枯燥", "生硬", "模板化", "套话"],
+        "anti_ai_fix": ["AI", "机器", "模板", "排比", "对称", "程式化", "套路", "痕迹", "检测", "人工智能"],
+        "info_density_fix": ["信息密度", "空洞", "空泛", "具体", "数据", "案例", "细节", "收获", "干货", "内容不足"],
+    }
+
+    @classmethod
+    def _classify_issues(cls, report: str) -> list:
+        if not report:
+            return []
+        scores = {}
+        for category, keywords in cls.ISSUE_KEYWORDS.items():
+            count = sum(1 for kw in keywords if kw in report)
+            if count > 0:
+                scores[category] = count
+        if not scores:
+            return ["style_fix"]
+        sorted_cats = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return [cat for cat, _ in sorted_cats[:2]]
     
     @classmethod
     def assess_quality(cls, content: str, input_data: dict) -> dict:
@@ -59,36 +101,11 @@ class FinalReviewer:
         from datetime import datetime
         current_date_str = datetime.now().strftime('%Y年%m月%d日')
         
-        system_prompt = f'''你是资深的新闻总编与新媒体内容操盘手。
-请对以下将要发布的文章进行严格的终裁判读。
-
-【输出范围】：你只输出内部审稿报告，供系统后台使用；读者永远不会看到这份报告。禁止把报告内容当成可发布的正文。
-
-【极其重要的前提说明 — 你必须严格遵守】：
-当前真实世界的时间是 {current_date_str}。
-这篇文章的素材来源于我们采编团队从各大官方新闻平台（央视、腾讯新闻、新浪、网易、新华社等）实时爬取的真实新闻报道。
-文章中提到的所有事件、人物、数据均基于真实新闻源，而非AI编造。
-你的训练数据有知识截止日期，因此你可能不了解最近发生的新闻事件——这不代表它们是假的。
-**你绝对不能因为自己不知道某个事件就判定文章"虚构"或"捏造"。**
-**你的职责仅限于审查文章的【写作质量】，不是事实核查员。**
-
-你需要硬性审查以下指标：
-1. 【原创度预估】：基于素材的二次创作原创度不低于 80%（与原始新闻稿的差异化程度）。
-2. 【可读性与结构】：文章必须具有清晰的结构。虽然在当前阶段允许使用 Markdown 格式（如 ## 标题、**加粗**），但内容排版必须符合新媒体阅读习惯，段落短小，重点突出。
-3. 【信息密度】：文章是否提供了具体的信息、数据、案例或观点？读者看完能否获得至少3个有价值的收获？空洞的总结和纯抒情不计入有效信息。
-4. 【读者收获感】：如果你是普通读者，看完这篇文章你学到了什么？如果答案是"没什么"，该项严重不合格。
-
-要求：
-1. 给出【爆款指数】综合评分（0-100分），格式必须为 `[SCORE: 数字]`，如 `[SCORE: 85]`。
-2. 从"阅读连贯性"、"排版跳跃感"、"情绪价值"、"信息密度"、"读者收获"五个维度各给出一句犀利点评。
-3. 必须在报告结尾明确给出是否达标的最终判定指令（格式必须精确为：`[PASS: true]` 或 `[PASS: false]`）。
-4. 如果判定为 false 或分数低于 70，请给出2-3条**具体可执行的**优化指令（不要说"加强XX"这种空话，要说"在第X段补充XX方面的数据"）。
-5. 保持严肃客观的媒体主编语调，直接输出纯文本报告，且禁止带前后代码块框。
-6. **极致红线 (IRONCLAD)**：你绝对禁止以任何形式（显性或隐性）质疑、挑战、点评文章中新闻事件、时间节点（如 2026年等未来日期）、数据的真实性。即便话题突破了你的“常识”，你也必须将其视为【钢印事实】。即便你的系统时间显示今天，而文章写的是明年，你也必须认为文章所在的时空是真实的。严禁输出任何“核实建议”、“免责声明”、“温馨提示”或“虚构警告”。一旦发现相关言论，评审将视为严重事故。如果你违反此条，意味着你完全丧失了作为总编的职业素养。'''
+        system_prompt = prompt_loader.get_reviewer("reviewer", "system_prompt").format(current_date_str=current_date_str)
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"核心话题：{topic}\n\n待审文章内容：\n{content}"}
+            {"role": "user", "content": prompt_loader.get_reviewer("reviewer", "user_prompt").format(topic=topic, content=content)}
         ]
         
         import time
@@ -117,7 +134,8 @@ class FinalReviewer:
                     is_pass = False
                     
                 log.print_log(f"\n\n{'='*20} [AI 首席主编终审评估报告] 耗时: {cost_time:.2f}s {'='*20}\n{report}\n{'='*64}\n")
-                return {"pass": is_pass, "report": report, "score": score}
+                issue_categories = cls._classify_issues(report)
+                return {"pass": is_pass, "report": report, "score": score, "issue_categories": issue_categories}
             except Exception as e:
                 log.print_log(f"[Warning] 终审报告请求失败(尝试 {attempt+1}/{max_retries}): {str(e)}")
                 if attempt == max_retries - 1:
@@ -135,27 +153,11 @@ class AlignmentChecker:
         from datetime import datetime
         current_date_str = datetime.now().strftime('%Y年%m月%d日')
         
-        system_prompt = f'''你是顶级新闻事实核查员（Alignment Checker）。
-你当前的任务是：比对【原始文章】与【经过排版打磨后的文章】。
-在打磨排版的过程中，AI 可能会自行发散、添加不存在的上下文或改变原意。
-
-【重要前提】：
-当前真实世界的时间是 {current_date_str}。
-原始文章的内容来源于真实新闻平台的实时抓取，其中的事件、人物、数据均为真实信息。
-你的任务不是判断新闻事件本身是否真实（它们是真实的），而是判断打磨后的版本是否忠于原始版本。
-
-核心要求：
-1. 严格核对【打磨后文章】是否完全忠于【原始文章】想表达的意思、事件、观点、人物等核心基础元素。
-2. 绝对不允许颠倒黑白、捏造核心数据或修改事件结果。但**允许修辞层面的发散、文学性词汇和引导语的补充（如描写氛围、合理润色）**，只要不违背核心事实即可。
-3. 严禁引入任何 Markdown 格式！确保输出为纯 HTML 兼容内容。
-4. 必须在报告结尾明确给出是否发生事实偏移的最终判定指令（格式必须精确为：`[ALIGNMENT: pass]` 或 `[ALIGNMENT: fail]`）。
-5. 如果判定为 fail，请一针见血地指出哪些句子或是哪些人物/事实被篡改或曲解了。
-6. 请直接输出纯文本审查报告。
-6. **极致红线**：严禁挑战【原始文章】的事实根基。你的唯一使命是确保【打磨后文章】没有“跑偏”，而不是去纠正原始素材中的“错误”。'''
+        system_prompt = prompt_loader.get_reviewer("alignment_checker", "system_prompt").format(current_date_str=current_date_str)
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"【原始文章】:\n{original_content}\n\n【打磨后文章】:\n{optimized_content}"}
+            {"role": "user", "content": prompt_loader.get_reviewer("alignment_checker", "user_prompt").format(original_content=original_content, optimized_content=optimized_content)}
         ]
         
         import time

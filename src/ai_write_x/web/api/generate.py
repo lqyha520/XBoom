@@ -51,6 +51,7 @@ class GenerateRequest(BaseModel):
     ai_beautify: Optional[bool] = False
     filter_processed: Optional[bool] = False
     fast_mode: Optional[bool] = False
+    collection_mode: Optional[bool] = False
 
 
 @router.get("/config/validate")
@@ -91,6 +92,8 @@ async def validate_config():
 async def generate_content(request: GenerateRequest):
     # 放弃上次未完成/已中断的任务，始终启动全新创作（不续跑）
     task_manager.prepare_for_new_task("main_generate")
+    global _last_generation_meta
+    _last_generation_meta = {"article_paths": [], "ai_beautify": False}
 
     try:
         config = Config.get_instance()
@@ -133,7 +136,7 @@ async def generate_content(request: GenerateRequest):
         import threading
         import queue
         
-        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False, fast_mode=False):
+        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False, fast_mode=False, collection_mode=False):
             # V11 Hotfix: 通过 log.get_process_queue() 动态获取当前线程绑定的日志队列
             # 兼容 task_manager.py 的 _worker_wrapper 注入逻辑
             import src.ai_write_x.utils.log as lg
@@ -172,21 +175,49 @@ async def generate_content(request: GenerateRequest):
                 
                 # V12 Optimization: 预先确定所有文章的话题，显著减少重复抓取和 AI 思考耗时
                 if req_topic:
-                    topics_to_generate.append(req_topic)
-                    if article_count > 1:
-                        lg.print_log(f"🧠 正在让 AI 基于原话题发散 {article_count-1} 个全新视角...", "info")
+                    if collection_mode:
+                        series_name = req_topic.split("：", 1)[0] if "：" in req_topic else req_topic
+                        from src.ai_write_x.utils.topic_deduplicator import TopicDeduplicator
+                        _dedup = TopicDeduplicator(dedup_days=7)
+                        recent = _dedup.get_recent_topics(days=7) if hasattr(_dedup, 'get_recent_topics') else []
+                        excluded_str = '、'.join(recent[:20]) if recent else '无'
+                        sub_prompt = (
+                            f"核心系列「{series_name}」，请为每篇文章生成一个不同的子话题。\n"
+                            f"要求：只输出子话题本身，不要包含「{series_name}」前缀，不要冒号，不要序号。\n"
+                            f"不要与以下已用选题重复：{excluded_str}\n"
+                            f"共需 {article_count} 个子话题，每行一个。"
+                        )
                         try:
                             from src.ai_write_x.core.llm_client import LLMClient
                             llm = LLMClient()
-                            prompt = f"以“{req_topic}”为核心，请发散提供 {article_count-1} 个互不相同、切入点独特的相关新闻话题。每行输出一个标题，不要包含序号、前缀或任何多余文字。"
-                            res = llm.chat([{"role": "user", "content": prompt}]).strip()
-                            lines = [l.strip().strip('-*0123456789. \n"\'') for l in res.split('\n') if l.strip()]
-                            for line in lines:
-                                if line and line not in topics_to_generate:
-                                    topics_to_generate.append(line)
+                            res = llm.chat([{"role": "user", "content": sub_prompt}], temperature=0.9).strip()
+                            lines_res = [l.strip().strip('-*0123456789. \n"\'') for l in res.split('\n') if l.strip()]
+                            for line in lines_res:
+                                if line:
+                                    full_title = f"{series_name}：{line}" if not line.startswith(series_name) else line
+                                    if full_title not in topics_to_generate:
+                                        topics_to_generate.append(full_title)
                         except Exception:
-                            for idx in range(1, article_count):
-                                topics_to_generate.append(f"{req_topic} 深度追踪 {idx+1}")
+                            pass
+                        while len(topics_to_generate) < article_count:
+                            topics_to_generate.append(f"{series_name}：系列深度解析 {len(topics_to_generate)+1}")
+                    else:
+                        topics_to_generate.append(req_topic)
+                        if article_count > 1:
+                            lg.print_log(f"🧠 正在让 AI 基于原话题发散 {article_count-1} 个全新视角...", "info")
+                            try:
+                                from src.ai_write_x.core.llm_client import LLMClient
+                                llm = LLMClient()
+                                prompt = f"以“{req_topic}”为核心，请发散提供 {article_count-1} 个互不相同、切入点独特的相关新闻话题。每行输出一个标题，不要包含序号、前缀或任何多余文字。"
+                                res = llm.chat([{"role": "user", "content": prompt}]).strip()
+                                lines_res = [l.strip().strip('-*0123456789. \n"\'') for l in res.split('\n') if l.strip()]
+                                for line in lines_res:
+                                    if line and line not in topics_to_generate:
+                                        topics_to_generate.append(line)
+                            except Exception:
+                                for idx in range(1, article_count):
+                                    topics_to_generate.append(f"{req_topic} 深度追踪 {idx+1}")
+
                 elif not is_reference:
                     from src.ai_write_x.core.llm_client import LLMClient
                     from src.ai_write_x.tools.spider_runner import SpiderRunner
@@ -401,7 +432,8 @@ async def generate_content(request: GenerateRequest):
                             "platform": req_platform,
                             "reference_content": "",
                             "date_str": d_str,
-                            "fast_mode": fast_mode
+                            "fast_mode": fast_mode,
+                            "collection_mode": collection_mode
                         }
                         lg.print_log(f"✅ config_data创建成功", "debug")
                     except Exception as config_e:
@@ -516,6 +548,7 @@ async def generate_content(request: GenerateRequest):
                             post_action = getattr(cfg, "post_action", "none")
                             
                             # === [新增] V6: 文章生成后入库及自动补图逻辑 ===
+                            sync_event = None
                             if final_result and final_result.get("success"):
                                 try:
                                     db_title = final_result.get("save_result", {}).get("title", t)
@@ -538,25 +571,34 @@ async def generate_content(request: GenerateRequest):
                                             or cfg.auto_publish
                                             or post_action in ("publish", "save")
                                         )
-                                        if need_sync_images:
-                                            lg.print_log(
-                                                "🎨 正在同步补齐文章配图与封面（发布前需等待生图完成）...",
-                                                "info",
-                                            )
-                                            VisualAssetsManager.auto_fix_article_images(article_path)
-                                        else:
-                                            lg.print_log("🎨 正在检测并补齐文章配图与封面...", "info")
-                                            import threading
-                                            img_thread = threading.Thread(
-                                                target=VisualAssetsManager.auto_fix_article_images,
-                                                args=(article_path,),
-                                                daemon=True,
-                                            )
-                                            img_thread.start()
+                                        lg.print_log("🎨 正在检测并补齐文章配图与封面...", "info")
+                                        import threading
+                                        def _async_fix_images_with_refresh(path, log_q, sync_event=None):
+                                            try:
+                                                VisualAssetsManager.auto_fix_article_images(path)
+                                                lg.print_log("✅ 后台补图完成，文章配图已就绪", "success")
+                                                if log_q:
+                                                    log_q.put({"type": "info", "message": "🔄 [IMG_FIX_DONE] 后台补图完成，请刷新文章列表", "timestamp": time.time()})
+                                            except Exception as ie:
+                                                lg.print_log(f"后台补图异常: {ie}", "warning")
+                                            finally:
+                                                if sync_event:
+                                                    sync_event.set()
+                                        sync_event = threading.Event() if need_sync_images else None
+                                        img_thread = threading.Thread(
+                                            target=_async_fix_images_with_refresh,
+                                            args=(article_path, log_q, sync_event),
+                                            daemon=True,
+                                        )
+                                        img_thread.start()
                                 except Exception as img_fix_e:
                                     lg.print_log(f"自动补图过程出现异常: {img_fix_e}", "warning")
 
                             if post_action != "none" and final_result and final_result.get("success"):
+                                # 发布前等待后台补图完成
+                                if sync_event:
+                                    lg.print_log("⏳ 等待后台补图完成后再执行发布动作...", "info")
+                                    sync_event.wait(timeout=120)
                                 lg.print_log(f"⚡ 正在执行文章完成后的自动化动作: {post_action}", "info")
                                 if post_action in ["publish", "save"]:
                                         try:
@@ -723,7 +765,8 @@ async def generate_content(request: GenerateRequest):
                 ref_dict,
                 request.ai_beautify,
                 request.filter_processed or False,
-                request.fast_mode or False
+                request.fast_mode or False,
+                request.collection_mode or False
             )
         )
         

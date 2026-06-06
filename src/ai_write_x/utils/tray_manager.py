@@ -23,17 +23,22 @@ class TrayManager:
     def _get_icon_path(self):
         """获取图标文件路径"""
         try:
-            # 复用现有的图标获取逻辑
+            # 优先使用 PNG 格式（pystray 兼容性更好）
             icon_path = utils.get_gui_icon()
             if isinstance(icon_path, str) and Path(icon_path).exists():
                 return Path(icon_path)
         except Exception:
             pass
 
-        # 回退到默认路径
+        # 回退到 PNG 图标
         gui_dir = Path(__file__).parent.parent / "assets"
-        default_icon = utils.get_res_path("branding/app_icon.ico", str(gui_dir))
-        return Path(default_icon) if Path(default_icon).exists() else None
+        png_icon = utils.get_res_path("branding/app_icon.png", str(gui_dir))
+        if Path(png_icon).exists():
+            return Path(png_icon)
+
+        # 最后回退到 ICO
+        ico_icon = utils.get_res_path("branding/app_icon.ico", str(gui_dir))
+        return Path(ico_icon) if Path(ico_icon).exists() else None
 
     def set_window_manager(self, window_manager):
         """设置窗口管理器引用"""
@@ -46,11 +51,16 @@ class TrayManager:
             if self.icon_path and self.icon_path.exists():
                 try:
                     image = Image.open(self.icon_path)
-                    # 确保图标尺寸适合托盘
+                    # 转换为 RGBA 模式（确保透明度支持）
+                    if image.mode != 'RGBA':
+                        image = image.convert('RGBA')
+                    # 确保图标尺寸适合托盘（Windows 推荐尺寸）
                     image = image.resize((64, 64), Image.Resampling.LANCZOS)
-                except Exception:
+                except Exception as e:
+                    print(f"加载图标失败: {e}, 使用默认图标")
                     image = self._create_default_icon()
             else:
+                print(f"图标文件不存在: {self.icon_path}, 使用默认图标")
                 image = self._create_default_icon()
 
             # 创建托盘菜单
@@ -62,12 +72,18 @@ class TrayManager:
 
             # 创建托盘图标
             self.tray = pystray.Icon(
-                self.app_name, image, f"{self.app_name} - 智能内容创作平台", menu
+                self.app_name,
+                image,
+                f"{self.app_name} - 智能内容创作平台",
+                menu
             )
 
+            print(f"✓ 托盘图标创建成功: {self.app_name}")
             return True
         except Exception as e:
             print(f"创建托盘图标失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _create_default_icon(self):
@@ -186,7 +202,11 @@ class TrayManager:
         if self.icon_path and self.icon_path.exists():
             try:
                 image = Image.open(self.icon_path)
+                # 转换为 RGBA 模式
+                if image.mode != 'RGBA':
+                    image = image.convert('RGBA')
                 return image.resize((64, 64), Image.Resampling.LANCZOS)
-            except Exception:
+            except Exception as e:
+                print(f"加载正常图标失败: {e}")
                 pass
         return self._create_default_icon()

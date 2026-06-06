@@ -1,6 +1,10 @@
-import asyncpg
 from typing import Optional
 from logger_utils import logger
+
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None  # 安装包未内置 PostgreSQL 驱动时仍可加载爬虫模块
 
 
 class PostgreSQLManager:
@@ -21,6 +25,8 @@ class PostgreSQLManager:
 
     async def create_pool(self):
         """创建连接池"""
+        if asyncpg is None:
+            raise RuntimeError("asyncpg 未安装，无法连接 PostgreSQL")
         self.pool = await asyncpg.create_pool(
             host=self.host,
             port=self.port,
@@ -93,5 +99,5 @@ class PostgreSQLManager:
                 print("表 'accounts_accountnews' 已存在，跳过创建")
 
 
-# 全局数据库管理器实例
-db_manager = PostgreSQLManager()
+# 全局数据库管理器实例（无 asyncpg 时仅禁用库写入，不影响爬虫模块加载）
+db_manager = PostgreSQLManager() if asyncpg is not None else None

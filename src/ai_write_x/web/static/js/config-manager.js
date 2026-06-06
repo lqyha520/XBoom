@@ -2542,6 +2542,47 @@ class AIWriteXConfigManager {
         dropdown.className = 'select-dropdown';
         dropdown.style.display = 'none';
 
+        const closeDropdown = () => {
+            dropdown.style.display = 'none';
+            dropdown.classList.remove('is-fixed');
+            dropdown.style.top = '';
+            dropdown.style.left = '';
+            dropdown.style.width = '';
+            dropdown.style.maxHeight = '';
+            if (dropdown.parentElement === document.body) {
+                container.appendChild(dropdown);
+            }
+            window.removeEventListener('scroll', closeDropdown, true);
+            window.removeEventListener('resize', closeDropdown);
+        };
+
+        const positionDropdown = () => {
+            const rect = display.getBoundingClientRect();
+            const gap = 4;
+            const maxH = Math.min(360, Math.floor(window.innerHeight * 0.5));
+            dropdown.style.width = `${Math.max(rect.width, 160)}px`;
+            dropdown.style.left = `${rect.left}px`;
+            dropdown.style.maxHeight = `${maxH}px`;
+            const dropdownHeight = Math.min(dropdown.scrollHeight, maxH);
+            const spaceBelow = window.innerHeight - rect.bottom - gap;
+            const spaceAbove = rect.top - gap;
+            if (dropdownHeight > spaceBelow && spaceAbove >= spaceBelow) {
+                dropdown.style.top = `${Math.max(gap, rect.top - dropdownHeight - gap)}px`;
+            } else {
+                dropdown.style.top = `${rect.bottom + gap}px`;
+            }
+        };
+
+        const openDropdown = () => {
+            renderOptions();
+            document.body.appendChild(dropdown);
+            dropdown.classList.add('is-fixed');
+            dropdown.style.display = 'block';
+            positionDropdown();
+            window.addEventListener('scroll', closeDropdown, true);
+            window.addEventListener('resize', closeDropdown);
+        };
+
         // 渲染选项列表  
         const renderOptions = () => {
             dropdown.innerHTML = '';
@@ -2553,7 +2594,7 @@ class AIWriteXConfigManager {
                 addOption.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     display.textContent = '-- 默认为主模型 --';
-                    dropdown.style.display = 'none';
+                    closeDropdown();
 
                     let fieldName = '';
                     if (type === '模板设计模型') fieldName = 'designer_model_index';
@@ -2588,7 +2629,7 @@ class AIWriteXConfigManager {
                 option.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     display.textContent = item;
-                    dropdown.style.display = 'none';
+                    closeDropdown();
 
                     const originalIndex = items.indexOf(item);
                     let fieldName = '';
@@ -2649,7 +2690,7 @@ class AIWriteXConfigManager {
                             await this.addModel(providerKey, rawValue);
                         }
                     }
-                    dropdown.style.display = 'none';
+                    closeDropdown();
                 }
             };
 
@@ -2675,6 +2716,9 @@ class AIWriteXConfigManager {
 
             dropdown.appendChild(input);
             setTimeout(() => input.focus(), 0);
+            if (dropdown.classList.contains('is-fixed')) {
+                positionDropdown();
+            }
         };
 
         // 初始化选项  
@@ -2690,19 +2734,18 @@ class AIWriteXConfigManager {
                 return;
             }
             
-            // 其他类型保持原来的下拉框行为
             const isVisible = dropdown.style.display === 'block';
-            dropdown.style.display = isVisible ? 'none' : 'block';
-
-            if (!isVisible) {
-                renderOptions(); // 每次打开时重新渲染选项  
+            if (isVisible) {
+                closeDropdown();
+            } else {
+                openDropdown();
             }
         });
 
         // 点击外部关闭  
         document.addEventListener('click', (e) => {
-            if (!container.contains(e.target)) {
-                dropdown.style.display = 'none';
+            if (!container.contains(e.target) && !dropdown.contains(e.target)) {
+                closeDropdown();
             }
         });
 
@@ -2918,8 +2961,27 @@ class AIWriteXConfigManager {
             const inputEl = document.getElementById(`img-api-${providerKey}-api-key`);
             if (inputEl) {
                 inputEl.value = apiKeyValue;
+                inputEl.classList.add('masked');
+                const keyCount = newKeys.length;
+                const statusText =
+                    keyCount > 1 ? `已配置（${keyCount} 个）` : keyCount === 1 ? '已配置' : '';
+                const toggle = inputEl.closest('.api-key-field')?.querySelector('.api-key-toggle');
+                if (toggle) toggle.textContent = apiKeyValue ? '显示' : '';
+                const status = inputEl.closest('.api-key-field')?.querySelector('.api-key-status');
+                if (status) {
+                    status.textContent = statusText;
+                } else if (statusText && inputEl.closest('.api-key-field')) {
+                    const label = inputEl.closest('.api-key-field').querySelector('label');
+                    if (label && !label.querySelector('.api-key-status')) {
+                        const span = document.createElement('span');
+                        span.className = 'api-key-status';
+                        span.textContent = statusText;
+                        label.appendChild(document.createTextNode(' '));
+                        label.appendChild(span);
+                    }
+                }
             }
-            
+
             closeModal();
         };
 
@@ -4154,6 +4216,7 @@ class AIWriteXConfigManager {
         let apiBase = '';
         if (providerKey === 'ali') apiBase = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
         else if (providerKey === 'modelscope') apiBase = 'https://api-inference.modelscope.cn/v1';
+        else if (providerKey === 'agnes') apiBase = 'https://apihub.agnes-ai.com/v1';
 
         if (!apiKey) {
             window.app?.showNotification('请先填写 API Key', 'warning');
@@ -4363,6 +4426,7 @@ class AIWriteXConfigManager {
             { key: 'picsum', display: 'Picsum（随机图）', kind: 'builtin' },
             { key: 'ali', display: '阿里百炼', kind: 'builtin' },
             { key: 'modelscope', display: '魔搭 ModelScope', kind: 'builtin' },
+            { key: 'agnes', display: 'Agnes AI', kind: 'builtin' },
             { key: 'comfyui', display: 'ComfyUI（本地）', kind: 'builtin' },
         ];
         const customs = (this.customImgAPIs || []).map((api, index) => ({
@@ -4409,6 +4473,7 @@ class AIWriteXConfigManager {
             picsum: 'Picsum（随机图）',
             ali: '阿里百炼',
             modelscope: '魔搭 ModelScope',
+            agnes: 'Agnes AI',
             comfyui: 'ComfyUI',
         };
         return map[providerKey] || providerKey;
@@ -4536,7 +4601,7 @@ class AIWriteXConfigManager {
         try {
             if (option.kind === 'custom' && option.customIndex !== undefined) {
                 await this.testCustomImgAPI(option.customIndex);
-            } else if (['ali', 'modelscope'].includes(option.key)) {
+            } else if (['ali', 'modelscope', 'agnes'].includes(option.key)) {
                 await this.testBuiltinImgAPI(option.key);
             } else if (option.key === 'comfyui') {
                 await this.testComfyUI();
@@ -4590,9 +4655,119 @@ class AIWriteXConfigManager {
         return wrap;
     }
 
+    /** 将当前可见的配图服务表单同步到内存配置（切换服务商前调用，避免 KEY 丢失） */
+    syncVisibleImgAPIProviderFromDOM() {
+        const selected = this.resolveImgProviderOption(this._selectedImgAPIProvider);
+        if (!selected) return;
+
+        if (selected.kind === 'custom' && selected.customIndex !== undefined) {
+            const idx = selected.customIndex;
+            const card = document.querySelector(`.custom-api-card[data-index="${idx}"]`);
+            if (!card || !this.customImgAPIs[idx]) return;
+            const api = this.customImgAPIs[idx];
+            const nameInput = card.querySelector('input[placeholder*="Stable"]') || card.querySelector('.custom-api-form input[type="text"]');
+            const baseInput = card.querySelector('input[placeholder="https://api.openai.com/v1"]');
+            const keyInput = card.querySelector('input[type="password"]');
+            const modelInput = document.getElementById(`custom-img-model-input-${idx}`);
+            if (nameInput) api.name = nameInput.value;
+            if (baseInput) api.api_base = baseInput.value;
+            if (keyInput) api.api_key = keyInput.value;
+            if (modelInput) api.model = modelInput.value;
+            const modelSelect = document.getElementById(`custom-img-model-select-${idx}`);
+            if (modelSelect?.value) api.model = modelSelect.value;
+            return;
+        }
+
+        if (selected.key && selected.key !== 'picsum') {
+            this._mergeImgProviderFromDOM(selected.key);
+        }
+    }
+
+    _mergeImgProviderFromDOM(providerKey) {
+        if (!this.config.img_api) this.config.img_api = {};
+        const existing = { ...(this.config.img_api[providerKey] || {}) };
+        const keyEl = document.getElementById(`img-api-${providerKey}-api-key`);
+        const baseEl = document.getElementById(`img-api-${providerKey}-api-base`);
+        const modelInput = document.getElementById(`img-api-${providerKey}-model-input`);
+        const modelSelect = document.getElementById(`img-api-${providerKey}-model`);
+        if (keyEl) existing.api_key = keyEl.value;
+        if (baseEl) existing.api_base = baseEl.value;
+        if (modelInput?.value) existing.model = modelInput.value;
+        else if (modelSelect?.value) existing.model = modelSelect.value;
+        this.config.img_api[providerKey] = existing;
+    }
+
+    /** 保存时合并 DOM 与内存：仅当前可见表单从 DOM 读取，其余保留已存配置 */
+    _pickImgAPIProviderConfig(providerKey, defaults = {}) {
+        const existing = {
+            ...(defaults || {}),
+            ...(this.config.img_api?.[providerKey] || {}),
+        };
+        const keyEl = document.getElementById(`img-api-${providerKey}-api-key`);
+        const baseEl = document.getElementById(`img-api-${providerKey}-api-base`);
+        const modelInput = document.getElementById(`img-api-${providerKey}-model-input`);
+        const modelSelect = document.getElementById(`img-api-${providerKey}-model`);
+        return {
+            ...existing,
+            api_key: keyEl ? keyEl.value : (existing.api_key || ''),
+            model: modelInput?.value || modelSelect?.value || existing.model || '',
+            api_base: baseEl ? baseEl.value : (existing.api_base || ''),
+        };
+    }
+
+    createImgApiKeyField(providerKey, apiKeyRaw, label = 'API KEY') {
+        const raw = String(apiKeyRaw || '');
+        const hasKey = raw.trim().length > 0;
+        const keyCount = raw.split('\n').map((k) => k.trim()).filter(Boolean).length;
+        const wrap = document.createElement('div');
+        wrap.className = 'form-group form-group-full api-key-field';
+        wrap.innerHTML = `
+            <div class="api-key-field-head">
+                <label>${label}${
+                    hasKey
+                        ? ` <span class="api-key-status">已配置${keyCount > 1 ? `（${keyCount} 个）` : ''}</span>`
+                        : ''
+                }</label>
+                <div class="api-key-field-actions">
+                    <button type="button" class="btn btn-ghost btn-xs api-key-toggle" title="显示/隐藏密钥">${
+                        hasKey ? '显示' : ''
+                    }</button>
+                    <button type="button" class="btn btn-ghost btn-xs api-key-edit-btn" title="大窗口编辑">编辑</button>
+                </div>
+            </div>
+            <textarea id="img-api-${providerKey}-api-key" class="api-key-input masked form-control" rows="3" placeholder="请输入 API Key，一行一个支持负载均衡" autocomplete="off">${this._escapeHtml(
+                raw
+            )}</textarea>
+        `;
+        const textarea = wrap.querySelector('textarea');
+        const toggle = wrap.querySelector('.api-key-toggle');
+        const editBtn = wrap.querySelector('.api-key-edit-btn');
+        textarea.addEventListener('change', async () => {
+            await this.updateImgAPIField(providerKey, 'api_key', textarea.value);
+        });
+        textarea.addEventListener('blur', async () => {
+            await this.updateImgAPIField(providerKey, 'api_key', textarea.value);
+        });
+        if (toggle) {
+            toggle.addEventListener('click', () => {
+                const masked = textarea.classList.toggle('masked');
+                toggle.textContent = masked ? '显示' : '隐藏';
+            });
+        }
+        if (editBtn) {
+            editBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const keys = textarea.value.split('\n').map((k) => k.trim()).filter(Boolean);
+                this.showImgAPIKeyEditor(providerKey, keys.length ? keys : []);
+            });
+        }
+        return wrap;
+    }
+
     // 填充图片 API UI（下拉 + 单卡表单）
     populateImgAPIUI() {
         this.loadCustomImgAPIs();
+        this.syncVisibleImgAPIProviderFromDOM();
 
         const settingsBody = document.getElementById('img-api-settings-body');
         if (settingsBody) {
@@ -4631,7 +4806,20 @@ class AIWriteXConfigManager {
             return;
         }
 
-        const providerData = this.config.img_api[selected.key];
+        let providerData = this.config.img_api?.[selected.key];
+        // 确保内置提供商始终有默认数据，避免新添加的提供商（如agnes）因配置缺失而不渲染表单
+        const builtinDefaults = {
+            'ali': { api_key: '', model: 'wanx2.0-t2i-turbo', api_base: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+            'modelscope': { api_key: '', model: 'Tongyi-MAI/Z-Image-Turbo', api_base: 'https://api-inference.modelscope.cn/v1' },
+            'agnes': { api_key: '', model: 'agnes-image-2.1-flash', api_base: 'https://apihub.agnes-ai.com/v1' },
+            'comfyui': { api_key: '', model: '', api_base: '' },
+            'picsum': { api_key: '', model: '' },
+        };
+        if (!providerData && builtinDefaults[selected.key]) {
+            providerData = builtinDefaults[selected.key];
+            if (!this.config.img_api) this.config.img_api = {};
+            this.config.img_api[selected.key] = providerData;
+        }
         if (providerData) {
             const card = this.createImgAPIProviderCard(
                 selected.key,
@@ -5034,7 +5222,7 @@ class AIWriteXConfigManager {
                 providerKey === 'comfyui' ? '本地 ComfyUI 服务地址' : 'API KEY 与接口地址'
             );
 
-            if (['modelscope', 'ali', 'comfyui'].includes(providerKey)) {
+            if (['modelscope', 'ali', 'agnes', 'comfyui'].includes(providerKey)) {
                 const apiBaseUrl = providerData.api_base || '';
                 const baseUrlGroup = this.createFormGroup(
                     'API Base',
@@ -5049,38 +5237,17 @@ class AIWriteXConfigManager {
             }
 
             if (providerKey !== 'comfyui') {
-                const apiKeyGroup = this.createFormGroup(
-                    'API KEY',
-                    'text',
-                    `img-api-${providerKey}-api-key`,
-                    providerData.api_key || '',
-                    '点击输入，一行一个 Key',
-                    false
+                authBody.appendChild(
+                    this.createImgApiKeyField(providerKey, providerData.api_key || '', 'API KEY')
                 );
-                apiKeyGroup.classList.add('form-group-full');
-                const apiKeyInput = apiKeyGroup.querySelector('input');
-                if (apiKeyInput) {
-                    apiKeyInput.style.cursor = 'pointer';
-                    apiKeyInput.title = '点击编辑 API KEY';
-                    apiKeyInput.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        const currentKey = providerData.api_key || '';
-                        const keys = currentKey ? currentKey.split('\n').filter((k) => k.trim()) : [];
-                        this.showImgAPIKeyEditor(providerKey, keys);
-                    });
-                }
-                authBody.appendChild(apiKeyGroup);
             } else {
-                const keyOptional = this.createFormGroup(
-                    'API KEY（可选）',
-                    'password',
-                    `img-api-${providerKey}-api-key`,
-                    providerData.api_key || '',
-                    '本地未鉴权可留空',
-                    false
+                authBody.appendChild(
+                    this.createImgApiKeyField(
+                        providerKey,
+                        providerData.api_key || '',
+                        'API KEY（可选）'
+                    )
                 );
-                keyOptional.classList.add('form-group-full');
-                authBody.appendChild(keyOptional);
             }
             form.appendChild(secAuth);
 
@@ -5205,6 +5372,7 @@ class AIWriteXConfigManager {
         if (providerKey === 'picsum') providerName = 'Picsum(随机)';
         else if (providerKey === 'ali') providerName = '阿里百炼';
         else if (providerKey === 'modelscope') providerName = '魔搭社区';
+        else if (providerKey === 'agnes') providerName = 'Agnes AI';
         else if (providerKey === 'comfyui') providerName = 'ComfyUI';
 
         window.app?.showNotification(
@@ -5227,28 +5395,23 @@ class AIWriteXConfigManager {
     }
     // 保存图片API配置  
     async saveImgAPIConfig() {
-        // 收集所有提供商的配置  
+        this.syncVisibleImgAPIProviderFromDOM();
+
+        // 收集所有提供商的配置（未在页面展示的从内存保留，避免切换后保存清空其他 KEY）
         const imgApiConfig = {
             api_type: this.config.img_api.api_type,
-            picsum: {
-                api_key: document.getElementById('img-api-picsum-api-key')?.value || '',
-                model: document.getElementById('img-api-picsum-model')?.value || ''
-            },
-            ali: {
-                api_key: document.getElementById('img-api-ali-api-key')?.value || '',
-                model: document.getElementById('img-api-ali-model')?.value || document.getElementById('img-api-ali-model-input')?.value || '',
-                api_base: document.getElementById('img-api-ali-api-base')?.value || 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-            },
-            modelscope: {
-                api_key: document.getElementById('img-api-modelscope-api-key')?.value || '',
-                model: document.getElementById('img-api-modelscope-model')?.value || document.getElementById('img-api-modelscope-model-input')?.value || '',
-                api_base: document.getElementById('img-api-modelscope-api-base')?.value || 'https://api-inference.modelscope.cn/v1'
-            },
-            comfyui: {
-                api_key: document.getElementById('img-api-comfyui-api-key')?.value || '',
-                model: document.getElementById('img-api-comfyui-model')?.value || '',
-                api_base: document.getElementById('img-api-comfyui-api-base')?.value || ''
-            },
+            picsum: this._pickImgAPIProviderConfig('picsum'),
+            ali: this._pickImgAPIProviderConfig('ali', {
+                api_base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+            }),
+            modelscope: this._pickImgAPIProviderConfig('modelscope', {
+                api_base: 'https://api-inference.modelscope.cn/v1',
+            }),
+            agnes: this._pickImgAPIProviderConfig('agnes', {
+                api_base: 'https://apihub.agnes-ai.com/v1',
+                model: 'agnes-image-2.1-flash',
+            }),
+            comfyui: this._pickImgAPIProviderConfig('comfyui'),
             settings: {
                 default_timeout_seconds: parseInt(document.getElementById('img-api-settings-default-timeout')?.value || '60', 10),
                 fast_mode_timeout_seconds: parseInt(document.getElementById('img-api-settings-fast-timeout')?.value || '45', 10),

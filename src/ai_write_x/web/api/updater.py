@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import json
 import os
 import subprocess
@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from src.ai_write_x.config.config import Config
 from src.ai_write_x.utils import log, utils
 from src.ai_write_x.utils.path_manager import PathManager
-from src.ai_write_x.branding.install import APP_SLUG, EXE_NAME, INSTALLER_NAME
+from src.ai_write_x.branding.install import APP_SLUG, APP_BRAND, EXE_NAME, INSTALLER_NAME
 from src.ai_write_x.version import get_version
 
 router = APIRouter(prefix="/api/system", tags=["System Update"])
@@ -28,24 +28,24 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "auto_update_silent": True,
     "provider": "gitee_release",
     "gitee_owner": "lqyha520",
-    "gitee_repo": "AIWriteX-main",
+    "gitee_repo": "XBoom",
     "gitee_branch": "master",
     "gitee_release_path": "releases",
     "gitee_token": "",
     "github_owner": "lqyha520",
-    "github_repo": "AIWriteX-main",
+    "github_repo": "XBoom",
     "allow_prerelease": False,
-    "manifest_url": "",
+    "manifest_url": "https://updates.bcxtech.cn/updates/version-policy.json",
     "manifest_asset_name": "version-policy.json",
     "installer_asset_name": INSTALLER_NAME,
-    "installer_silent_args": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /FORCECLOSEAPPLICATIONS",
+    "installer_silent_args": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS",
     "restart_executable": EXE_NAME,
     "check_timeout_seconds": 15,
     "download_timeout_seconds": 600,
     "min_supported_version": "",
     "latest_version": "",
     "manual_download_url": "",
-    "update_mirror_base": "",
+    "update_mirror_base": "https://updates.bcxtech.cn/updates",
     "prefer_mirror": True,
     "fallback_github": False,
 }
@@ -125,7 +125,7 @@ def _release_tag_version(item: dict) -> Version:
 
 
 def _select_release(data: list[dict], allow_prerelease: bool) -> Optional[dict]:
-    """Gitee/GitHub 列表顺序不保证最新在前，按 tag 版本号取最大。"""
+    """Gitee/GitHub 鍒楄〃椤哄簭涓嶄繚璇佹渶鏂板湪鍓嶏紝鎸?tag 鐗堟湰鍙峰彇鏈€澶с€?""
     candidates: list[dict] = []
     for item in data:
         if item.get("draft"):
@@ -201,7 +201,7 @@ def _installer_filename(settings: Dict[str, Any]) -> str:
 
 
 def _resolve_gitee_raw_urls(settings: Dict[str, Any]) -> Dict[str, str]:
-    """Gitee 仓库 raw 直链（version-policy + 安装包，适合小文件或 LFS）。"""
+    """Gitee 浠撳簱 raw 鐩撮摼锛坴ersion-policy + 瀹夎鍖咃紝閫傚悎灏忔枃浠舵垨 LFS锛夈€?""
     owner = str(settings.get("gitee_owner") or settings.get("github_owner") or "").strip()
     repo = str(settings.get("gitee_repo") or settings.get("github_repo") or "").strip()
     branch = str(settings.get("gitee_branch") or "master").strip() or "master"
@@ -218,7 +218,7 @@ def _resolve_gitee_raw_urls(settings: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _resolve_mirror_urls(settings: Dict[str, Any]) -> Dict[str, str]:
-    """从 update_mirror_base 推导国内镜像地址。"""
+    """浠?update_mirror_base 鎺ㄥ鍥藉唴闀滃儚鍦板潃銆?""
     base = str(settings.get("update_mirror_base", "") or "").strip().rstrip("/")
     if not base:
         return {}
@@ -230,10 +230,9 @@ def _resolve_mirror_urls(settings: Dict[str, Any]) -> Dict[str, str]:
 
 
 async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, str]:
-    """仅从 Gitee Release / 国内镜像 / 手动配置获取更新信息，不使用 GitHub。"""
+    """浠庤吘璁簯闀滃儚鑾峰彇鏇存柊淇℃伅锛堜紭鍏堬級锛屼笉鍐嶄緷璧?Gitee Release銆?""
     timeout = int(settings.get("check_timeout_seconds", 15))
     prefer_mirror = bool(settings.get("prefer_mirror", True))
-    provider = str(settings.get("provider") or "gitee_release").strip().lower()
 
     gitee_raw = _resolve_gitee_raw_urls(settings)
     mirror_urls = _resolve_mirror_urls(settings)
@@ -251,100 +250,33 @@ async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, st
         )
         return cleaned
 
-    manifest_urls: list[str] = []
-    # 优先 Gitee Release 上的策略（最权威），再镜像直链，避免镜像文件过期
-    for url in (
-        explicit_manifest,
-        gitee_raw.get("manifest_url", ""),
-        mirror_urls.get("manifest_url", ""),
-    ):
-        if url and url not in manifest_urls:
-            manifest_urls.append(url)
-
     if prefer_mirror:
-        release_info = await _load_gitee_release_info(settings)
-        if release_info:
-            manifest: dict = {}
-            manifest_url = release_info.get("manifest_url", "")
-            if manifest_url:
-                manifest = _finalize_manifest(
-                    await _load_manifest(manifest_url, timeout, settings), manifest_url
-                )
+        for url in (explicit_manifest, mirror_urls.get("manifest_url", ""), gitee_raw.get("manifest_url", "")):
+            if not url:
+                continue
+            manifest = _finalize_manifest(await _load_manifest(url, timeout, settings), url)
             if manifest:
-                if not manifest.get("download_url") and release_info.get("download_url"):
-                    manifest = dict(manifest)
-                    manifest["download_url"] = _resolve_download_url(
-                        release_info["download_url"],
-                        settings,
-                        gitee_raw=gitee_raw,
-                        mirror_urls=mirror_urls,
-                    )
-                return manifest, release_info, release_info.get("html_url") or "gitee"
+                return manifest, {}, "mirror"
 
-        for manifest_url in manifest_urls:
-            manifest = _finalize_manifest(await _load_manifest(manifest_url, timeout, settings), manifest_url)
-            if manifest:
-                if not manifest.get("download_url"):
-                    download_url = _resolve_download_url(
-                        "",
-                        settings,
-                        gitee_raw=gitee_raw,
-                        mirror_urls=mirror_urls,
-                    )
-                    if download_url:
-                        manifest = dict(manifest)
-                        manifest["download_url"] = download_url
-                return manifest, {}, manifest_url
-
-        manual_download = _resolve_download_url(
-            str(settings.get("manual_download_url", "") or ""),
-            settings,
-            gitee_raw=gitee_raw,
-            mirror_urls=mirror_urls,
+    manual_download = _resolve_download_url(
+        str(settings.get("manual_download_url", "") or ""),
+        settings,
+        gitee_raw=gitee_raw,
+        mirror_urls=mirror_urls,
+    )
+    configured_latest = str(settings.get("latest_version", "") or "").strip()
+    if manual_download and configured_latest:
+        return (
+            {
+                "latest_version": configured_latest,
+                "download_url": manual_download,
+                "min_supported_version": settings.get("min_supported_version", ""),
+            },
+            {},
+            "manual_download_url",
         )
-        configured_latest = str(settings.get("latest_version", "") or "").strip()
-        if manual_download and configured_latest and not manifest_urls:
-            return (
-                {
-                    "latest_version": configured_latest,
-                    "download_url": manual_download,
-                    "min_supported_version": settings.get("min_supported_version", ""),
-                },
-                {},
-                "manual_download_url",
-            )
 
-    release_info: dict = {}
-    if provider in ("gitee_release", "gitee", "gitee_only", "auto", "mirror", "github_release"):
-        release_info = await _load_gitee_release_info(settings)
-        if release_info:
-            manifest: dict = {}
-            manifest_url = release_info.get("manifest_url", "")
-            if manifest_url:
-                manifest = _finalize_manifest(await _load_manifest(manifest_url, timeout, settings), manifest_url)
-            if not manifest and release_info.get("latest_version"):
-                manifest = _finalize_manifest(
-                    {
-                        "latest_version": release_info.get("latest_version", ""),
-                        "download_url": release_info.get("download_url", ""),
-                        "min_supported_version": "",
-                    },
-                    "gitee_release",
-                )
-            if manifest:
-                if not manifest.get("download_url") and release_info.get("download_url"):
-                    manifest = dict(manifest)
-                    manifest["download_url"] = _resolve_download_url(
-                        release_info["download_url"],
-                        settings,
-                        gitee_raw=gitee_raw,
-                        mirror_urls=mirror_urls,
-                    )
-                return manifest, release_info, release_info.get("html_url") or "gitee"
-            if release_info.get("download_url"):
-                return {}, release_info, release_info.get("html_url") or "gitee"
-
-    return {}, release_info, "config"
+    return {}, {}, "none"
 
 
 async def _load_manifest(manifest_url: str, timeout_seconds: int, settings: Optional[Dict[str, Any]] = None) -> dict:
@@ -355,7 +287,7 @@ async def _load_manifest(manifest_url: str, timeout_seconds: int, settings: Opti
         url = _gitee_auth_url(manifest_url, settings)
         return await _fetch_json(url, timeout_seconds)
     except Exception as exc:
-        log.print_log(f"[Updater] 加载版本策略失败: {exc}", "warning")
+        log.print_log(f"[Updater] 鍔犺浇鐗堟湰绛栫暐澶辫触: {exc}", "warning")
         return {}
 
 
@@ -429,7 +361,7 @@ async def _load_gitee_release_info(settings: Dict[str, Any]) -> dict:
             "html_url": release.get("html_url") or f"https://gitee.com/{owner}/{repo}/releases",
         }
     except Exception as exc:
-        log.print_log(f"[Updater] 获取 Gitee Release 失败: {exc}", "warning")
+        log.print_log(f"[Updater] 鑾峰彇 Gitee Release 澶辫触: {exc}", "warning")
         return {}
 
 
@@ -451,7 +383,7 @@ async def _build_update_policy() -> UpdatePolicyResponse:
             force_update=False,
             can_update=False,
             download_url="",
-            release_notes="更新功能已禁用",
+            release_notes="鏇存柊鍔熻兘宸茬鐢?,
             source="disabled",
             auto_update_on_startup=False,
             auto_update_silent=False,
@@ -487,7 +419,7 @@ async def _build_update_policy() -> UpdatePolicyResponse:
     release_notes = (
         manifest.get("release_notes")
         or release_info.get("release_notes")
-        or "暂无更新说明"
+        or "鏆傛棤鏇存柊璇存槑"
     )
 
     has_update = False
@@ -557,16 +489,16 @@ def _humanize_update_error(exc: Exception) -> str:
     text = str(exc or "").strip()
     lowered = text.lower()
     if "all connection attempts failed" in lowered or "connecterror" in lowered:
-        return "无法连接更新服务器，请检查网络或配置系统代理后重试"
+        return "鏃犳硶杩炴帴鏇存柊鏈嶅姟鍣紝璇锋鏌ョ綉缁滄垨閰嶇疆绯荤粺浠ｇ悊鍚庨噸璇?
     if "timeout" in lowered or "timed out" in lowered:
-        return "连接更新服务器超时，请稍后重试"
+        return "杩炴帴鏇存柊鏈嶅姟鍣ㄨ秴鏃讹紝璇风◢鍚庨噸璇?
     if "name or service not known" in lowered or "getaddrinfo" in lowered:
-        return "无法解析更新服务器地址，请检查 DNS 或网络"
+        return "鏃犳硶瑙ｆ瀽鏇存柊鏈嶅姟鍣ㄥ湴鍧€锛岃妫€鏌?DNS 鎴栫綉缁?
     if "certificate" in lowered or "ssl" in lowered:
-        return "更新服务器 SSL 证书校验失败"
-    if text.startswith("更新失败:") or text.startswith("检查更新失败:"):
+        return "鏇存柊鏈嶅姟鍣?SSL 璇佷功鏍￠獙澶辫触"
+    if text.startswith("鏇存柊澶辫触:") or text.startswith("妫€鏌ユ洿鏂板け璐?"):
         return text.split(":", 1)[-1].strip()
-    return text or "未知错误"
+    return text or "鏈煡閿欒"
 
 
 def _get_http_client_kwargs(settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -581,7 +513,7 @@ def _get_http_client_kwargs(settings: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _expand_download_urls(url: str) -> list[str]:
-    """返回可用下载地址；优先使用 policy / 腾讯云镜像配置中的直链。"""
+    """杩斿洖鍙敤涓嬭浇鍦板潃锛涗紭鍏堜娇鐢?policy / 鑵捐浜戦暅鍍忛厤缃腑鐨勭洿閾俱€?""
     cleaned = str(url or "").strip()
     return [cleaned] if cleaned else []
 
@@ -634,7 +566,7 @@ async def _stream_download_with_fallback(
     settings: Dict[str, Any],
 ) -> str:
     if not candidates:
-        raise RuntimeError("没有可用的更新下载地址")
+        raise RuntimeError("娌℃湁鍙敤鐨勬洿鏂颁笅杞藉湴鍧€")
 
     client_kwargs = _get_http_client_kwargs(settings)
     errors: list[str] = []
@@ -643,7 +575,7 @@ async def _stream_download_with_fallback(
         for index, url in enumerate(candidates, start=1):
             for attempt in range(1, 3):
                 try:
-                    _append_log(f"正在下载 ({index}/{len(candidates)}) 第 {attempt} 次尝试...")
+                    _append_log(f"姝ｅ湪涓嬭浇 ({index}/{len(candidates)}) 绗?{attempt} 娆″皾璇?..")
                     _append_log(url)
                     async with client.stream("GET", url) as response:
                         response.raise_for_status()
@@ -656,25 +588,24 @@ async def _stream_download_with_fallback(
                                 file_obj.write(chunk)
                                 downloaded += len(chunk)
                                 now = time.monotonic()
-                                if total_size > 0:
-                                    progress = min(95, int(downloaded * 100 / total_size))
-                                else:
-                                    # 镜像/CDN 常无 Content-Length，按已下载体积估算
-                                    mb = downloaded / (1024 * 1024)
-                                    progress = min(92, max(3, int(mb * 0.75)))
-                                if now - last_ui_update >= 0.25:
+                                if now - last_ui_update >= 0.3:
+                                    if total_size > 0:
+                                        progress = min(95, int(downloaded * 100 / total_size))
+                                    else:
+                                        mb = downloaded / (1024 * 1024)
+                                        progress = min(92, max(3, int(mb * 0.75)))
                                     _update_progress["progress"] = progress
                                     _update_progress["message"] = (
-                                        f"正在下载更新安装包... {progress}%"
+                                        f"姝ｅ湪涓嬭浇鏇存柊瀹夎鍖?.. {progress}%"
                                     )
                                     last_ui_update = now
                     return url
                 except Exception as exc:
                     detail = _humanize_update_error(exc)
                     errors.append(f"{url} -> {detail}")
-                    log.print_log(f"[Updater] 下载失败: {url} ({detail})", "warning")
+                    log.print_log(f"[Updater] 涓嬭浇澶辫触: {url} ({detail})", "warning")
 
-    raise RuntimeError(errors[-1] if errors else "所有下载地址均不可用")
+    raise RuntimeError(errors[-1] if errors else "鎵€鏈変笅杞藉湴鍧€鍧囦笉鍙敤")
 
 
 def _get_update_workspace() -> Path:
@@ -688,7 +619,7 @@ def _ps_single_quoted(path: Path | str) -> str:
 
 
 def _resolve_installed_executable(settings: Dict[str, Any]) -> Path:
-    """解析安装目录中的主程序 XBoom.exe。"""
+    """瑙ｆ瀽瀹夎鐩綍涓殑涓荤▼搴忓彲鎵ц鏂囦欢銆?""
     preferred = str(settings.get("restart_executable", EXE_NAME) or EXE_NAME).strip()
     candidates: list[Path] = [PathManager.get_base_dir() / preferred]
     if os.name == "nt":
@@ -696,7 +627,7 @@ def _resolve_installed_executable(settings: Dict[str, Any]) -> Path:
             Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
             Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
         ):
-            candidates.append(root / APP_SLUG / EXE_NAME)
+            candidates.append(root / APP_BRAND / EXE_NAME)
 
     for path in candidates:
         if path.exists():
@@ -708,22 +639,30 @@ def _build_helper_script(installer_path: Path) -> Path:
     settings = _merge_update_config()
     script_path = _get_update_workspace() / "run_update.ps1"
     log_path = _get_update_workspace() / "update-helper.log"
+    status_path = _get_update_workspace() / "update-status.json"
     current_pid = os.getpid()
     app_exe = _resolve_installed_executable(settings)
     install_dir = app_exe.parent.resolve()
 
     if not utils.get_is_release_ver():
-        raise RuntimeError("当前是开发环境，不能执行安装包更新")
+        raise RuntimeError("褰撳墠鏄紑鍙戠幆澧冿紝涓嶈兘鎵ц瀹夎鍖呮洿鏂?)
 
     installer_ps = _ps_single_quoted(installer_path)
     log_ps = _ps_single_quoted(log_path)
+    status_ps = _ps_single_quoted(status_path)
     install_dir_ps = _ps_single_quoted(str(install_dir))
 
     script_content = f"""$ErrorActionPreference = 'Continue'
 $logFile = '{log_ps}'
+$statusFile = '{status_ps}'
+
 function Write-UpdateLog([string]$Message) {{
     $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
     Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
+}}
+
+function Write-Status([string]$Status, [int]$Progress, [string]$Message) {{
+    @{{ status=$Status; progress=$Progress; message=$Message; time=(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ') }} | ConvertTo-Json | Set-Content -LiteralPath $statusFile -Encoding UTF8
 }}
 
 $installerPath = '{installer_ps}'
@@ -731,61 +670,110 @@ $targetPid = {current_pid}
 $targetInstallDir = '{install_dir_ps}'
 $appExe = Join-Path $targetInstallDir '{EXE_NAME}'
 $argumentList = @(
-    '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/FORCECLOSEAPPLICATIONS',
+    '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS',
     "/DIR=$targetInstallDir"
 )
 
-Write-UpdateLog "更新助手启动，目标进程 PID=$targetPid"
-Write-UpdateLog "安装包: $installerPath"
-Write-UpdateLog "安装目录: $targetInstallDir"
-Write-UpdateLog "主程序: $appExe"
+Write-UpdateLog "鏇存柊鍔╂墜鍚姩锛岀洰鏍囪繘绋?PID=$targetPid"
+Write-UpdateLog "瀹夎鍖? $installerPath"
+Write-UpdateLog "瀹夎鐩綍: $targetInstallDir"
+Write-UpdateLog "涓荤▼搴? $appExe"
 
-# 先短等优雅退出，超时则强杀，避免空等最多 90 秒
-for ($i = 0; $i -lt 25; $i++) {{
-    if (-not (Get-Process -Id $targetPid -ErrorAction SilentlyContinue)) {{
-        break
-    }}
-    Start-Sleep -Milliseconds 200
-}}
-if (Get-Process -Id $targetPid -ErrorAction SilentlyContinue) {{
-    Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue
-    Write-UpdateLog "主进程未在时限内退出，已强制结束 PID=$targetPid"
-}}
-
-Get-Process -Name '{APP_SLUG}' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 300
-
-$installerExit = $null
-try {{
-    Write-UpdateLog "开始静默安装（请求管理员权限）..."
-    $proc = Start-Process -FilePath $installerPath -ArgumentList $argumentList -Verb RunAs -Wait -PassThru
-    $installerExit = $proc.ExitCode
-    Write-UpdateLog "安装完成，退出码=$installerExit"
-}} catch {{
-    Write-UpdateLog "RunAs 安装失败: $($_.Exception.Message)，尝试普通权限..."
+# ===== 绗浂姝ワ細涓诲姩鍏抽棴鏃х増鏈繘绋?=====
+Write-Status 'waiting' 2 '姝ｅ湪鍏抽棴鏃х増鏈?..'
+$oldProc = Get-Process -Name '{APP_BRAND}' -ErrorAction SilentlyContinue
+if ($oldProc) {{
+    Write-UpdateLog "妫€娴嬪埌鏃х増鏈繘绋?(PID=$($oldProc.Id -join ','))锛屾鍦ㄥ叧闂?.."
     try {{
-        $proc = Start-Process -FilePath $installerPath -ArgumentList $argumentList -Wait -PassThru
-        $installerExit = $proc.ExitCode
-        Write-UpdateLog "普通权限安装完成，退出码=$installerExit"
+        $oldProc | Stop-Process -Force -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        # 纭杩涚▼宸插叧闂?        $stillRunning = Get-Process -Name '{APP_BRAND}' -ErrorAction SilentlyContinue
+        if ($stillRunning) {{
+            Write-UpdateLog "鏃х増鏈繘绋嬫湭鍝嶅簲鍏抽棴锛屽啀娆″皾璇?.."
+            $stillRunning | Stop-Process -Force
+            Start-Sleep -Seconds 2
+        }}
+        Write-UpdateLog "鏃х増鏈凡鍏抽棴"
     }} catch {{
-        Write-UpdateLog "安装失败: $($_.Exception.Message)"
+        Write-UpdateLog "鍏抽棴鏃х増鏈け璐? $($_.Exception.Message)锛屽皢鐢卞畨瑁呯▼搴忓鐞?
+    }}
+}} else {{
+    Write-UpdateLog "鏈娴嬪埌鏃х増鏈繘绋?
+}}
+
+# ===== 绗竴姝ワ細鍚姩瀹夎绋嬪簭 =====
+Write-Status 'installing' 5 '姝ｅ湪鍚姩瀹夎绋嬪簭...'
+
+try {{
+    Write-UpdateLog "鍚姩瀹夎绋嬪簭锛堣姹傜鐞嗗憳鏉冮檺锛?.."
+    Write-Status 'installing' 8 '绛夊緟绠＄悊鍛樻潈闄愮‘璁?..'
+    Start-Process -FilePath $installerPath -ArgumentList $argumentList -Verb RunAs
+    Write-UpdateLog "瀹夎绋嬪簭宸插惎鍔紙RunAs锛?
+}} catch {{
+    Write-UpdateLog "RunAs 澶辫触: $($_.Exception.Message)锛屽皾璇曟櫘閫氭潈闄?.."
+    Write-Status 'installing' 9 '灏濊瘯鏅€氭ā寮忓畨瑁?..'
+    try {{
+        Start-Process -FilePath $installerPath -ArgumentList $argumentList
+        Write-UpdateLog "瀹夎绋嬪簭宸插惎鍔紙鏅€氭潈闄愶級"
+    }} catch {{
+        Write-UpdateLog "瀹夎澶辫触: $($_.Exception.Message)"
+        Write-Status 'error' 0 '瀹夎绋嬪簭鎵ц澶辫触'
         exit 1
     }}
 }}
 
-if ($installerExit -ne 0) {{
-    Write-UpdateLog "安装程序返回非零退出码: $installerExit"
+# 绛夊緟瀹夎绋嬪簭瀹屾垚锛堥€氳繃妫€娴嬪畨瑁呯▼搴忚繘绋嬶級
+Write-Status 'installing' 15 '瀹夎绋嬪簭姝ｅ湪杩愯...'
+$totalWait = 0
+$installerRunning = $true
+while ($installerRunning -and $totalWait -lt 180) {{
+    Start-Sleep -Seconds 1
+    $totalWait++
+    # 妫€娴?Inno Setup 瀹夎绋嬪簭杩涚▼锛圴ERYSILENT妯″紡涓嬭繘绋嬪悕鍙兘鏄复鏃跺悕绉帮級
+    $setupProc = Get-Process | Where-Object {{
+        try {{
+            $_.Path -and ($_.Path -like '*Temp*\is-*' -or $_.Path -like '*Temp*\InnoSetup*')
+        }} catch {{ $false }}
+    }}
+    if (-not $setupProc) {{
+        # 澶囬€夛細妫€娴嬫枃浠舵槸鍚﹁繕鍦ㄨ鍐欏叆锛堟鏌?_internal 鐩綍鐨勪慨鏀规椂闂达級
+        $internalDir = Join-Path $targetInstallDir '_internal'
+        if (Test-Path -LiteralPath $internalDir) {{
+            $dirWrite = (Get-Item -LiteralPath $internalDir).LastWriteTime
+            $span = (Get-Date) - $dirWrite
+            if ($span.TotalSeconds -lt 5) {{
+                # 鐩綍鏈€杩戣淇敼锛屽畨瑁呭彲鑳借繕鍦ㄨ繘琛?                $setupProc = $true
+            }}
+        }}
+    }}
+    if (-not $setupProc) {{
+        $installerRunning = $false
+    }}
+    $pct = [Math]::Min(90, 15 + [Math]::Floor($totalWait * 0.5))
+    $msg = "姝ｅ湪瀹夎涓?($totalWait绉?..."
+    if ($totalWait -gt 30) {{ $msg += " 瀹夎鍖呰緝澶ц鑰愬績绛夊緟" }}
+    Write-Status 'installing' $pct $msg
+    if ($totalWait % 5 -eq 0) {{
+        Write-UpdateLog "瀹夎杩涜涓? $totalWait绉?杩涘害=$pct%"
+    }}
 }}
 
-Start-Sleep -Seconds 1
-$running = Get-Process -Name '{APP_SLUG}' -ErrorAction SilentlyContinue
+Write-UpdateLog "瀹夎绋嬪簭宸茬粨鏉燂紝绛夊緟=$totalWait绉?
+
+# ===== 绗簩姝ワ細鍚姩鏂扮増鏈?=====
+Write-Status 'installed' 95 '瀹夎瀹屾垚锛屾鍦ㄥ惎鍔ㄦ柊鐗堟湰...'
+
+Start-Sleep -Seconds 3
+
+$running = Get-Process -Name '{APP_BRAND}' -ErrorAction SilentlyContinue
 if ($running) {{
-    Write-UpdateLog "检测到 {APP_SLUG} 已由安装程序自动拉起 (PID=$($running.Id -join ','))"
+    Write-UpdateLog "妫€娴嬪埌鏂扮増鏈凡杩愯 (PID=$($running.Id -join ','))"
+    Write-Status 'done' 100 '鏇存柊瀹屾垚'
     exit 0
 }}
 
 if (-not (Test-Path -LiteralPath $appExe)) {{
-    $pf = Join-Path $env:ProgramFiles '{APP_SLUG}'
+    $pf = Join-Path $env:ProgramFiles '{APP_BRAND}'
     $candidate = Join-Path $pf '{EXE_NAME}'
     if (Test-Path -LiteralPath $candidate) {{
         $appExe = $candidate
@@ -794,21 +782,25 @@ if (-not (Test-Path -LiteralPath $appExe)) {{
 }}
 
 if (Test-Path -LiteralPath $appExe) {{
-    Write-UpdateLog "安装程序未自动重启，手动启动: $appExe"
-  try {{
-    $started = Start-Process -FilePath $appExe -WorkingDirectory $targetInstallDir -PassThru
-    Write-UpdateLog "已启动应用 PID=$($started.Id)"
-  }} catch {{
-    Write-UpdateLog "手动启动失败: $($_.Exception.Message)"
-    exit 2
-  }}
+    Write-UpdateLog "鍚姩鏂扮増鏈? $appExe"
+    try {{
+        $started = Start-Process -FilePath $appExe -WorkingDirectory $targetInstallDir -PassThru
+        Write-UpdateLog "宸插惎鍔ㄦ柊鐗堟湰 PID=$($started.Id)"
+        Write-Status 'done' 100 '鏇存柊瀹屾垚'
+    }} catch {{
+        Write-UpdateLog "鍚姩澶辫触: $($_.Exception.Message)"
+        Write-Status 'error' 100 '瀹夎鎴愬姛浣嗗惎鍔ㄥけ璐?
+        exit 2
+    }}
 }} else {{
-    Write-UpdateLog "未找到可执行文件: $appExe"
+    Write-UpdateLog "鏈壘鍒板彲鎵ц鏂囦欢: $appExe"
+    Write-Status 'error' 100 '鏈壘鍒版柊鐗堟湰鍙墽琛屾枃浠?
     exit 2
 }}
 """
     script_path.write_text(script_content, encoding="utf-8-sig")
     _update_progress["log_file"] = str(log_path)
+    _update_progress["status_file"] = str(status_path)
     return script_path
 
 
@@ -821,17 +813,17 @@ async def _run_download_update(
     try:
         candidates = _build_download_candidates(download_url, settings)
         used_url = await _stream_download_with_fallback(candidates, installer_path, settings)
-        _append_log(f"下载源: {used_url}")
+        _append_log(f"涓嬭浇婧? {used_url}")
         helper_script = _build_helper_script(installer_path)
         _update_progress.update({
             "status": "ready_to_install",
             "progress": 100,
-            "message": "更新已准备完成，正在启动安装…",
+            "message": "鏇存柊宸插噯澶囧畬鎴愶紝姝ｅ湪鍚姩瀹夎鈥?,
             "download_path": str(installer_path),
             "helper_script": str(helper_script),
         })
-        _append_log("更新助手已生成")
-        _append_log("下载完成，即将自动安装并重启…")
+        _append_log("鏇存柊鍔╂墜宸茬敓鎴?)
+        _append_log("涓嬭浇瀹屾垚锛屽嵆灏嗚嚜鍔ㄥ畨瑁呭苟閲嶅惎鈥?)
     except Exception as exc:
         detail = _humanize_update_error(exc)
         _update_progress.update({
@@ -840,8 +832,8 @@ async def _run_download_update(
             "message": detail,
             "error": detail,
         })
-        _append_log(f"更新失败: {detail}")
-        log.print_log(f"[Updater] 下载更新失败: {exc}", "error")
+        _append_log(f"鏇存柊澶辫触: {detail}")
+        log.print_log(f"[Updater] 涓嬭浇鏇存柊澶辫触: {exc}", "error")
 
 
 @router.get("/update-policy", response_model=UpdatePolicyResponse)
@@ -849,7 +841,7 @@ async def get_update_policy():
     try:
         return await _build_update_policy()
     except Exception as exc:
-        log.print_log(f"[Updater] 获取更新策略失败: {exc}", "error")
+        log.print_log(f"[Updater] 鑾峰彇鏇存柊绛栫暐澶辫触: {exc}", "error")
         raise HTTPException(status_code=500, detail=_humanize_update_error(exc))
 
 
@@ -869,23 +861,23 @@ async def prepare_update(request: UpdateRequest):
     download_url = request.download_url or policy.download_url
 
     if not download_url:
-        raise HTTPException(status_code=400, detail="没有可用的更新安装包地址")
+        raise HTTPException(status_code=400, detail="娌℃湁鍙敤鐨勬洿鏂板畨瑁呭寘鍦板潃")
     if not utils.get_is_release_ver():
-        raise HTTPException(status_code=400, detail="开发环境不支持安装包更新")
+        raise HTTPException(status_code=400, detail="寮€鍙戠幆澧冧笉鏀寔瀹夎鍖呮洿鏂?)
 
     with _download_lock:
         current_status = _update_progress.get("status")
         if current_status == "downloading":
-            return {"status": "downloading", "message": "正在下载更新安装包..."}
+            return {"status": "downloading", "message": "姝ｅ湪涓嬭浇鏇存柊瀹夎鍖?.."}
         if current_status == "ready_to_install":
-            return {"status": "ready_to_install", "message": "更新已准备完成"}
+            return {"status": "ready_to_install", "message": "鏇存柊宸插噯澶囧畬鎴?}
 
         _reset_progress()
         _update_progress["status"] = "downloading"
         _update_progress["progress"] = 1
-        _update_progress["message"] = "正在下载更新安装包..."
-        _append_log("开始下载更新安装包")
-        _append_log(f"目标版本: v{policy.latest_version}")
+        _update_progress["message"] = "姝ｅ湪涓嬭浇鏇存柊瀹夎鍖?.."
+        _append_log("寮€濮嬩笅杞芥洿鏂板畨瑁呭寘")
+        _append_log(f"鐩爣鐗堟湰: v{policy.latest_version}")
 
         workspace = _get_update_workspace()
         installer_path = workspace / _installer_filename(_merge_update_config())
@@ -899,11 +891,11 @@ async def prepare_update(request: UpdateRequest):
             settings,
         )
     )
-    return {"status": "downloading", "message": "正在后台下载更新安装包"}
+    return {"status": "downloading", "message": "姝ｅ湪鍚庡彴涓嬭浇鏇存柊瀹夎鍖?}
 
 
 def _spawn_detached_powershell(script_path: Path) -> None:
-    """独立启动更新助手，避免主进程退出时连带结束子进程。"""
+    """鐙珛鍚姩鏇存柊鍔╂墜锛岄伩鍏嶄富杩涚▼閫€鍑烘椂杩炲甫缁撴潫瀛愯繘绋嬨€?""
     script = str(script_path.resolve())
     if os.name == "nt":
         cmdline = (
@@ -932,22 +924,56 @@ def _spawn_detached_powershell(script_path: Path) -> None:
     )
 
 
-@router.post("/restart-and-update")
-async def restart_and_update():
+@router.post("/start-install")
+async def start_install():
     helper_script = _update_progress.get("helper_script", "")
     if not helper_script or not Path(helper_script).exists():
-        raise HTTPException(status_code=404, detail="未找到更新助手，请先下载更新")
+        raise HTTPException(status_code=404, detail="鏈壘鍒版洿鏂板姪鎵嬶紝璇峰厛涓嬭浇鏇存柊")
 
     try:
-        _append_log("正在启动安装助手…")
+        _append_log("姝ｅ湪鍚姩瀹夎绋嬪簭鈥?)
         _spawn_detached_powershell(Path(helper_script))
-        # 留出时间让 PowerShell 独立进程启动，再退出主程序
-        threading.Timer(1.2, os._exit, args=(0,)).start()
+        _update_progress["status"] = "installing"
+        _append_log("瀹夎绋嬪簭宸插惎鍔紝绛夊緟瀹夎瀹屾垚...")
         return {
-            "status": "restarting",
-            "message": "正在退出并安装更新",
+            "status": "installing",
+            "message": "瀹夎绋嬪簭宸插惎鍔紝姝ｅ湪瀹夎涓紙绐楀彛鍙兘鍥犳洿鏂拌嚜鍔ㄥ叧闂級",
             "log_file": _update_progress.get("log_file", ""),
+            "status_file": _update_progress.get("status_file", ""),
         }
     except Exception as exc:
-        log.print_log(f"[Updater] 启动更新助手失败: {exc}", "error")
-        raise HTTPException(status_code=500, detail=f"启动更新助手失败: {exc}")
+        log.print_log(f"[Updater] 鍚姩瀹夎绋嬪簭澶辫触: {exc}", "error")
+        raise HTTPException(status_code=500, detail=f"鍚姩瀹夎绋嬪簭澶辫触: {exc}")
+
+
+@router.get("/install-status")
+async def get_install_status():
+    status_file = _update_progress.get("status_file", "")
+    if not status_file or not Path(status_file).exists():
+        return {"status": "not_started", "message": ""}
+    try:
+        data = json.loads(Path(status_file).read_text(encoding="utf-8"))
+        return data
+    except Exception:
+        return {"status": "unknown", "message": ""}
+
+
+@router.post("/restart-and-update")
+async def restart_and_update():
+    return await start_install()
+
+
+@router.post("/bring-to-front")
+async def bring_to_front():
+    """灏嗙▼搴忕獥鍙ｆ縺娲诲埌鍓嶅彴锛堢敤浜庡崟瀹炰緥鎺у埗鏃舵縺娲诲凡鏈夊疄渚嬶級"""
+    try:
+        from src.ai_write_x.web.state import get_app_state
+        app_state = get_app_state()
+        window_manager = app_state.get("window_manager")
+        if window_manager and hasattr(window_manager, "show_window"):
+            window_manager.show_window()
+            return {"status": "ok", "message": "绐楀彛宸叉縺娲?}
+        return {"status": "error", "message": "绐楀彛绠＄悊鍣ㄤ笉鍙敤"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+

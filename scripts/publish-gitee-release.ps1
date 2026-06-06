@@ -40,7 +40,7 @@ if (Test-Path $MirrorEnvFile) {
 }
 
 $Owner = if ($GITEE_OWNER) { $GITEE_OWNER } else { 'lqyha520' }
-$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'AIWriteX-main' }
+$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'XBoom' }
 $Branch = if ($GITEE_BRANCH) { $GITEE_BRANCH } else { 'master' }
 
 $Version = (python -c "from src.ai_write_x.version import get_version; print(get_version())").Trim()
@@ -233,3 +233,4 @@ try {
 } catch {
     Write-Host "GitHub publish skipped: $($_.Exception.Message)" -ForegroundColor Yellow
 }
+

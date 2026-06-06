@@ -24,13 +24,25 @@ class SpiderManager {
         }
     }
 
-    async loadSpiders() {
+    async loadSpiders(retry = 0) {
+        const maxRetry = 8;
+        const container = document.getElementById('spider-platform-grid');
+        if (container && retry === 0) {
+            container.innerHTML = '<div class="loading-pulse">正在加载采集节点，请稍候…</div>';
+        } else if (container && this.spiders.length === 0) {
+            container.innerHTML = `<div class="loading-pulse">正在加载采集节点（${retry + 1}/${maxRetry + 1}）…</div>`;
+        }
+
         try {
             const response = await fetch('/api/spider/list');
             if (response.ok) {
                 const data = await response.json();
                 if (data.success) {
                     this.spiders = data.spiders || [];
+                    if (this.spiders.length === 0 && retry < maxRetry) {
+                        await new Promise((r) => setTimeout(r, 800));
+                        return this.loadSpiders(retry + 1);
+                    }
                     this.renderSpiderList();
                 } else {
                     console.error('加载爬虫列表失败:', data.message);
@@ -39,11 +51,19 @@ class SpiderManager {
                 }
             } else {
                 console.error('加载爬虫列表返回非200状态:', response.status);
+                if (retry < maxRetry) {
+                    await new Promise((r) => setTimeout(r, 800));
+                    return this.loadSpiders(retry + 1);
+                }
                 this.spiders = [];
                 this.renderSpiderList();
             }
         } catch (error) {
             console.error('加载爬虫列表网络错误:', error);
+            if (retry < maxRetry) {
+                await new Promise((r) => setTimeout(r, 800));
+                return this.loadSpiders(retry + 1);
+            }
             this.spiders = [];
             this.renderSpiderList();
         }
@@ -54,8 +74,15 @@ class SpiderManager {
         if (!container) return;
 
         if (this.spiders.length === 0) {
-            container.innerHTML = '<div class="loading-pulse">暂无可用探测节点</div>';
+            container.innerHTML =
+                '<div class="loading-pulse">暂无可用采集节点。若使用安装包，请完全退出后重新打开，或查看日志中 [SpiderRunner] 是否报错。</div>';
             return;
+        }
+
+        const online = this.spiders.filter((s) => s.enabled).length;
+        const statusEl = document.querySelector('#spider-manager-view .status-indicator');
+        if (statusEl) {
+            statusEl.innerHTML = `<span class="pulse-dot"></span> ${online}/${this.spiders.length} 节点在线`;
         }
 
         container.innerHTML = this.spiders.map((spider, i) => `

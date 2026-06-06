@@ -8,8 +8,7 @@ from src.ai_write_x.core.vector_db import (
 )
 import asyncio
 import sys
-sys.path.insert(
-    0, 'C:/Users/Administrator.DESKTOP-EGNE9ND/Desktop/AIxs/AIWriteX-main')
+sys.path.insert(0, '.')
 
 
 async def test_qdrant_basic():

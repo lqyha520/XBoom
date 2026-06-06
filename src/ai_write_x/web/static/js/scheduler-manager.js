@@ -338,6 +338,7 @@ class SchedulerManager {
         document.getElementById('task-recurring').checked = false;
         document.getElementById('task-beautify').checked = true;
         document.getElementById('task-article-count').value = '1';
+        document.getElementById('task-collection-mode').checked = false;
         document.getElementById('task-interval').value = '24';
         document.getElementById('task-interval-group').style.display = 'none';
         const tip = document.getElementById('platform-verify-tip');
@@ -423,6 +424,7 @@ class SchedulerManager {
         const interval = document.getElementById('task-interval').value;
         const articleCount = document.getElementById('task-article-count').value;
         const useAIBeautify = document.getElementById('task-beautify').checked;
+        const collectionMode = document.getElementById('task-collection-mode').checked;
 
         if (!execTime) {
             window.showNotification ? window.showNotification('请选择执行时间', 'warning') : alert('请选择执行时间');
@@ -454,6 +456,7 @@ class SchedulerManager {
                     interval_hours: parseInt(interval, 10) || 24,
                     article_count: parseInt(articleCount, 10) || 1,
                     use_ai_beautify: useAIBeautify,
+                    collection_mode: collectionMode,
                 }),
             });
 

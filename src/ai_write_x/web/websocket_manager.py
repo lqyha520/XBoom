@@ -68,7 +68,7 @@ class WebSocketManager:
         self,
         max_connections: int = 1000,
         heartbeat_interval: int = 30,
-        heartbeat_timeout: int = 60,
+        heartbeat_timeout: int = 120,
         max_queue_size: int = 100
     ):
         if self._initialized:

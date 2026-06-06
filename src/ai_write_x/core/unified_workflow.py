@@ -13,6 +13,7 @@ from src.ai_write_x.core.base_framework import (
     ContentType,
     ContentResult,
 )
+from src.ai_write_x.core.prompt_loader import prompt_loader
 from src.ai_write_x.core.platform_adapters import (
     WeChatAdapter,
     XiaohongshuAdapter,
@@ -72,225 +73,138 @@ class UnifiedContentWorkflow:
         # 初始化数据库
         init_db()
 
-    def get_base_content_config(self, **kwargs) -> WorkflowConfig:
-        """动态生成基础内容配置，根据平台和需求定制"""
-
+    def _build_draft_prompt(self, topic: str, **kwargs) -> tuple:
+        """构建初稿提示词，返回 (system_prompt, user_prompt)"""
         config = Config.get_instance()
-        # 获取目标平台
-        publish_platform = kwargs.get("publish_platform", PlatformType.WECHAT.value)
         reference_content = kwargs.get("reference_content", "")
         
-        # V4: 时间碎片锚定 (Time-Anchor Injection)
         from datetime import datetime
         current_date_str = datetime.now().strftime('%Y年%m月%d日 %H:%M')
         source_publish_time = kwargs.get("date_str", "近期 (以当前时间为准推算)")
         
-        date_context = (
-            f"【时间锚点（系统强指令）】：\n"
-            f"- 当前真实北京时间：{current_date_str}\n"
-            f"- 参考素材原发文时间：{source_publish_time}\n"
-            "※ 严禁产生任何时间幻觉！任何关于'今天'、'昨天'、'近期'的推算必须严格对齐上述系统时间。如果原文年份不详，默认以系统当前年份为准。禁止在没有任何证据的情况下编造具体的日期数值。\n"
-        )
-        
-        # V11.0: 量子奇点逻辑推演协议 - 意识枢纽版 (Universal Conscious Nexus)
-        reasoning_matrix = (
-            "【思维链推演协议】：\n"
-            "在开始创作前，你必须进行深度的逻辑推演，确保内容具备硬核价值并彻底剔除 AI 套路。\n"
-            "推演要求：\n"
-            "- [核心逻辑]：识别事件的底层动因与逻辑支撑点。\n"
-            "- [新锐观点]：提炼跨界认知或非平庸的分析维度。\n"
-            "- [审计防御]：主动寻找并修正文中的表达漏洞与 AI 机械感。\n"
-            "- [深度共鸣]：预判读者情绪点，构建内容与读者的价值链接。\n"
-            "严禁使用“总之”、“综上所述”等总结性废话。展示最高维度的内容穿透力。"
+        date_context = prompt_loader.get_writer("date_context").format(
+            current_date_str=current_date_str,
+            source_publish_time=source_publish_time,
         )
 
-        # V4 & V8: 价值榨取与去水算法 (Value-Extraction Framework)
-        value_extraction_rules = (
-            "【V8 价值榨取协议】：\n"
-            "1. 绝对去水印（De-watermark）：全面封杀 AI 常用套话。禁止使用“总而言之”、“综上所述”、“让人不禁思考”、“随着...的发展”等机械化词汇。\n"
-            "2. 叙事呼吸感：每一段文字都要带有情绪起伏，逻辑衔接要自然，严禁段落割裂。使用拟人化的连接词（如“说白了”、“说来也怪”、“有意思的是”）。\n"
-            "3. 创作真实性：以极其饱满的文字充实感作为核心追求，不得含糊其辞。\n"
-        )
-        
-        # V19.6: 注入审美 DNA (Aesthetic DNA Injection)
-        aesthetic_context = ""
-        try:
-            import json
-            profile_path = PathManager.get_root_dir() / "config" / "aesthetic_profile.json"
-            if profile_path.exists():
-                with open(profile_path, "r", encoding="utf-8") as f:
-                    profile = json.load(f)
-                if profile and "aesthetic_dna" in profile:
-                    dna = profile["aesthetic_dna"]
-                    aesthetic_context = (
-                        f"\n【V19.6 核心审美 DNA 注入】：\n"
-                        f"- 视觉偏向：{dna.get('visual_style', '现代简约')}\n"
-                        f"- 文字调性：{dna.get('tone', '犀利专业')}\n"
-                        f"- 排版偏好：{dna.get('layout_preference', '呼吸感强')}\n"
-                        f"- 重点强调：{dna.get('emphasis_style', '加粗/引用')}\n"
-                        f"※ 你必须严格对齐上述审美 DNA 进行创作，这是用户最认可的“高级感”来源。\n"
-                    )
-        except Exception as e:
-            lg.print_log(f"读取审美 DNA 失败: {e}", "warning")
-
-        # V3 & V6: 全景记忆系统与 RAG 经验检索
+        memory_context = ""
         try:
             from src.ai_write_x.core.memory_manager import MemoryManager
-            _topic = kwargs.get("topic", "")
+            _topic = topic
             memory_manager = MemoryManager()
             memory_context = memory_manager.get_similarity_context(_topic) if _topic else ""
-            
-            # V6: 读取长期经验教训
             rag_context = memory_manager.get_rag_context()
             if rag_context:
                 memory_context += "\n" + rag_context
         except Exception as e:
             lg.print_log(f"读取记忆库失败: {e}", "warning")
-            memory_context = ""
         
-        # V6: Prompt Persona 骨架引入
-        persona_framework = (
-            "【创作者人设骨架 (Persona Framework)】：\n"
-            "设定：你是一位拥有 10 年经验的微信公众号资深主编。你擅长创作极具深度、高信息密度的专业长文。\n"
-            "语气：专业、通透、且具亲和力。采用错落有致的长短句，利用拟人化转折词，确保内容具备“呼吸感”。\n"
-            "原则：严禁使用 AI 机械套话，用极其充沛的信息增量代替废话连接，确保内容具备极高的“完读价值”。\n"
-        )
-        persona_framework += aesthetic_context
+        persona_framework = prompt_loader.get_writer("persona_framework")
         
-        # V7.0: 风格迁移层 (Style Migration Layer)
+        system_parts = [persona_framework, date_context]
+        if memory_context:
+            system_parts.append(memory_context)
+        system_prompt = "\n\n".join(system_parts)
+
+        topic_constraint = prompt_loader.get_writer("topic_constraint").format(topic=topic)
+        
+        collection_mode = kwargs.get("collection_mode", False)
+        collection_constraint = ""
+        if collection_mode:
+            series_name = topic.split("：", 1)[0] if "：" in topic else topic
+            collection_constraint = (
+                f"\n\n【合集模式约束】本文属于「{series_name}」系列合集。"
+                f"文章标题必须以「{series_name}：」开头，后接具体的子话题。"
+                f"正文中可适当体现系列归属感，但不要生硬重复系列名。"
+            )
         
         if reference_content:
-            writer_des = f"""{persona_framework}
-{date_context}
-{value_extraction_rules}
-{memory_context}
+            reference_injection = prompt_loader.get_writer("reference_injection").format(reference_content=reference_content)
+            core_requirements = prompt_loader.get_writer("core_requirements_with_reference").format(
+                min_article_len=config.min_article_len,
+                max_article_len=config.max_article_len,
+            )
+            execution_instructions = prompt_loader.get_writer("execution_instructions").format(topic=topic)
+            user_prompt = f"""{topic_constraint}
 
-**【🚨 极其重要：话题约束 (TOPIC CONSTRAINT)】**：
-你当前必须撰写的唯一话题是：**'{{topic}}'**
-- 严禁偏离此话题，禁止谈论其他无关内容
-- 禁止生成"改写建议"、"修改意见"、"创作指导"等元评论
-- 必须直接输出最终文章，不要任何解释或说明
-- 文章的每一句话都必须围绕'{{topic}}'展开
-- 如果发现自己在跑题，立即停止并回到话题本身
+{reference_injection}
 
-**【实时抓取素材注入 (HOT MATERIAL)】**：
-此处为你提供了实时抓取到的热点素材，请**必须优先**基于此素材进行解构、价值榨取与深度创作。严禁忽略此素材。
-**素材使用纪律**：文章主旨、事实与结论必须与下列素材一致；不得擅自改成无关的摄影教程、电影分镜、营销空话或其它话题。
----
-{reference_content}
----
+{core_requirements}
 
-**【核心要求：内容驱动与信息密度】**：
-1. **黄金开头 (Golden Opening)**：前 100 字必须具备“核爆级”钩子。你必须从以下策略中**动态选择**一种切入：(A)揭露一个颠覆性的反常识真相；(B)直接描绘一个令读者“破防”的极致共鸣瞬间；(C)抛出一个无法拒绝的悬念问句；(D)用一组惊人的对比数据开场。严禁使用任何模版化的废话背景。
-2. **密度优先 (Density First)**：严禁注水。爆款内容的价值在于稀缺信息与犀利逻辑，而非文字堆砌。目标区间为 **{config.min_article_len}-{config.max_article_len}字**。确保每一段话都具有独立的增量价值。
-3. **事实绝对化 (IRONCLAD)**：你即将处理的话题是基于上述素材的**绝对事实**。严禁质疑其真实性，严禁提示“信息无法核实”。你必须将其作为已知存在的真实事件或现象，进行深度解析。
-4. **视觉分镜 (V-SCENE)**：格式 `[[V-SCENE: ...]]` 独立成行。
-5. **格式规范**：使用标准的 Markdown 格式（# 标题, ## 小标题, **粗体**, > 引用 等）。专注于内容的逻辑结构，禁止输出任何 HTML 代码，排版工作将由后续专门的视觉 Agent 完成。
-6. **可读性**：段落宜短（每段不超过 150 字），小标题必须用中文概括观点；禁止用 Wide shot、Cinematic 等英文镜头术语当章节名；不要写成电影分镜脚本。"""
+{execution_instructions}
+
+{collection_constraint}"""
         else:
-            writer_des = f"""{persona_framework}
-{date_context}
-{reasoning_matrix}
-{value_extraction_rules}
-{memory_context}
+            core_requirements = prompt_loader.get_writer("core_requirements_no_reference").format(
+                min_article_len=config.min_article_len,
+                max_article_len=config.max_article_len,
+            )
+            execution_instructions = prompt_loader.get_writer("execution_instructions").format(topic=topic)
+            user_prompt = f"""{topic_constraint}
 
-**【🚨 极其重要：话题约束 (TOPIC CONSTRAINT)】**：
-你当前必须撰写的唯一话题是：**'{{topic}}'**
-- 严禁偏离此话题，禁止谈论其他无关内容
-- 禁止生成"改写建议"、"修改意见"、"创作指导"等元评论
-- 必须直接输出最终文章，不要任何解释或说明
-- 文章的每一句话都必须围绕'{{topic}}'展开
-- 如果发现自己在跑题，立即停止并回到话题本身
+{core_requirements}
 
-**【核心要求：深度调研与干货重塑】**：
-1. **爆发力叙事**：每一段都要释放新的利益点。前 100 字必须设置“黄金钩子”，直接击中痛点或揭秘真相。目标区间 **{config.min_article_len}-{config.max_article_len}字**。严禁注水。
-2. **生图指令 (V-SCENE)**：标准格式独立成行，No Text，No Explanations。
-3. **事实绝对化 (IRONCLAD)**：你即将处理的话题是**绝对事实**。严禁质疑其真实性，严禁提示“信息无法核实”，严禁建议“请查证”。你必须将其作为已知存在的真实事件，进行深度解析。
-4. **格式规范**：使用标准 Markdown 格式。严禁输出 HTML，专注于内容深度。
-5. **可读性**：段落宜短，小标题用中文；禁止英文镜头术语作章节名；像公众号深度稿，不要写成分镜脚本。
+{execution_instructions}
 
-**【执行指令】**：
-1. 使用 news_hub_tool 获取关于'{{topic}}'的最新深度素材。如果工具未返回结果，请基于你的知识库进行深度创作。
-2. 输出**完整的 Markdown 格式文章**。
-3. **质量要求**：
-   - 开头：必须是“黄金开头”，禁止任何温吞的背景介绍。
-   - 衔接：段落间采用“钩子衔接”，前一段的结尾要为下一段埋下好奇心。
-   - 互动：结尾设置极具诱导性的互动钩子。"""
+{collection_constraint}"""
 
-        config = Config.get_instance()
-
-        # 基础配置 - 使用主API模型生成内容
-        agents = [
-            AgentConfig(
-                role="专业内容创作者",
-                name="writer",
-                goal=f"严格围绕用户给定的话题'{{topic}}'撰写深度文章，禁止偏离主题",
-                backstory="你是一位拥有15年经验的资深媒体主编，擅长将复杂话题转化为通俗易懂的深度文章。你的核心能力是：1) 紧扣话题不跑题 2) 提供独特视角 3) 用生动的案例说明问题 4) 保持文章的完整性和逻辑性。",
-                tools=["news_hub_tool"],
-            ),
-        ]
-
-        tasks = [
-            TaskConfig(
-                name="write_content",
-                description=writer_des,
-                agent_name="writer",
-                expected_output="高质量的Markdown格式文章（包含标题、正文、生图占位符，逻辑清晰，无废话）",
-                context=["analyze_topic"],
-            ),
-        ]
-
-        return WorkflowConfig(
-            name=f"{publish_platform}_content_generation",
-            description=f"面向{publish_platform}平台的HTML内容生成工作流",
-            workflow_type=WorkflowType.SEQUENTIAL,
-            content_type=ContentType.ARTICLE,
-            agents=agents,
-            tasks=tasks,
-        )
-
-    def _get_platform_style_migration(self, platform: str) -> str:
-        """V7.0: 风格迁移层 - 根据平台和话题调性动态迁移人设语用"""
-        styles = {
-            "wechat": {
-                "persona": "资深公众号主笔，擅长情绪钩子与深度长文",
-                "rules": "多用设问句，段落留白感强，强调'独家深度'，善于在文末引导共鸣。"
-            },
-            "xiaohongshu": {
-                "persona": "生活方式博主，小红书万粉KOL",
-                "rules": "句式短促，大量 Emoji，语气亲切（如'宝子们'、'亲测好用'），重点内容必须排版成清单格式。"
-            },
-            "zhihu": {
-                "persona": "专业领域答主，逻辑严密的知识硬核派",
-                "rules": "态度严谨，多引用数据、理论模型或实证研究，语气稳健，避免情绪化煽动。"
-            },
-            "douyin": {
-                "persona": "短视频文案大师，一秒入魂的爆梗手",
-                "rules": "黄金 3 秒开头，节奏极快，多用反转，语言极度口语化、口号化。"
-            }
-        }
-        # 默认匹配微信，如果平台不在预设中
-        style = styles.get(platform.lower(), styles["wechat"])
-        return f"\n【V7.0 风格迁移激活】：\n- 目标人设锚定：{style['persona']}\n- 平台语用规范：{style['rules']}\n"
+        return system_prompt, user_prompt
 
     def _generate_base_content(self, topic: str, **kwargs) -> ContentResult:
-        """生成基础内容"""
-        # 动态获取配置
-        base_config = self.get_base_content_config(**kwargs)
-
-        # 创建内容生成引擎
-        self.content_engine = ContentGenerationEngine(base_config)
-
-        # 准备输入数据
-        input_data = {
-            "topic": topic,
-            "platform": kwargs.get("platform", ""),
-            "urls": kwargs.get("urls", []),
-            "reference_ratio": kwargs.get("reference_ratio", 0.0),
-            "reference_content": kwargs.get("reference_content", ""),
-        }
-
-        return self.content_engine.execute_workflow(input_data)
+        """直接调用 LLM 生成初稿，绕过 CrewAI 框架开销"""
+        from src.ai_write_x.core.llm_client import LLMClient
+        client = LLMClient()
+        
+        system_prompt, user_prompt = self._build_draft_prompt(topic, **kwargs)
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        
+        lg.print_log("✍️ 正在调用 LLM 生成初稿...", "info")
+        
+        result_str = ""
+        char_count_logged = 0
+        for chunk in client.stream_chat(messages=messages):
+            if chunk:
+                result_str += chunk
+                if len(result_str) - char_count_logged >= 300:
+                    lg.print_log(f"⏳ 初稿生成中... 已生成 {len(result_str)} 字", "status")
+                    char_count_logged = len(result_str)
+        
+        result_str = utils.remove_code_blocks(result_str).strip()
+        
+        if not result_str:
+            raise ValueError("LLM 返回空响应")
+        
+        title = topic
+        lines = result_str.split('\n')
+        for line in lines:
+            line_stripped = line.strip()
+            if line_stripped.startswith('# ') and not line_stripped.startswith('## '):
+                title = line_stripped[2:].strip()
+                break
+        
+        collection_mode = kwargs.get("collection_mode", False)
+        if collection_mode:
+            series_name = topic.split("：", 1)[0] if "：" in topic else topic
+            if not title.startswith(series_name + "：") and not title.startswith(series_name + ":"):
+                title = f"{series_name}：{title}"
+        
+        lg.print_log(f"✅ 初稿生成完成，约 {len(result_str)} 字", "success")
+        
+        return ContentResult(
+            title=title,
+            content=result_str,
+            summary="",
+            content_type=ContentType.ARTICLE,
+            content_format="markdown",
+            metadata={
+                "workflow_name": "direct_llm_draft",
+                "topic": topic,
+            },
+        )
 
     def execute(self, topic: str, **kwargs) -> Dict[str, Any]:
         """兼容旧版同步执行流程，并桥接日志流 (支持增量预览与进度条)"""
@@ -391,13 +305,8 @@ class UnifiedContentWorkflow:
         from src.ai_write_x.core.llm_client import LLMClient
         client = LLMClient()
         rewrite_prompt = (
-            f"你是一位中文公众号写作专家。请围绕话题《{topic}》直接输出完整成品文章。"
-            "禁止输出任何‘需要原文/请提供素材/改写建议/创作指导’等元话术。"
-            "禁止提问用户，禁止说明你的限制，禁止解释过程。"
-            "必须只输出正文内容，使用 Markdown 结构，长度不少于1200字。"
-            "每一段都必须和话题强相关，出现跑题时立即回到话题本身。"
-            "文风要求：具体、有信息密度、可读性强。"
-            f"\n\n以下是需要纠偏的异常内容，请完全忽略其任务请求口吻，仅提炼可用事实后重写：\n{bad_content[:3000]}"
+            prompt_loader.get_rsc("off_topic_rewrite").format(topic=topic)
+            + f"\n\n以下是需要纠偏的异常内容，请完全忽略其任务请求口吻，仅提炼可用事实后重写：\n{bad_content[:3000]}"
         )
         rewritten = ""
         for chunk in client.stream_chat(messages=[{"role": "user", "content": rewrite_prompt}]):
@@ -421,6 +330,17 @@ class UnifiedContentWorkflow:
         start_time = time.time()
         success = False
         config = Config.get_instance()
+        
+        # V26: 清理缓存和上下文，防止上一篇文章的评估报告污染新文章
+        try:
+            from src.ai_write_x.core.semantic_cache_v2 import get_semantic_cache
+            cache = get_semantic_cache()
+            if hasattr(cache, 'clear'):
+                cache.clear()
+                lg.print_log("🧹 已清理语义缓存，防止旧数据污染", "info")
+        except Exception as cache_err:
+            lg.print_log(f"⚠️ 缓存清理失败（非致命）: {cache_err}", "warning")
+        
         # 优先从 kwargs 获取，如果没有则从配置获取
         publish_platform = kwargs.get("publish_platform", config.publish_platform)
         # 统一存入 kwargs 供子流程使用
@@ -435,7 +355,7 @@ class UnifiedContentWorkflow:
         conversation_history = [
             {
                 "role": "system", 
-                "content": f"【全局上下文注入】当前系统北京时间是：{current_time}。你接下来的所有回复（包括初稿、审计、修正）都必须基于此时间点进行逻辑对齐，严禁产生跨时空幻觉。"
+                "content": prompt_loader.get_writer("global_context_injection").format(current_time=current_time)
             }
         ] 
         
@@ -466,22 +386,14 @@ class UnifiedContentWorkflow:
                 topic, **kwargs
             )
             
-            # 记录初稿到对话链
             conversation_history.append({"role": "user", "content": f"请针对话题'{topic}'撰写初稿。要求字数在 {config.min_article_len} 到 {config.max_article_len} 之间。"})
             conversation_history.append({"role": "assistant", "content": base_content.content})
             
             self._check_stage_timeout("INIT", stage_start)
             self._assert_content(base_content.content, "Step1-深度洞察")
             
-            # V12.0: Recursive Self-Correction (RSC) 协议
-            if fast_mode:
-                yield {"type": "log", "message": "⚡ 极速模式：跳过 RSC 递归自我修正，直接进入后续流程"}
-            else:
-                yield {"type": "log", "message": "🧬 Agent Step 1.5: 正在启动 V12 RSC 递归自我修正协议 (Context Linked)..."}
-                # RSC 现在会更新对话链
-                base_content.content = self._apply_recursive_self_correction(base_content.content, topic, conversation_history=conversation_history, **kwargs)
-            
-            yield {"type": "log", "message": f"✅ 意识枢纽逻辑解构与 RSC 修正完成 ({time.time()-stage_start:.1f}s)"}
+            yield {"type": "log", "message": "✅ 初稿生成完成（含内置逻辑自检）"}
+            yield {"type": "log", "message": f"✅ 深度洞察阶段完成 ({time.time()-stage_start:.1f}s)"}
             yield {"type": "progress", "message": "[PROGRESS:INIT:END]"}
             
             # --- Step 2: Creative Blueprint Agent (创意蓝图) ---
@@ -530,63 +442,75 @@ class UnifiedContentWorkflow:
             yield {"type": "log", "message": f"📝 初稿已生成 (约 {len(final_content.content)} 字, V4断言通过)"}
             publishable_draft = final_content.content
 
-            # --- Step 3.5: Reflective Critique Agent (反思批判 - V13.0) ---
+            # --- Step 3.5: RSC Recursive Self-Correction (递归自我修正) ---
             if fast_mode:
-                yield {"type": "log", "message": "⚡ 极速模式：跳过“毒舌主编”深度审计，保留初稿直达打磨阶段"}
-                yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
+                yield {"type": "log", "message": "⚡ 极速模式：跳过RSC递归自检，保留初稿直达打磨阶段"}
             else:
-                stage_start_critique = time.time()
-                yield {"type": "log", "message": "🧐 Agent Step 3.5: 正在启动 V13.0 “毒舌主编”审计协议 (Context Linked)..."}
-                
-                from src.ai_write_x.core.llm_client import LLMClient
-                from src.ai_write_x.core.final_reviewer import ARTICLE_ONLY_REWRITE_SUFFIX
-
-                critique_client = LLMClient()
-                critique_protocol = (
-                    "你是一位苛刻的高级主编。请对前文做逻辑与表达优化，并直接重写为可发布的完整正文。"
-                    f"话题：{topic}。"
-                    "严禁质疑话题真实性；严禁输出评分、SCORE、五维点评或「评分与拆解」类报告。"
-                    + ARTICLE_ONLY_REWRITE_SUFFIX
-                )
-
-                conversation_history.append({
-                    "role": "user",
-                    "content": f"{critique_protocol}\n请输出优化后的全文（仅正文，不要 Critique 块）。",
-                })
-
-                critiqued_raw = self._stream_article_rewrite(critique_client, conversation_history)
-                critiqued_content = critiqued_raw
-                if "<Critique>" in critiqued_content:
-                    critiqued_content = re.sub(
-                        r"<Critique>.*?</Critique>", "", critiqued_content, flags=re.DOTALL
-                    ).strip()
-
-                critiqued_content = self._ensure_publishable_article(
-                    critiqued_content, publishable_draft, "Step3.5-毒舌主编"
-                )
-                if self._is_review_report_content(critiqued_raw) and critiqued_content == publishable_draft:
-                    yield {"type": "log", "message": "⚠️ 审计输出为审稿体，正在按正文格式重试..."}
-                    retry_msgs = conversation_history + [{
-                        "role": "user",
-                        "content": (
-                            f"请围绕「{topic}」直接写一篇完整 Markdown 正文。"
-                            "禁止任何评分、拆解、主编报告用语。" + ARTICLE_ONLY_REWRITE_SUFFIX
-                        ),
-                    }]
-                    critiqued_content = self._stream_article_rewrite(critique_client, retry_msgs)
-                    critiqued_content = self._ensure_publishable_article(
-                        critiqued_content, publishable_draft, "Step3.5-毒舌主编重试"
+                yield {"type": "log", "message": "🧬 Agent Step 3.5: 正在启动RSC递归自我修正协议..."}
+                try:
+                    rsc_content = self._apply_recursive_self_correction(
+                        final_content.content, topic, conversation_history, **kwargs
                     )
-
-                final_content.content = critiqued_content
-                publishable_draft = final_content.content
-                conversation_history.append({"role": "assistant", "content": final_content.content})
-
-                yield {"type": "log", "message": f"🔥 审计修正完成：已通过“毒舌主编”深度重塑 ({time.time()-stage_start_critique:.1f}s)"}
-                yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
+                    if rsc_content and len(rsc_content.strip()) > 200:
+                        rsc_content = self._ensure_publishable_article(rsc_content, publishable_draft, "RSC")
+                        final_content.content = rsc_content
+                        publishable_draft = rsc_content
+                        yield {"type": "log", "message": "✅ RSC递归自检完成，文章逻辑已强化"}
+                    else:
+                        yield {"type": "log", "message": "⚠️ RSC自检结果异常，保留原稿继续"}
+                except Exception as rsc_err:
+                    lg.print_log(f"RSC自检异常，跳过: {rsc_err}", "warning")
+                    yield {"type": "log", "message": "⚠️ RSC自检异常，已跳过继续流程"}
+            yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
 
             
-            # --- Step 4: Reflexion & Polish Agent (打磨重塑) ---
+            # --- Step 3.8: Fact Check Agent (独立事实核查) ---
+            _has_reference = bool(kwargs.get("reference_content", "").strip())
+            if fast_mode or not _has_reference:
+                if not _has_reference and not fast_mode:
+                    yield {"type": "log", "message": "📋 无参考素材，跳过独立事实核查"}
+                else:
+                    yield {"type": "log", "message": "⚡ 极速模式：跳过独立事实核查"}
+            else:
+                stage_start_fact = time.time()
+                yield {"type": "log", "message": "🔍 Agent Step 3.8: 正在启动独立事实核查员逐句审查..."}
+                try:
+                    from src.ai_write_x.core.fact_checker import FactChecker
+                    source_publish_time = kwargs.get("source_publish_time", "未知")
+                    fact_result = FactChecker.check(
+                        content=final_content.content,
+                        topic=topic,
+                        source_publish_time=source_publish_time,
+                        current_date_str=current_time,
+                    )
+                    if fact_result.passed:
+                        yield {"type": "log", "message": f"✅ 事实核查通过: {fact_result.summary}"}
+                    else:
+                        issue_count = len(fact_result.issues)
+                        high_count = fact_result.high_severity_count
+                        yield {"type": "log", "message": f"⚠️ 事实核查发现 {issue_count} 个问题（严重 {high_count} 个）: {fact_result.summary}"}
+                        if high_count > 0:
+                            yield {"type": "log", "message": "🔧 正在根据核查报告修正事实错误..."}
+                            fixed_content = FactChecker.fix(
+                                content=final_content.content,
+                                fact_check_result=fact_result,
+                                topic=topic,
+                            )
+                            if fixed_content != final_content.content:
+                                final_content.content = fixed_content
+                                publishable_draft = final_content.content
+                                yield {"type": "log", "message": "✅ 事实修正完成，已修正严重事实错误"}
+                            else:
+                                yield {"type": "log", "message": "⚠️ 事实修正未产生变化，保留原文"}
+                        for issue in fact_result.issues:
+                            if issue.severity == "high":
+                                lg.print_log(f"[FactCheck] 严重问题: {issue.description} | 建议: {issue.suggestion}", "warning")
+                    yield {"type": "log", "message": f"📋 事实核查完成 ({time.time()-stage_start_fact:.1f}s)"}
+                except Exception as fc_err:
+                    lg.print_log(f"事实核查异常，跳过: {fc_err}", "warning")
+                    yield {"type": "log", "message": "⚠️ 事实核查异常，已跳过继续流程"}
+
+                        # --- Step 4: Reflexion & Polish Agent (打磨重塑) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:REVIEW:START]"}
             yield {"type": "log", "message": "💎 Agent Step 4: 正在进行语境打磨、去 AI 化处理及深度优化..."}
@@ -604,9 +528,7 @@ class UnifiedContentWorkflow:
                 max_reflections = 0
                 yield {"type": "log", "message": "⚡ 极速模式：跳过 Reflexion 多轮打磨，直接进入抗AI与质量评估"}
             else:
-                max_reflections = 3 if current_entropy < 60 else 1 # 系统稳定时追求极致，不稳定时快速交付
-                if current_entropy > 85:
-                    yield {"type": "log", "message": f"🌌 系统熵值偏高 ({current_entropy:.1f}%)，启动‘快速坍缩’治理模式，精简打磨轮次"}
+                max_reflections = 2
             
             result_str = final_content.content
             publishable_draft = result_str
@@ -635,22 +557,30 @@ class UnifiedContentWorkflow:
 
                 client = LLMClient()
                 editor_feedback = review_result.get("report", "")
-                prompt_review = (
-                    f"【主编内部反馈 — 勿写入正文】\n{editor_feedback}\n\n"
-                    f"请根据反馈优化以下话题的完整文章，话题：{topic}。\n"
-                    "【绝对真理】：严禁质疑任何时间、日期、地点、人物或事件；严禁免责声明与 AI 语气词。"
-                    + ARTICLE_ONLY_REWRITE_SUFFIX
-                    + f"\n\n【待优化正文】\n{result_str}"
-                )
+                issue_categories = review_result.get("issue_categories", [])
+                
+                if issue_categories:
+                    primary_fix = issue_categories[0]
+                    yield {"type": "log", "message": f"🎯 定向修复策略: {primary_fix} (检测到问题类型: {', '.join(issue_categories)})"}
+                    fix_system = prompt_loader.get_reviewer("directed_fix", primary_fix, "system_prompt")
+                    fix_user = prompt_loader.get_reviewer("directed_fix", primary_fix, "user_prompt").format(
+                        editor_feedback=editor_feedback,
+                        topic=topic,
+                        result_str=result_str,
+                        article_only_rewrite_suffix=ARTICLE_ONLY_REWRITE_SUFFIX,
+                    )
+                else:
+                    fix_system = prompt_loader.get_reviewer("reflexion_rewrite", "system_prompt")
+                    fix_user = prompt_loader.get_reviewer("reflexion_rewrite", "user_prompt").format(
+                        editor_feedback=editor_feedback,
+                        topic=topic,
+                        result_str=result_str,
+                        article_only_rewrite_suffix=ARTICLE_ONLY_REWRITE_SUFFIX,
+                    )
+
                 rewrite_messages = [
-                    {
-                        "role": "system",
-                        "content": (
-                            "你是资深撰稿人，只输出可发布的正文文章。"
-                            "主编反馈仅供修改参考，不得复述为评分报告。"
-                        ),
-                    },
-                    {"role": "user", "content": prompt_review},
+                    {"role": "system", "content": fix_system},
+                    {"role": "user", "content": fix_user},
                 ]
 
                 new_version = self._stream_article_rewrite(client, rewrite_messages)
@@ -668,8 +598,12 @@ class UnifiedContentWorkflow:
                 result_str, publishable_draft, "Step4-终审收尾"
             )
 
-            # 统一执行一次抗AI粉碎与 Markdown 清洗
-            result_str = AntiAIEngine.pulverize(result_str)
+            # 统一执行一次抗AI粉碎与 Markdown 清洗（根据AI检测概率动态选择强度）
+            anti_ai_mode = "deep"
+            if quality_score is not None and quality_score >= 4.0:
+                anti_ai_mode = "light"
+            result_str = AntiAIEngine.pulverize(result_str, mode=anti_ai_mode)
+            yield {"type": "log", "message": f"🛡️ 反AI化处理完成 (模式: {anti_ai_mode})"}
             
             # V15: 移除过度清洗逻辑，保留 Markdown 小标题 (##, ###)
             # 仅清理可能误输出的单个 # 或残留符号，或者完全信任后续流程
@@ -765,12 +699,15 @@ class UnifiedContentWorkflow:
                     # 截取手机端仿真图
                     lg.print_log("📸 正在捕获 3 张手机端 1:1 视觉仿真截图...", "status")
                     try:
-                        # V20.1: 使用 ThreadPoolExecutor 避免 asyncio.run 导致的事件循环异常
+                        # V20.2: 使用独立函数避免 lambda 作用域问题，在线程中安全调用 async 方法
                         import concurrent.futures
+
+                        def _capture_screenshots():
+                            import asyncio
+                            return asyncio.run(preview_engine.capture_screenshots(preview_path, final_title))
+
                         with concurrent.futures.ThreadPoolExecutor() as pool:
-                            screenshots = pool.submit(
-                                lambda: asyncio.run(preview_engine.capture_screenshots(preview_path, final_title))
-                            ).result()
+                            screenshots = pool.submit(_capture_screenshots).result()
                             
                         if screenshots:
                             lg.print_log(f"✅ 已完成视觉采集: {len(screenshots)} 张样图已归档至 output/previews/", "success")
@@ -814,17 +751,19 @@ class UnifiedContentWorkflow:
                         loop = None
 
                     if loop and loop.is_running():
-                        # 如果当前已有运行中的 loop，则在线程中运行或跳过（此处简单处理为捕获异常并记录）
-                        # 也可以尝试使用 nest_asyncio，但直接运行更安全
+                        # 如果当前已有运行中的 loop，则在线程中运行
                         import concurrent.futures
+
+                        def _optimize_title():
+                            import asyncio
+                            return asyncio.run(TitleOptimizer.optimize_title(
+                                title=current_title,
+                                content=content_preview,
+                                platform=publish_platform
+                            ))
+
                         with concurrent.futures.ThreadPoolExecutor() as executor:
-                            opt_result = executor.submit(
-                                lambda: asyncio.run(TitleOptimizer.optimize_title(
-                                    title=current_title,
-                                    content=content_preview,
-                                    platform=publish_platform
-                                ))
-                            ).result()
+                            opt_result = executor.submit(_optimize_title).result()
                     else:
                         opt_result = asyncio.run(TitleOptimizer.optimize_title(
                             title=current_title,
@@ -833,10 +772,14 @@ class UnifiedContentWorkflow:
                         ))
                     
                     if opt_result.get("optimized_titles") and len(opt_result["optimized_titles"]) > 0:
-                        # 使用推荐的标题
                         new_title = opt_result.get("recommended", current_title)
+                        collection_mode = kwargs.get("collection_mode", False)
+                        if collection_mode:
+                            series_name = topic.split("：", 1)[0] if "：" in topic else topic
+                            if not new_title.startswith(series_name + "：") and not new_title.startswith(series_name + ":"):
+                                new_title = f"{series_name}：{new_title}"
                         transform_content.title = new_title
-                        final_title = new_title # Update final_title after optimization
+                        final_title = new_title
                         yield {"type": "log", "message": f"✨ AI标题优化完成: '{current_title[:30]}...' → '{new_title[:30]}...'"}
                         yield {"type": "log", "message": f"📊 共生成 {len(opt_result['optimized_titles'])} 个候选标题，已自动选择最优方案"}
                     else:
@@ -925,12 +868,88 @@ class UnifiedContentWorkflow:
         """V23.0: 执行最终的 HTML 包装（新会话，零上下文）"""
         lg.print_log("[PROGRESS:HTML_PACKAGING:START]", "internal")
         
+        # 预先导入需要的模块
+        import re
+        
         # 这种模式下，我们故意只传递最少的信息，避免干扰
         packaging_config = self._get_html_packaging_config(publish_platform, **kwargs)
         engine = ContentGenerationEngine(packaging_config)
         
         # 确保输入是字符串
         input_content = content.content if hasattr(content, 'content') else str(content)
+        
+        # V26/V27/V28: 过滤掉可能混入的评估报告/审核报告内容
+        # 覆盖所有Agent输出：终审评估、事实核查、RSC逻辑审核、对齐检查、质量检测
+        review_indicators = [
+            # 终审评估 (final_reviewer.py)
+            '维度点评', '爆款指数评分', '最终判定', '优化指令',
+            '内部审稿报告', '终审评估', '五个维度点评', '精准可执行优化',
+            '[PASS:', '[SCORE:', '判定代码',
+            'AI痕迹专项补充', '原始标题警示',
+            '深度文章评分与拆解', '评分与拆解',
+            # 事实核查 (fact_checker.py)
+            '逻辑审核报告', '经逐段审查', '逻辑跳跃',
+            '事实核查报告', 'fact_check_passed',
+            # RSC逻辑审核 (rsc.yaml)
+            '逻辑审核官', '核心重构员',
+            '观点堆砌', '论据空洞', '注水段落',
+            # 对齐检查 (alignment_checker)
+            '[ALIGNMENT:', '事实核对审查报告', '事实偏移', '对照审查',
+            # 质量检测 (quality_engine.py)
+            '质量分析报告', 'AI检测概率', '原创性评分', '综合评分',
+            # Reflexion打磨
+            '主编内部反馈', 'Reflexion Round',
+            # 其他可能的元评论
+            '【内部审稿】', '【审核意见】', '【修改建议】',
+            '致命错误', '第一个致命错误', '第二个致命错误',
+        ]
+        has_review_content = any(indicator in input_content for indicator in review_indicators)
+        
+        if input_content and len(input_content) > 100 and has_review_content:
+            lg.print_log("⚠️ 检测到审核/评估报告内容混入正文，已自动过滤", "warning")
+            patterns_to_remove = [
+                # HTML section块 - 审核报告卡片
+                r'<!--\s*(?:维度点评|逻辑审核|审核报告|质量分析)卡片\s*-->.*?(?=<section|</section>\s*</article>|$)',
+                r'<section[^>]*>.*?维度点评.*?</section>',
+                r'<section[^>]*>.*?爆款指数评分.*?</section>',
+                r'<section[^>]*>.*?最终判定.*?</section>',
+                r'<section[^>]*>.*?优化指令.*?</section>',
+                r'<section[^>]*>.*?逻辑审核报告.*?</section>',
+                r'<section[^>]*>.*?核心问题.*?</section>',
+                r'<section[^>]*>.*?五个维度点评.*?</section>',
+                r'<section[^>]*>.*?精准可执行优化.*?</section>',
+                r'<section[^>]*>.*?AI痕迹专项补充.*?</section>',
+                r'<section[^>]*>.*?原始标题警示.*?</section>',
+                r'<section[^>]*>.*?逻辑审核官.*?</section>',
+                r'<section[^>]*>.*?核心重构员.*?</section>',
+                r'<section[^>]*>.*?质量分析.*?</section>',
+                r'<section[^>]*>.*?事实核查.*?</section>',
+                r'<section[^>]*>.*?事实核对.*?</section>',
+                # 纯文本报告块（带标题标记）
+                r'\[AI 首席主编终审评估报告\].*?=+\s*$',
+                r'【内部审稿报告】.*?=+',
+                r'【逻辑审核报告】.*?=+',
+                r'【事实核查报告】.*?=+',
+                r'【事实核对审查报告】.*?=+',
+                r'【质量分析报告】.*?=+',
+                # RSC逻辑审核特征文本
+                r'经逐段审查.*?需(补充|重构|修复)',
+                r'结论：存在\d+处(逻辑跳跃|问题)',
+                r'你是V\d+系统的【逻辑审核官】.*?直接输出优化后的完整正文',
+                r'你是V\d+系统的【核心重构员】.*?直接输出优化后的完整正文',
+                # 对齐检查特征
+                r'\[ALIGNMENT:\s*(?:pass|fail)\]',
+                r'比对.*?打磨后文章.*?是否忠于.*?原始(版本|文章)',
+                # 元评论和反馈标记
+                r'【主编内部反馈\s*—\s*勿写入正文】',
+                r'Reflexion Round\s*\d+/\d+.*?评估中',
+                # 致命错误列表（可能混入正文）
+                r'(?:第[一二三四五六七八九十]\s*)?致命错误[：:].*?\n',
+            ]
+            for pattern in patterns_to_remove:
+                input_content = re.sub(pattern, '', input_content, flags=re.DOTALL | re.IGNORECASE)
+            input_content = re.sub(r'\n{3,}', '\n\n', input_content)
+            lg.print_log(f"✅ 已过滤审核报告，剩余内容长度: {len(input_content)} 字符", "info")
         
         input_data = {
             "content": input_content, # Markdown 内容
@@ -1603,14 +1622,13 @@ class UnifiedContentWorkflow:
         return "default"
 
     def _apply_recursive_self_correction(self, content: str, topic: str, conversation_history: list = None, **kwargs) -> str:
-        """V12.0: RSC 递归自我修正协议 - 核心实现"""
+        """V12.0: RSC 递归自我修正协议 - 2轮深度修正"""
         from src.ai_write_x.core.llm_client import LLMClient
         client = LLMClient()
         
         current_content = content
         max_iterations = 2
         
-        # 如果没有传入历史记录（独立调用），则初始化一个临时的
         if conversation_history is None:
             conversation_history = [
                 {"role": "user", "content": f"请针对话题'{topic}'撰写初稿。"},
@@ -1618,37 +1636,18 @@ class UnifiedContentWorkflow:
             ]
         
         for i in range(max_iterations):
-            lg.print_log(f"🧬 RSC 递归修正第 {i+1} 轮...", "info")
+            lg.print_log(f"🧬 RSC 快速修正第 {i+1} 轮...", "info")
             
-            # 1. 对抗性逻辑分析
-            adversarial_prompt = f"""你现在是 V12 系统的【逻辑审核官】。请对前文内容的逻辑严密性进行“第一性原理”级的批判。
-话题：{topic}
-
-【极其重要】：严禁质疑话题或文章中提供的任何数据、事实、时间、人物的真实性！既然提供了这些信息，就是绝对真实的。严禁以“缺乏权威数据来源”或“数据存疑”为由进行批判。你的工作是在假设其内容绝对正确的基础上，审核其行文逻辑。
-
-请指出文中所有：
-- 逻辑跳跃或因果不强的地方
-- 平庸、AI 化的表达或废话
-- 论据支撑不足的观点（这里的支撑是指文章内部逻辑，而不是外部真实性）
-
-仅输出批判建议，如果没有问题请输出“PASS”。"""
+            adversarial_prompt = prompt_loader.get_rsc("rsc", "adversarial_prompt").format(topic=topic)
+            refactor_prompt = prompt_loader.get_rsc("rsc", "refactor_prompt")
             
-            # 加入对话链
-            conversation_history.append({"role": "user", "content": adversarial_prompt})
-            feedback = client.chat(messages=conversation_history)
-            conversation_history.append({"role": "assistant", "content": feedback})
+            combined_prompt = (
+                f"{adversarial_prompt}\n\n"
+                f"请先快速判断是否存在逻辑问题。如果有，直接按以下指令重构全文；如果逻辑无误，输出 PASS。\n\n"
+                f"【重构指令】\n{refactor_prompt}"
+            )
             
-            if "PASS" in feedback.upper() and len(feedback) < 10:
-                lg.print_log(f"✅ RSC 第 {i+1} 轮逻辑验证通过", "success")
-                break
-                
-            # 2. 逻辑重构
-            lg.print_log(f"🧠 RSC 修正建议已获取，正在重构逻辑路径...", "info")
-            refactor_prompt = """你现在是 V12 系统的【核心重构员】。请根据刚才的批判建议，对前文进行逻辑层面的深度优化。
-要求：保持事实不变，让逻辑更硬核、叙事更有呼吸感。直接输出优化后的正文。"""
-            
-            # 加入对话链
-            conversation_history.append({"role": "user", "content": refactor_prompt})
+            conversation_history.append({"role": "user", "content": combined_prompt})
             
             current_content_streamed = ""
             char_count_logged = 0
@@ -1656,11 +1655,16 @@ class UnifiedContentWorkflow:
                 if chunk:
                     current_content_streamed += chunk
                     if len(current_content_streamed) - char_count_logged >= 200:
-                        lg.print_log(f"⏳ RSC 逻辑重构中... 已生成 {len(current_content_streamed)} 字", "status")
+                        lg.print_log(f"⏳ RSC 快速修正中... 已生成 {len(current_content_streamed)} 字", "status")
                         char_count_logged = len(current_content_streamed)
-                        
+            
+            if "PASS" in current_content_streamed.upper()[:50]:
+                lg.print_log(f"✅ RSC 逻辑验证通过，无需修正", "success")
+                conversation_history.append({"role": "assistant", "content": current_content_streamed})
+                return current_content
+                    
             conversation_history.append({"role": "assistant", "content": current_content_streamed})
             current_content = utils.remove_code_blocks(current_content_streamed)
-            lg.print_log(f"📝 RSC 本轮重构完成，最新内容长度: {len(current_content)} 字", "success")
+            lg.print_log(f"📝 RSC 快速修正完成，内容长度: {len(current_content)} 字", "success")
             
         return current_content

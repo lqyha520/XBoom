@@ -13,7 +13,43 @@ class MenuIpWhitelistManager {
     init() {
         if (this._initialized) return;
         this._initialized = true;
-        this.refresh(true);
+        this._checkAvailable();
+    }
+
+    async _checkAvailable() {
+        try {
+            const res = await fetch('/api/menu-ip-whitelist/status');
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                if (res.status === 503 || String(data.detail || '').includes('mysql') || String(data.detail || '').includes('未配置')) {
+                    this._showUnavailable();
+                    return;
+                }
+                throw new Error(data.detail || `状态加载失败 (${res.status})`);
+            }
+            this.status = await res.json();
+            await this.fetchList();
+            this.renderStatus();
+            this.renderTable();
+        } catch (e) {
+            this._showError(e.message || String(e));
+        }
+    }
+
+    _showUnavailable() {
+        const container = document.getElementById('menu-ip-whitelist-view');
+        if (!container) return;
+        const existing = container.querySelector('.ip-unavailable-hint');
+        if (existing) return;
+        const hint = document.createElement('div');
+        hint.className = 'ip-unavailable-hint';
+        hint.style.cssText = 'padding:40px;text-align:center;color:#999;';
+        hint.innerHTML = '<p style="font-size:14px;">🔒 IP 白名单功能未启用</p><p style="font-size:12px;margin-top:8px;">如需使用，请在配置文件中设置 <code>menu_access.mysql</code></p>';
+        const tableWrap = container.querySelector('.ip-whitelist-table-wrap');
+        if (tableWrap) { tableWrap.style.display = 'none'; }
+        const statusArea = container.querySelector('.ip-status-area');
+        if (statusArea) { statusArea.style.display = 'none'; }
+        container.insertBefore(hint, container.firstChild);
     }
 
     async refresh(showToast = false) {

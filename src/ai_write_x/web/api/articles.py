@@ -385,7 +385,7 @@ async def delete_article(path: str):
     dir_path = file_path.parent
     
     deleted_any = False
-    for ext in ['.html', '.md', '.txt']:
+    for ext in ['.html', '.md', '.txt', '.design.json', '.source.txt']:
         target_file = dir_path / f"{stem}{ext}"
         if target_file.exists():
             target_file.unlink()

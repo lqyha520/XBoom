@@ -198,6 +198,13 @@ class MigrationManager:
                     "ALTER TABLE scheduled_tasks ADD COLUMN last_run_at TIMESTAMP",
                 ],
             },
+            {
+                "version": "v1.2.2-collection-mode",
+                "description": "定时任务合集模式字段",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN collection_mode BOOLEAN DEFAULT 0",
+                ],
+            },
         ]
         
         for migration in migrations:

@@ -24,7 +24,16 @@ from src.ai_write_x.utils.icon_manager import WindowIconManager
 
 
 class WebViewGUI:
+    # 类级别单实例互斥锁
+    _single_instance_mutex = None
+
     def __init__(self):
+        # 单实例检测：如果已有实例运行，激活它并退出
+        if not self._acquire_single_instance():
+            log.print_log("检测到已有程序实例运行，激活现有窗口后退出", "warning")
+            self._activate_existing_instance()
+            sys.exit(0)
+
         self.server_thread = None
         self.server = None
         self.server_loop = None
@@ -53,6 +62,51 @@ class WebViewGUI:
 
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("com.iniwap.AIWriteX")
 
+    @classmethod
+    def _acquire_single_instance(cls) -> bool:
+        """尝试获取单实例互斥锁，返回True表示成功（无其他实例），False表示已有实例运行"""
+        if sys.platform != "win32":
+            return True
+        try:
+            import ctypes
+            import ctypes.wintypes
+            kernel32 = ctypes.windll.kernel32
+            mutex_name = "Global\\XBoom_SingleInstance_Mutex"
+            cls._single_instance_mutex = kernel32.CreateMutexW(None, False, mutex_name)
+            last_error = kernel32.GetLastError()
+            # ERROR_ALREADY_EXISTS = 183
+            if last_error == 183:
+                cls._single_instance_mutex = None
+                return False
+            return True
+        except Exception as e:
+            log.print_log(f"单实例检测失败: {e}，跳过检测", "warning")
+            return True
+
+    @classmethod
+    def _activate_existing_instance(cls):
+        """激活已存在的程序窗口"""
+        if sys.platform != "win32":
+            return
+        try:
+            # 通过端口文件找到现有实例的端口
+            port_file = Path("port.txt")
+            if port_file.exists():
+                port = port_file.read_text().strip()
+                if port:
+                    import urllib.request
+                    try:
+                        req = urllib.request.Request(
+                            f"http://127.0.0.1:{port}/api/system/bring-to-front",
+                            method="POST",
+                            data=b"",
+                        )
+                        urllib.request.urlopen(req, timeout=3)
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.print_log(f"激活现有实例失败: {e}", "warning")
+
     def find_free_port(self):
         """获取系统可用空闲端口"""
         import socket
@@ -65,10 +119,10 @@ class WebViewGUI:
         return PathManager.get_log_dir() / "use_browser_gui.flag"
 
     def _should_use_browser_gui(self) -> bool:
-        env = os.environ.get("AIWRITEX_BROWSER_GUI", "").strip().lower()
-        if env in ("1", "true", "yes", "on"):
+        forced_browser = os.environ.get("AIWRITEX_BROWSER_GUI", "").strip().lower()
+        if forced_browser in ("1", "true", "yes", "on"):
             return True
-        return self._browser_gui_flag_path().exists()
+        return False
 
     def _mark_browser_gui_preferred(self):
         if not self._browser_fallback_allowed():
@@ -115,6 +169,20 @@ class WebViewGUI:
     def _configure_webview2(self):
         storage = self._get_webview_storage_path()
         os.environ["WEBVIEW2_USER_DATA_FOLDER"] = str(storage)
+
+        # 禁止 WebView2 后台节流：内容创作/定时任务执行时不会因窗口失焦而被暂停
+        # --disable-background-timer-throttling: 禁止后台定时器节流
+        # --disable-backgrounding-occluded-windows: 禁止被遮挡窗口降级
+        # --disable-features=CalculateNativeWinOcclusion: 禁止Windows原生遮挡检测
+        extra_args = (
+            "--disable-background-timer-throttling "
+            "--disable-backgrounding-occluded-windows "
+            "--disable-features=CalculateNativeWinOcclusion"
+        )
+        existing = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
+        if existing:
+            extra_args = existing + " " + extra_args
+        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = extra_args
 
     def _write_startup_url_file(self):
         try:
@@ -176,16 +244,8 @@ class WebViewGUI:
                 "已在系统浏览器中打开（WebView2 不可用）",
             )
 
-    def _browser_fallback_watchdog(self, delay_seconds: float = 8.0):
-        if not self._browser_fallback_allowed():
-            return
-        time.sleep(delay_seconds)
-        if self.is_shutting_down or self._browser_gui_opened or self._desktop_ui_ready:
-            return
-        if not self.check_server_ready(max_attempts=10):
-            return
-        log.print_log("桌面窗口未正常加载，正在切换到系统浏览器...", "warning")
-        self._switch_to_browser_fallback()
+    def _browser_fallback_watchdog(self, delay_seconds: float = 30.0):
+        return
 
     def _start_server_thread(self):
         self.server_thread = threading.Thread(target=self.start_server, daemon=True)
@@ -220,7 +280,6 @@ class WebViewGUI:
             self.quit_application()
 
     def _keep_running_with_browser_fallback(self):
-        threading.Thread(target=self._switch_to_browser_fallback, daemon=True).start()
         self._keep_running_loop()
 
     def signal_handler(self, signum, frame):
@@ -502,7 +561,8 @@ class WebViewGUI:
                     self._inject_desktop_scripts()
                 except Exception as e:
                     self.write_crash_log("load_url", e)
-                    self._switch_to_browser_fallback()
+                    if self.window:
+                        self.window.load_html(self.build_error_html(f"Failed to load URL: {e}"))
         else:
             error_message = "本地 Web 服务启动超时，请检查 logs 目录中的错误日志。"
             self.write_crash_log("wait_for_server_and_load", RuntimeError(error_message))
@@ -548,6 +608,10 @@ class WebViewGUI:
     def start(self):
         """启动WebView应用"""
         try:
+            # 将自身注册到全局状态，供API端点访问
+            from src.ai_write_x.web.state import get_app_state
+            get_app_state().window_manager = self
+
             if self._should_use_browser_gui():
                 self._run_browser_only_mode()
                 return

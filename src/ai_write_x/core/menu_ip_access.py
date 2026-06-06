@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, Tuple
 
 import httpx
 
@@ -26,6 +26,9 @@ def _menu_access_settings() -> Dict[str, Any]:
     config = Config.get_instance().config or {}
     merged: Dict[str, Any] = {
         "enabled": True,
+        "api_url": "https://updates.bcxtech.cn/stats/menu_access_check.php",
+        "api_token": "",
+        "timeout_seconds": 8,
         "mysql": {
             "host": "",
             "port": 3306,
@@ -108,6 +111,36 @@ def _load_whitelist_from_mysql(mysql_cfg: Dict[str, Any]) -> Set[str]:
         connection.close()
 
 
+def _check_access_via_api(settings: Dict[str, Any]) -> Optional[Tuple[bool, str, int, str]]:
+    """调用服务端接口判断白名单；返回 (allowed, ip, count, message)。"""
+    api_url = str(settings.get("api_url") or "").strip()
+    if not api_url:
+        return None
+
+    token = str(settings.get("api_token") or "").strip()
+    timeout = max(2, min(int(settings.get("timeout_seconds") or 8), 30))
+    headers: Dict[str, str] = {}
+    if token:
+        headers["X-Stats-Token"] = token
+
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.get(api_url, headers=headers)
+        if response.status_code != 200:
+            raise RuntimeError(f"HTTP {response.status_code}")
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("invalid_json")
+        allowed = bool(data.get("allowed", False))
+        ip = str(data.get("ip") or "").strip()
+        count = int(data.get("whitelist_count") or 0)
+        message = str(data.get("message") or "").strip()
+        return allowed, ip, count, message
+    except Exception as exc:
+        log.print_log(f"[菜单白名单] API 校验失败: {exc}", "warning")
+        return None
+
+
 class MenuIpAccessService:
     """单例：应用启动时 refresh，之后读缓存结果。"""
 
@@ -134,42 +167,29 @@ class MenuIpAccessService:
             log.print_log(f"[菜单白名单] {self.last_message}", "info")
             return False
 
-        mysql_cfg = settings.get("mysql") or {}
-        host = str(mysql_cfg.get("host") or "").strip()
-        if not host:
-            self.allowed = False
-            self.last_message = "未配置 menu_access.mysql.host，受限菜单已隐藏"
-            log.print_log(f"[菜单白名单] {self.last_message}", "warning")
-            return False
-
-        try:
-            self.whitelist_ips = _load_whitelist_from_mysql(mysql_cfg)
-        except Exception as exc:
-            self.allowed = False
+        # 优先：服务端 API 校验（客户端无需保存数据库账号密码）
+        api_result = _check_access_via_api(settings)
+        if api_result is not None:
+            allowed, ip, count, message = api_result
+            self.allowed = allowed
+            self.public_ip = ip
             self.whitelist_ips = set()
-            self.last_message = f"MySQL 读取白名单失败: {exc}"
-            log.print_log(f"[菜单白名单] {self.last_message}", "warning")
-            return False
-
-        self.public_ip = detect_public_ip()
-        if not self.public_ip:
-            self.allowed = False
-            self.last_message = "无法获取本机公网 IP，受限菜单已隐藏"
-            log.print_log(f"[菜单白名单] {self.last_message}", "warning")
-            return False
-
-        self.allowed = self.public_ip in self.whitelist_ips
-        if self.allowed:
             self.last_message = (
-                f"本机 IP {self.public_ip} 在白名单中（共 {len(self.whitelist_ips)} 条）"
+                message
+                or (
+                    f"本机 IP {ip} 在白名单中（共 {count} 条）"
+                    if allowed
+                    else f"本机 IP {ip} 不在白名单（库内 {count} 条）"
+                )
             )
             log.print_log(f"[菜单白名单] {self.last_message}", "info")
-        else:
-            self.last_message = (
-                f"本机 IP {self.public_ip} 不在白名单（库内 {len(self.whitelist_ips)} 条）"
-            )
-            log.print_log(f"[菜单白名单] {self.last_message}", "info")
-        return self.allowed
+            return self.allowed
+
+        self.allowed = False
+        self.whitelist_ips = set()
+        self.last_message = "菜单白名单 API 不可用，受限菜单已隐藏"
+        log.print_log(f"[菜单白名单] {self.last_message}", "warning")
+        return False
 
     def is_restricted_menu_visible(self) -> bool:
         return self.allowed

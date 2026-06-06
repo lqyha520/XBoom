@@ -107,3 +107,11 @@ knowledge/newshub_cache.json
 knowledge_graph.json
 logs/desktop_crash.log
 previews/*.html
+
+# WebView runtime profile/cache
+pywebview/desktop/EBWebView/
+
+# Local workspace/tooling scratch files
+.trae/
+_test_*.py
+test_images/

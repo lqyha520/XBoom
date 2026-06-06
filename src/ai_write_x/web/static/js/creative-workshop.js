@@ -40,6 +40,10 @@ class CreativeWorkshopManager {
         // v2: 轮询启动时间戳
         this._pollingStartTime = 0;
 
+        // 防止后台节流导致假死：监听页面可见性变化
+        this._onVisibilityChange = this._handleVisibilityChange.bind(this);
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
+
         this.initialized = false;
         this.initializing = false;
     }
@@ -68,6 +72,12 @@ class CreativeWorkshopManager {
     }
 
     destroy() {
+        // 移除可见性监听
+        if (this._onVisibilityChange) {
+            document.removeEventListener('visibilitychange', this._onVisibilityChange);
+            this._onVisibilityChange = null;
+        }
+
         // 断开 WebSocket  
         this.disconnectLogWebSocket();
 
@@ -729,7 +739,8 @@ class CreativeWorkshopManager {
                     post_action: postAction,
                     ai_beautify: isBeautifyOn,
                     filter_processed: workshopFilterProcessed?.checked || false,
-                    fast_mode: isFastModeOn
+                    fast_mode: isFastModeOn,
+                    collection_mode: document.getElementById('workshop-collection-mode')?.checked || false
                 })
             });
 
@@ -968,7 +979,7 @@ class CreativeWorkshopManager {
                 this._startHeartbeat(); // v2: 启动心跳
             };
 
-            this.logWebSocket.onmessage = (event) => {
+            this.logWebSocket.onmessage = async (event) => {
                 try {
                     const data = JSON.parse(event.data);
 
@@ -989,6 +1000,16 @@ class CreativeWorkshopManager {
 
                     // 转发到全局日志面板      
                     this.appendLog(data.message, data.type, false, data.timestamp);
+
+                    // 后台补图完成通知：自动刷新文章列表
+                    if (data.message && data.message.includes('[IMG_FIX_DONE]')) {
+                        try {
+                            if (window.articleManager) {
+                                await window.articleManager.loadArticles();
+                                window.articleManager.renderStatusTree();
+                            }
+                        } catch (e) { console.warn('补图完成后刷新文章列表失败:', e); }
+                    }
 
                     // 实时预览：截取 AI 输出内容（status 类型 = AI 内容块）
                     if (data.message) {
@@ -1039,26 +1060,101 @@ class CreativeWorkshopManager {
         }
     }
 
-    // v2: 心跳机制 - 每30秒发送ping，保持连接活跃
+    // v2: 心跳机制 - 使用 Web Worker 保持后台心跳不被节流
     _startHeartbeat() {
         this._stopHeartbeat();
-        this._wsHeartbeatTimer = setInterval(() => {
+        // 创建内联 Web Worker 用于心跳定时
+        const workerCode = `
+            let timer = null;
+            self.onmessage = function(e) {
+                if (e.data === 'start') {
+                    timer = setInterval(() => self.postMessage('ping'), 30000);
+                } else if (e.data === 'stop') {
+                    clearInterval(timer);
+                    timer = null;
+                }
+            };
+        `;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        this._heartbeatWorker = new Worker(URL.createObjectURL(blob));
+        this._heartbeatWorker.onmessage = () => {
             if (this.logWebSocket && this.logWebSocket.readyState === WebSocket.OPEN) {
                 try {
                     this.logWebSocket.send(JSON.stringify({ type: 'ping' }));
                 } catch (e) {
-                    // 发送失败表示连接已断，让onclose处理重连
                     console.warn('心跳发送失败:', e.message);
                 }
             }
-        }, 30000);
+        };
+        this._heartbeatWorker.postMessage('start');
     }
 
     _stopHeartbeat() {
+        if (this._heartbeatWorker) {
+            this._heartbeatWorker.postMessage('stop');
+            this._heartbeatWorker.terminate();
+            this._heartbeatWorker = null;
+        }
         if (this._wsHeartbeatTimer) {
             clearInterval(this._wsHeartbeatTimer);
             this._wsHeartbeatTimer = null;
         }
+    }
+
+    /**
+     * 处理页面可见性变化，防止后台节流导致假死
+     * 当窗口从后台恢复到前台时：
+     * 1. 如果正在生成且WebSocket已断开，自动重连
+     * 2. 如果正在生成且轮询已停止，恢复轮询
+     * 3. 主动查询一次最新状态，避免错过完成事件
+     */
+    _handleVisibilityChange() {
+        if (document.hidden) {
+            // 页面进入后台，无需特殊处理（浏览器会自动节流定时器）
+            console.log('[Visibility] 页面进入后台，定时器可能被节流');
+            return;
+        }
+
+        // 页面恢复前台
+        console.log('[Visibility] 页面恢复前台，检查生成状态...');
+
+        if (!this.isGenerating) {
+            return;
+        }
+
+        // 1. 检查WebSocket连接状态，断开则重连
+        if (!this.logWebSocket || this.logWebSocket.readyState !== WebSocket.OPEN) {
+            console.log('[Visibility] WebSocket 已断开，正在重连...');
+            this._wsReconnectAttempts = 0; // 重置重连计数，允许重新连接
+            this.connectLogWebSocket();
+        } else {
+            // 连接仍在，重启心跳确保活跃
+            this._startHeartbeat();
+        }
+
+        // 2. 恢复状态轮询（如果已停止）
+        if (!this.statusPollInterval) {
+            console.log('[Visibility] 恢复状态轮询...');
+            this.startStatusPolling();
+        }
+
+        // 3. 立即查询一次最新状态
+        fetch('/api/generate/status')
+            .then(r => r.ok ? r.json() : null)
+            .then(result => {
+                if (!result) return;
+                if (result.status === 'completed' || result.status === 'failed' || result.status === 'stopped') {
+                    this.stopStatusPolling();
+                    this.handleGenerationComplete({
+                        type: result.status,
+                        error: result.error,
+                        article_paths: result.article_paths,
+                        ai_beautify: result.ai_beautify,
+                    });
+                    this.disconnectLogWebSocket();
+                }
+            })
+            .catch(err => console.warn('[Visibility] 状态查询失败:', err));
     }
 
     // 处理消息队列  
@@ -1202,6 +1298,8 @@ class CreativeWorkshopManager {
     async handleGenerationComplete(data) {
         if (data?.article_paths?.length) {
             this._lastGeneratedArticlePaths = data.article_paths;
+        } else {
+            this._lastGeneratedArticlePaths = [];
         }
         // v2: 幂等保护 - 避免被WebSocket和轮询同时触发
         if (this._generationCompleteHandled) {
@@ -1242,6 +1340,14 @@ class CreativeWorkshopManager {
             }
 
             if (data.type === 'completed') {
+                if (!this._lastGeneratedArticlePaths?.length) {
+                    window.app?.showNotification('生成完成但未产出文章，请检查配置（API Key/Model）或查看日志', 'warning');
+                    this.bottomProgress?.showWarning('未产出文章');
+                    this.resetLogButton();
+                    this.isGenerating = false;
+                    this.updateGenerationUI(false);
+                    return;
+                }
                 if (this.bottomProgress) {
                     this.bottomProgress.complete();
                 }
@@ -1317,6 +1423,11 @@ class CreativeWorkshopManager {
                     if (window.articleManager) {
                         await window.articleManager.loadArticles();
                         window.articleManager.renderStatusTree();
+                        // 立即切换到文章库视图，让用户看到新生成的文章
+                        const articleViewLink = document.querySelector('[data-view="article-manager"]');
+                        if (articleViewLink) {
+                            articleViewLink.click();
+                        }
                     }
                 } catch (e) { console.warn('刷新文章列表失败:', e); }
 
@@ -1327,13 +1438,17 @@ class CreativeWorkshopManager {
                     }
                 } catch (e) { console.warn('删除借鉴文章失败:', e); }
 
-                // ===== 生成后自动换模板 =====
+                // ===== 生成后自动换模板（延迟启动，不阻塞文章库显示） =====
                 const shouldBeautify = data.ai_beautify
                     || document.getElementById('auto-retemplate-switch')?.checked;
                 if (shouldBeautify && !document.getElementById('workshop-fast-mode')?.checked) {
                     const paths = data.article_paths || this._lastGeneratedArticlePaths || [];
-                    this.runAutoBeautifyAfterGenerate(paths);
+                    // 延迟2秒启动换模板，确保文章库先完成渲染
+                    setTimeout(() => this.runAutoBeautifyAfterGenerate(paths), 2000);
                 }
+
+                // 生成后定时刷新文章列表（后台补图完成后自动更新）
+                this._startPostGenerationRefresh();
 
             } else if (data.type === 'failed') {
                 window.app?.showNotification('生成失败: ' + (data.error || '未知错误'), 'error');
@@ -1464,8 +1579,8 @@ class CreativeWorkshopManager {
                     this.setPreviewMeta(charCount > 0 ? `约 ${charCount} 字` : '');
                     this.switchOutputTab('preview');
 
-                    // 质量分析仍使用正文
-                    this.showQualityAnalysis(content, latestArticle.title, latestArticle);
+                    // 质量分析已禁用（避免干扰正文显示）
+                    // this.showQualityAnalysis(content, latestArticle.title, latestArticle);
                 }
             }
         } catch (error) {
@@ -1563,6 +1678,12 @@ class CreativeWorkshopManager {
     startStatusPolling() {
         this.stopStatusPolling();
         this._pollingStartTime = Date.now();
+        this._lastPollTickTime = Date.now();
+
+        // 防节流保活：使用 requestAnimationFrame 检测定时器是否被节流
+        // 当页面在后台时，浏览器会节流 setTimeout/setInterval
+        // 如果超过15秒没有轮询tick，主动进行一次状态查询
+        this._startThrottleWatchdog();
 
         // v2: 使用动态间隔 - 前10秒高频(1s)确保快速响应，后续降频(3s)节省资源
         const pollOnce = async () => {
@@ -1570,6 +1691,8 @@ class CreativeWorkshopManager {
                 this.stopStatusPolling();
                 return;
             }
+
+            this._lastPollTickTime = Date.now();
 
             try {
                 const response = await fetch('/api/generate/status');
@@ -1610,6 +1733,93 @@ class CreativeWorkshopManager {
         if (this.statusPollInterval) {
             clearTimeout(this.statusPollInterval); // v2: 改为clearTimeout匹配setTimeout
             this.statusPollInterval = null;
+        }
+        this._stopThrottleWatchdog();
+    }
+
+    /**
+     * 防节流看门狗：使用 Web Worker 保持后台定时器不被节流
+     * 当页面在后台时，浏览器会节流主线程的 setTimeout/setInterval
+     * 但 Web Worker 中的定时器不受影响，可以持续发送心跳
+     */
+    _startThrottleWatchdog() {
+        this._stopThrottleWatchdog();
+        // 创建内联 Web Worker，避免额外文件
+        const workerCode = `
+            let timer = null;
+            self.onmessage = function(e) {
+                if (e.data === 'start') {
+                    timer = setInterval(() => self.postMessage('tick'), 5000);
+                } else if (e.data === 'stop') {
+                    clearInterval(timer);
+                    timer = null;
+                }
+            };
+        `;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        this._watchdogWorker = new Worker(URL.createObjectURL(blob));
+        this._watchdogWorker.onmessage = () => {
+            if (!this.isGenerating) return;
+            const elapsed = Date.now() - this._lastPollTickTime;
+            if (elapsed > 15000) {
+                // 定时器被节流超过15秒，主动查询状态
+                console.warn(`[Watchdog] 检测到定时器节流（${Math.round(elapsed/1000)}秒无tick），主动查询状态`);
+                fetch('/api/generate/status')
+                    .then(r => r.ok ? r.json() : null)
+                    .then(result => {
+                        if (!result) return;
+                        if (result.status === 'completed' || result.status === 'failed' || result.status === 'stopped') {
+                            this.stopStatusPolling();
+                            this.handleGenerationComplete({
+                                type: result.status,
+                                error: result.error,
+                                article_paths: result.article_paths,
+                                ai_beautify: result.ai_beautify,
+                            });
+                            this.disconnectLogWebSocket();
+                            return;
+                        }
+                        // 更新tick时间，避免重复触发
+                        this._lastPollTickTime = Date.now();
+                    })
+                    .catch(() => {});
+            }
+        };
+        this._watchdogWorker.postMessage('start');
+    }
+
+    _stopThrottleWatchdog() {
+        if (this._watchdogWorker) {
+            this._watchdogWorker.postMessage('stop');
+            this._watchdogWorker.terminate();
+            this._watchdogWorker = null;
+        }
+    }
+
+    _startPostGenerationRefresh() {
+        this._stopPostGenerationRefresh();
+        let refreshCount = 0;
+        const maxRefreshCount = 12; // 最多刷新12次
+        const interval = 10000; // 每10秒刷新一次，共2分钟
+        this._postGenRefreshTimer = setInterval(async () => {
+            refreshCount++;
+            if (refreshCount >= maxRefreshCount) {
+                this._stopPostGenerationRefresh();
+                return;
+            }
+            try {
+                if (window.articleManager) {
+                    await window.articleManager.loadArticles();
+                    window.articleManager.renderStatusTree();
+                }
+            } catch (e) { console.warn('生成后刷新文章列表失败:', e); }
+        }, interval);
+    }
+
+    _stopPostGenerationRefresh() {
+        if (this._postGenRefreshTimer) {
+            clearInterval(this._postGenRefreshTimer);
+            this._postGenRefreshTimer = null;
         }
     }
 

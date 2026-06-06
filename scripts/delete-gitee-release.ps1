@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$Tag
 )
@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $EnvFile = Join-Path $Root 'scripts\gitee-release.env'
 if (-not (Test-Path $EnvFile)) {
-    Write-Host "请先创建 scripts\gitee-release.env" -ForegroundColor Red
+    Write-Host "璇峰厛鍒涘缓 scripts\gitee-release.env" -ForegroundColor Red
     exit 1
 }
 Get-Content $EnvFile | ForEach-Object {
@@ -17,12 +17,12 @@ Get-Content $EnvFile | ForEach-Object {
     }
 }
 if (-not $GITEE_TOKEN) {
-    Write-Host "请填写 GITEE_TOKEN" -ForegroundColor Red
+    Write-Host "璇峰～鍐?GITEE_TOKEN" -ForegroundColor Red
     exit 1
 }
 
 $Owner = if ($GITEE_OWNER) { $GITEE_OWNER } else { 'lqyha520' }
-$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'AIWriteX-main' }
+$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'XBoom' }
 $Base = "https://gitee.com/api/v5/repos/$Owner/$Repo"
 $Headers = @{ 'User-Agent' = 'AIWriteX-Publisher' }
 
@@ -36,7 +36,7 @@ foreach ($item in @($all)) {
     }
 }
 if (-not $target) {
-    Write-Host "未找到 Release $Tag"
+    Write-Host "鏈壘鍒?Release $Tag"
     exit 0
 }
 
@@ -44,3 +44,4 @@ Write-Host "Deleting $Tag (id=$($target.id)) ..."
 $delUri = "$Base/releases/$($target.id)?access_token=$GITEE_TOKEN"
 Invoke-RestMethod -Method Delete -Uri $delUri -Headers $Headers | Out-Null
 Write-Host "Done."
+

@@ -112,7 +112,7 @@
 ### 项目结构
 
 ```
-AIWriteX-main/
+XBoom/
 ├── main.py                       # 程序入口
 ├── src/ai_write_x/                # 核心代码
 │   ├── core/                      # 核心引擎

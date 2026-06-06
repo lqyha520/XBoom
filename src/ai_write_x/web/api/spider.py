@@ -22,9 +22,14 @@ class RunSpiderRequest(BaseModel):
 @router.get("/list")
 async def get_spider_list():
     """获取爬虫列表"""
+    # 等待后台加载完成，避免安装包冷启动时前端只拿到空列表
+    spider_runner.wait_for_loading(timeout=45.0)
+    spiders = spider_runner.get_spider_list()
     return {
         "success": True,
-        "spiders": spider_runner.get_spider_list()
+        "spiders": spiders,
+        "total": len(spiders),
+        "loading_complete": spider_runner.wait_for_loading(timeout=0.1),
     }
 
 

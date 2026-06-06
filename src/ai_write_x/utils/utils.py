@@ -60,14 +60,19 @@ def get_res_path(relative_path, basedir=""):
         basedir: 开发环境下的基准路径（可选）
     """
     if get_is_release_ver():
-        # 1. PyInstaller 专有逻辑 (解压到临时目录 _MEIPASS)
+        # 1. PyInstaller onefile：解压到 _MEIPASS；onedir：_MEIPASS 通常为 _internal
         if hasattr(sys, "_MEIPASS"):
             return os.path.join(sys._MEIPASS, relative_path)
 
-        # 2. Nuitka (Standalone) 或 PyInstaller (Onedir) 逻辑
-        # 资源文件位于可执行文件同级目录下
+        # 2. PyInstaller onedir / Nuitka：优先 _internal，其次 exe 同级
         exe_dir = os.path.dirname(sys.executable)
-        return os.path.join(exe_dir, relative_path)
+        internal_path = os.path.join(exe_dir, "_internal", relative_path)
+        direct_path = os.path.join(exe_dir, relative_path)
+        if os.path.exists(internal_path):
+            return internal_path
+        if os.path.exists(direct_path):
+            return direct_path
+        return internal_path
 
     # 3. 开发环境 (IDE)
     # 默认使用当前文件的目录，或者传入的 basedir

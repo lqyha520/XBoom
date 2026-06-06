@@ -46,7 +46,7 @@ echo [Info] Current local version: %LOCAL_V%
 
 echo [Info] Fetching latest version from GitHub...
 
-powershell -command "$ProgressPreference = 'SilentlyContinue'; try { $resp = Invoke-WebRequest -Uri 'https://github.com/lza6/AIWriteX-main/releases' -UseBasicParsing -TimeoutSec 15; if ($resp.Content -match '/lza6/AIWriteX-main/releases/tag/(v?[\d\.]+)') { $matches[1].TrimStart('v') } else { 'PARSE_ERROR' } } catch { 'NET_ERROR' }" > "%TEMP_DIR%\remote_raw.txt"
+powershell -command "$ProgressPreference = 'SilentlyContinue'; try { $resp = Invoke-WebRequest -Uri 'https://github.com/lqyha520/XBoom/releases' -UseBasicParsing -TimeoutSec 15; if ($resp.Content -match '/lqyha520/XBoom/releases/tag/(v?[\d\.]+)') { $matches[1].TrimStart('v') } else { 'PARSE_ERROR' } } catch { 'NET_ERROR' }" > "%TEMP_DIR%\remote_raw.txt"
 
 set /p REMOTE_V=<"%TEMP_DIR%\remote_raw.txt"
 if "!REMOTE_V!"=="" (
@@ -99,7 +99,7 @@ if exist "%TEMP_DIR%\zip" rd /s /q "%TEMP_DIR%\zip"
 mkdir "%TEMP_DIR%\zip"
 
 echo [1/4] Downloading update package (Please wait)...
-set "DL_URL=https://github.com/lza6/AIWriteX-main/archive/refs/tags/v!REMOTE_V!.zip"
+set "DL_URL=https://github.com/lqyha520/XBoom/archive/refs/tags/v!REMOTE_V!.zip"
 powershell -command "$ProgressPreference = 'SilentlyContinue'; try { Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%TEMP_DIR%\update.zip' -UseBasicParsing } catch { exit 1 }"
 if errorlevel 1 (
     echo [Error] Download failed. Check your network.

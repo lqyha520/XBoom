@@ -1,4 +1,4 @@
-# Recreate Gitee repo as PUBLIC and republish release
+﻿# Recreate Gitee repo as PUBLIC and republish release
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
@@ -11,7 +11,7 @@ Get-Content (Join-Path $Root 'scripts\gitee-release.env') | ForEach-Object {
 }
 
 $Owner = if ($GITEE_OWNER) { $GITEE_OWNER } else { 'lqyha520' }
-$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'AIWriteX-main' }
+$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'XBoom' }
 $Branch = if ($GITEE_BRANCH) { $GITEE_BRANCH } else { 'master' }
 $Base = "https://gitee.com/api/v5"
 $H = @{ 'User-Agent' = 'AIWriteX' }
@@ -40,3 +40,4 @@ $item = @($list) | Where-Object { $_.name -eq $Repo } | Select-Object -First 1
 Write-Host "public=$($item.public) private=$($item.private)"
 
 & (Join-Path $Root 'scripts\publish-gitee-release.ps1')
+

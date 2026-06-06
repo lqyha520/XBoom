@@ -1,4 +1,4 @@
-# Push version-policy.json to Gitee repo (public raw URL for all clients)
+﻿# Push version-policy.json to Gitee repo (public raw URL for all clients)
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
@@ -12,7 +12,7 @@ Get-Content $EnvFile | ForEach-Object {
 }
 
 $Owner = if ($GITEE_OWNER) { $GITEE_OWNER } else { 'lqyha520' }
-$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'AIWriteX-main' }
+$Repo = if ($GITEE_REPO) { $GITEE_REPO } else { 'XBoom' }
 $Branch = if ($GITEE_BRANCH) { $GITEE_BRANCH } else { 'master' }
 $Path = 'releases/version-policy.json'
 $File = Join-Path $Root 'version-policy.json'
@@ -40,3 +40,4 @@ Invoke-RestMethod -Method Put -Uri $uri -ContentType 'application/json; charset=
     -Body ($body | ConvertTo-Json) -Headers $Headers | Out-Null
 
 Write-Host "https://gitee.com/$Owner/$Repo/raw/$Branch/$Path" -ForegroundColor Green
+

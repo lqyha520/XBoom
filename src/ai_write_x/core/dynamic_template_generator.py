@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.ai_write_x.utils import log
+from src.ai_write_x.core.prompt_loader import prompt_loader
 
 
 class TemplateStyle(Enum):
@@ -140,52 +141,27 @@ class AIDesignOrchestrator:
 
     @staticmethod
     def get_design_prompt(title: str, topic: str, content_preview: str) -> str:
-        # V13.0: 注入审美特征 DNA (Aesthetic Profile)
         from src.ai_write_x.utils.path_manager import PathManager
         profile_path = PathManager.get_root_dir() / "config" / "aesthetic_profile.json"
         dna_context = ""
         if profile_path.exists():
             try:
                 profile = json.loads(profile_path.read_text(encoding="utf-8"))
-                dna_context = f"""
-[User Aesthetic DNA - REQUIRED]
-- Layout Preferences: {profile.get('layout_preferences', 'Dynamic')}
-- Color Style: {profile.get('color_style', 'Evolved')}
-- Core Vibes: {', '.join(profile.get('vibe_keywords', []))}
-- Structural Rules: {profile.get('structural_rules', 'Standard')}
-"""
+                dna_context = prompt_loader.get("dynamic_template.yaml", "dynamic_template", "dna_context_template").format(
+                    layout_preferences=profile.get('layout_preferences', 'Dynamic'),
+                    color_style=profile.get('color_style', 'Evolved'),
+                    vibe_keywords=', '.join(profile.get('vibe_keywords', [])),
+                    structural_rules=profile.get('structural_rules', 'Standard'),
+                )
             except Exception: pass
 
-        return f"""你是一位顶级网页设计师与视觉艺术总监。
-你的目标是：通过视觉心跳（Visual Heartbeat）最大化用户的停留时长与下滑欲望。
-{dna_context}
-文章标题：{title}
-文章题材：{topic}
-内容预览：{content_preview[:800]}...
+        return prompt_loader.get("dynamic_template.yaml", "dynamic_template", "design_prompt").format(
+            dna_context=dna_context,
+            title=title,
+            topic=topic,
+            content_preview=content_preview[:800],
+        )
 
-你需要返回一个包含以下字段的 JSON 对象（不要返回任何其他文字）：
-1. "theme_style": 对应风格 (minimal, tech, warm, business, creative, academic, story, news)
-2. "palette": {{
-    "primary": "主色", "secondary": "次色", "accent": "强调色",
-    "background": "背景色", "text": "文本色", "light": "浅色"
-}}
-3. "semantic_highlights": {{
-     "data": {{ "bg": "rgba(...)", "text": "#..." }},
-     "warn": {{ "bg": "rgba(...)", "text": "#..." }},
-     "gold": {{ "bg": "rgba(...)", "text": "#..." }},
-     "info": {{ "bg": "rgba(...)", "text": "#..." }}
-  }}
-4. "ui_effects": {{
-    "glass_opacity": 0.2-0.8 之间的数值,
-    "border_radius": "带单位的数值",
-    "box_shadow": "CSS 阴影定义",
-    "animation_intensity": "low/medium/high"
-}}
-5. "layout_pacing": "tight (紧凑)/loose (舒缓)/organic (交替)",
-6. "hook_strategy": "针对首屏 3s 的视觉冲击指令。必须包含对 `intro-card` 或 `summary-box` 的排版要求，参考『自然疗愈』模板，确保有清晰的引言区。",
-7. "structure_guidance": "强制要求：1. 必须有 h1 标题及 h2 副标题；2. 核心段落必须分区（Sectioning）；3. 结尾必须有总结性容器。",
-8. "design_logic": "简短描述你为什么选择这套方案"
-"""
 
     def resolve_design(self, title: str, content: str, topic: str = "") -> Optional[Dict]:
         """调用 LLM 进行设计决策"""
