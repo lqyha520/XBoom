@@ -114,4 +114,5 @@ pywebview/desktop/EBWebView/
 # Local workspace/tooling scratch files
 .trae/
 _test_*.py
+test_*.html
 test_images/

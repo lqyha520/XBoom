@@ -1,0 +1,199 @@
+<aside class="sidebar">
+    <nav class="nav-menu">
+        <ul class="nav-list">
+            {% if show_restricted_menu %}
+            <li class="nav-item">
+                <a href="#" class="nav-link" data-view="dashboard">
+                    <svg class="nav-icon" viewBox="0 0 24 24">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                    <span>工作台</span>
+                </a>
+            </li>
+            {% endif %}
+            <li class="nav-item active">
+                <a href="#" class="nav-link" data-view="creative-workshop">
+                    <svg class="nav-icon" viewBox="0 0 24 24">
+                        <path
+                            d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                    </svg>
+                    <span>内容生成</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" class="nav-link" data-view="article-manager">
+                    <svg class="nav-icon" viewBox="0 0 24 24">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14,2 14,8 20,8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                        <polyline points="10,9 9,9 8,9" />
+                    </svg>
+                    <span>文章库</span>
+                </a>
+            </li>
+            {% if show_restricted_menu %}
+            <li class="nav-item">
+                <a href="#" class="nav-link" data-view="database-manager">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path
+                            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                        </path>
+                    </svg>
+                    <span>知识库</span>
+                </a>
+            </li>
+            {% endif %}
+            <li class="nav-item">
+                <a href="#" class="nav-link" data-view="template-manager">
+                    <svg class="nav-icon" viewBox="0 0 24 24">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <line x1="9" y1="9" x2="15" y2="9" />
+                        <line x1="9" y1="12" x2="15" y2="12" />
+                        <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
+                    <span>模板库</span>
+                </a>
+            </li>
+            <!-- 选题中心（合并：资讯采集 + 聚合资讯） -->
+            <li class="nav-item nav-item-expandable">
+                <a href="#" class="nav-link nav-toggle" data-view="newshub">
+                    <svg class="nav-icon" viewBox="0 0 24 24">
+                        <path d="M4 4h16v4H4z" />
+                        <path d="M4 10h16v10H4z" />
+                        <line x1="7" y1="13" x2="17" y2="13" />
+                        <line x1="7" y1="16" x2="17" y2="16" />
+                    </svg>
+                    <span>选题中心</span>
+                    <svg class="nav-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <polyline points="9,18 15,12 9,6"></polyline>
+                    </svg>
+                </a>
+                <ul class="nav-submenu">
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-view-sublink" data-view="newshub">
+                            <span>聚合资讯</span>
+                        </a>
+                    </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-view-sublink" data-view="spider-manager">
+                            <span>资讯采集</span>
+                        </a>
+                    </li>
+                </ul>
+            </li>
+            <li class="nav-item">
+                <a href="#" class="nav-link" data-view="mcp-manager">
+                    <svg class="nav-icon" viewBox="0 0 24 24">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                        <line x1="6" y1="6" x2="6.01" y2="6" />
+                        <line x1="6" y1="18" x2="6.01" y2="18" />
+                    </svg>
+                    <span>能力中心</span>
+                </a>
+            </li>
+            <!-- 运行中心（合并：自动化任务 + 任务监控） -->
+            <li class="nav-item nav-item-expandable">
+                <a href="#" class="nav-link nav-toggle" data-view="scheduler">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>运行中心</span>
+                    <svg class="nav-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <polyline points="9,18 15,12 9,6"></polyline>
+                    </svg>
+                </a>
+                <ul class="nav-submenu">
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-view-sublink" data-view="scheduler">
+                            <span>自动化任务</span>
+                        </a>
+                    </li>
+                    {% if show_restricted_menu %}
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-view-sublink" data-view="swarm-monitor">
+                            <span>任务监控</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </li>
+            {% if show_restricted_menu %}
+            <li class="nav-item">
+                <a href="#" class="nav-link" data-view="preview-gallery">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                    </svg>
+                    <span>素材中心</span>
+                </a>
+            </li>
+            {% endif %}
+            <!-- 设置 - 支持二级菜单 -->
+            <li class="nav-item nav-item-expandable config-expandable">
+                <a href="#" class="nav-link nav-toggle" data-view="config-manager">
+                    <svg class="nav-icon" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1-2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    <span>设置</span>
+                    <svg class="nav-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <polyline points="9,18 15,12 9,6"></polyline>
+                    </svg>
+                </a>
+                <!-- 二级菜单 -->
+                <ul class="nav-submenu">
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink active" data-config="general">
+                            <span>常规设置</span>
+                        </a>
+                    </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink" data-config="creative">
+                            <span>内容生成</span>
+                        </a>
+                    </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink" data-config="platforms">
+                            <span>选题来源</span>
+                        </a>
+                    </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink" data-config="wechat">
+                            <span>微信公众号</span>
+                            <span class="config-required">*</span>
+                        </a>
+                    </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink" data-config="api">
+                            <span>大模型API</span>
+                            <span class="config-required">*</span>
+                        </a>
+                    </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink" data-config="img-api">
+                            <span>图片生成API</span>
+                        </a>
+                    </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink" data-config="image-design">
+                            <span>页面设计</span>
+                        </a>
+                    </li>
+                    {% if show_restricted_menu %}
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-view-sublink" data-view="menu-ip-whitelist">
+                            <span>IP 白名单</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </li>
+        </ul>
+    </nav>
+</aside>

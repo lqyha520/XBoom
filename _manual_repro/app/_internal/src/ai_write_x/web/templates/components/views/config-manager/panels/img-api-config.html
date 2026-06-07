@@ -1,0 +1,53 @@
+<div id="config-img-api" class="config-panel img-api-panel">
+    <div class="config-header">
+        <div class="header-content">
+            <div>
+                <h2>图片生成 API</h2>
+                <p class="config-description">为文章自动配图：先选服务、填好密钥与模型，再点「设为当前使用」；各厂商配置互不影响</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="btn btn-secondary" id="reset-img-api-config">
+                恢复默认
+            </button>
+            <button type="button" class="btn btn-primary" id="save-img-api-config">
+                保存设置
+            </button>
+        </div>
+    </div>
+
+    <div class="config-form img-api-config-form">
+        <details class="img-api-settings-panel" open>
+            <summary class="img-api-settings-summary">
+                <span class="img-api-settings-summary-title">图片生成策略</span>
+                <span class="img-api-settings-summary-desc">超时、配图数量、占位图回退</span>
+            </summary>
+            <div id="img-api-settings-body" class="img-api-settings-body">
+                <!-- JS 填充 -->
+            </div>
+        </details>
+
+        <div id="img-api-provider-toolbar" class="img-api-provider-toolbar" role="region" aria-label="图片服务选择与操作">
+            <!-- JS: 厂商下拉、状态、操作按钮 -->
+        </div>
+
+        <div id="img-api-providers-container" class="img-api-detail-wrap">
+            <!-- JS: 当前选中厂商表单 -->
+        </div>
+
+        <details class="img-api-help-panel">
+            <summary>使用说明</summary>
+            <div class="img-api-help-body">
+                <ul>
+                    <li>通过下拉框切换配图服务；各厂商 Key、模型<strong>独立保存</strong>。</li>
+                    <li><strong>Picsum</strong> 为免费随机图，无需 Key，适合先跑通流程。</li>
+                    <li><strong>阿里百炼 / 魔搭</strong> 需填写 API KEY 并选择文生图模型。</li>
+                    <li><strong>Agnes AI</strong> 免费文生图 API，兼容 OpenAI 格式，默认模型 agnes-image-2.1-flash。</li>
+                    <li><strong>ComfyUI</strong> 需本机启动并开启 API，填写本地地址。</li>
+                    <li>配置后点击<strong>设为当前使用</strong>，生成文章时才会用该服务配图。</li>
+                    <li>修改后请点击右上角<strong>保存设置</strong>。</li>
+                </ul>
+            </div>
+        </details>
+    </div>
+</div>

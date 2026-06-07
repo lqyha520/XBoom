@@ -30,6 +30,49 @@
     align-items: center;  
     gap: 10px;  
 }  
+
+.first-run-guide {
+    max-width: min(520px, calc(100vw - 32px));
+}
+
+.first-run-guide-content {
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.first-run-guide-text {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    line-height: 1.45;
+}
+
+.first-run-guide-text strong {
+    font-size: 14px;
+}
+
+.first-run-guide-text span {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.first-run-guide .btn-sm {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    min-height: 30px;
+}
+
+@media (max-width: 560px) {
+    .notification {
+        left: 16px;
+        right: 16px;
+        max-width: none;
+    }
+
+    .first-run-guide-content {
+        flex-wrap: wrap;
+    }
+}
   
 .notification-close {  
     background: none;  

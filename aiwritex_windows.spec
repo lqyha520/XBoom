@@ -65,6 +65,7 @@ datas = [
     (str(root / 'src' / 'ai_write_x' / 'web' / 'static'), 'src/ai_write_x/web/static'),
     (str(root / 'src' / 'ai_write_x' / 'scrapers'), 'src/ai_write_x/scrapers'),
     (str(root / 'knowledge' / 'templates'), 'templates'),
+    (str(root / 'docs' / 'uninstall-user-data.md'), 'docs'),
     (str(root / 'secrets' / 'api_keys.example.yaml'), 'secrets/api_keys.example.yaml'),
     *_factory_datas,
 ]
@@ -99,6 +100,15 @@ excludes = [
     'Cython',
     'sympy',
     'matplotlib',
+    'matplotlib_inline',
+    'pandas',
+    'openpyxl',
+    'ipykernel',
+    'ipywidgets',
+    'notebook',
+    'jupyter',
+    'jupyter_client',
+    'jupyter_core',
     'pytest',
 ]
 

@@ -1,19 +1,6 @@
 from src.ai_write_x.core.tool_registry import GlobalToolRegistry
 from src.ai_write_x.tools.custom_tool import ReadTemplateTool
 from src.ai_write_x.tools.dynamic_template_tool import DynamicTemplateTool
-from src.ai_write_x.news_aggregator.mcp_tools import NEWSHUB_TOOLS
-from src.ai_write_x.core.unified_workflow import UnifiedContentWorkflow
-
-from src.ai_write_x.core.platform_adapters import (
-    WeChatAdapter,
-    XiaohongshuAdapter,
-    DouyinAdapter,
-    ZhihuAdapter,
-    ToutiaoAdapter,
-    BaijiahaoAdapter,
-    DoubanAdapter,
-)
-from src.ai_write_x.core.platform_adapters import PlatformType
 
 
 def initialize_global_tools():
@@ -25,6 +12,7 @@ def initialize_global_tools():
     registry.register_tool("DynamicTemplateTool", DynamicTemplateTool)
     
     # 注册NewsHub MCP工具
+    from src.ai_write_x.news_aggregator.mcp_tools import NEWSHUB_TOOLS
     for tool_cls in NEWSHUB_TOOLS:
         try:
             # Pydantic v2
@@ -44,6 +32,7 @@ def get_platform_adapter(platform_name: str):
     """获取指定平台的适配器"""
 
     # 创建临时工作流实例来获取适配器
+    from src.ai_write_x.core.unified_workflow import UnifiedContentWorkflow
     workflow = UnifiedContentWorkflow()
     return workflow.platform_adapters.get(platform_name)
 
@@ -55,6 +44,18 @@ def setup_aiwritex():
     initialize_global_tools()
 
     # 2. 创建统一工作流
+    from src.ai_write_x.core.platform_adapters import (
+        WeChatAdapter,
+        XiaohongshuAdapter,
+        DouyinAdapter,
+        ZhihuAdapter,
+        ToutiaoAdapter,
+        BaijiahaoAdapter,
+        DoubanAdapter,
+    )
+    from src.ai_write_x.core.platform_adapters import PlatformType
+    from src.ai_write_x.core.unified_workflow import UnifiedContentWorkflow
+
     workflow = UnifiedContentWorkflow()
 
     # 3. 注册所有平台适配器

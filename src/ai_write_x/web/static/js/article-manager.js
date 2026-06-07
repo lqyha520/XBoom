@@ -82,6 +82,12 @@ class ArticleManager {
         this.initializing = false;
         this.backgroundTasks = new Map(); // 存储后台任务: id -> {name, progress, status, controller}
         this.reTemplateAbortController = null;
+        
+        // 分页相关
+        this.currentPage = 1;
+        this.pageSize = 50;
+        this.pagination = {};
+        this.loadingMore = false;
     }
 
     async init() {
@@ -143,11 +149,32 @@ class ArticleManager {
 
     // 加载文章列表  
     async loadArticles() {
+        // 防抖：避免短时间内重复加载
+        const now = Date.now();
+        if (this._lastLoadTime && (now - this._lastLoadTime) < 1000) {
+            console.log('[ArticleManager] 加载请求过于频繁，已跳过');
+            return;
+        }
+        this._lastLoadTime = now;
+        
         try {
-            const response = await fetch('/api/articles');
+            // 分页加载，默认第一页50条
+            const page = this.currentPage || 1;
+            const pageSize = this.pageSize || 50;
+            const response = await fetch(`/api/articles?page=${page}&page_size=${pageSize}`);
             if (response.ok) {
                 const result = await response.json();
-                this.articles = result.data || [];
+                
+                // 保存分页信息
+                this.pagination = result.pagination || {};
+                
+                // 如果是首页，替换；否则追加（滚动加载）
+                if (page === 1) {
+                    this.articles = result.data || [];
+                } else {
+                    this.articles = [...this.articles, ...(result.data || [])];
+                }
+                
                 this.filterArticles();
                 this.renderStatusTree();
             }
@@ -257,6 +284,9 @@ class ArticleManager {
                 cards.forEach(card => this.observer.observe(card));
             }
         });
+        
+        // 添加滚动加载监听
+        this.setupInfiniteScroll();
     }
 
     // 创建文章卡片  
@@ -3456,6 +3486,42 @@ class ArticleManager {
                 }
             }
         );
+    }
+
+    // ========== 无限滚动加载 ==========
+    setupInfiniteScroll() {
+        const contentArea = document.querySelector('.content-area');
+        if (!contentArea || this._scrollHandlerSet) return;
+        
+        this._scrollHandlerSet = true;
+        
+        contentArea.addEventListener('scroll', () => {
+            const scrollTop = contentArea.scrollTop;
+            const scrollHeight = contentArea.scrollHeight;
+            const clientHeight = contentArea.clientHeight;
+            
+            if (scrollHeight - scrollTop - clientHeight < 200) {
+                this.loadMoreArticles();
+            }
+        });
+    }
+    
+    async loadMoreArticles() {
+        if (this.loadingMore) return;
+        if (!this.pagination || !this.pagination.total_pages) return;
+        if (this.currentPage >= this.pagination.total_pages) return;
+        
+        this.loadingMore = true;
+        this.currentPage++;
+        
+        try {
+            await this.loadArticles();
+        } catch (error) {
+            console.error('加载更多文章失败:', error);
+            this.currentPage--;
+        } finally {
+            this.loadingMore = false;
+        }
     }
 }
 

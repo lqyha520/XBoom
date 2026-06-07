@@ -205,6 +205,24 @@ class MigrationManager:
                     "ALTER TABLE scheduled_tasks ADD COLUMN collection_mode BOOLEAN DEFAULT 0",
                 ],
             },
+            {
+                "version": "v1.2.14-model-compat",
+                "description": "Add model compatibility columns used by repositories",
+                "statements": [
+                    "ALTER TABLE topics ADD COLUMN category VARCHAR DEFAULT 'unknown'",
+                    "ALTER TABLE articles ADD COLUMN title VARCHAR DEFAULT ''",
+                    "ALTER TABLE articles ADD COLUMN category VARCHAR DEFAULT 'unknown'",
+                    "ALTER TABLE articles ADD COLUMN platform VARCHAR DEFAULT 'wechat'",
+                    "ALTER TABLE articles ADD COLUMN status VARCHAR DEFAULT 'draft'",
+                    "ALTER TABLE articles ADD COLUMN source_url VARCHAR",
+                    "ALTER TABLE articles ADD COLUMN is_published BOOLEAN DEFAULT 0",
+                    "ALTER TABLE articles ADD COLUMN published_at TIMESTAMP",
+                    "ALTER TABLE articles ADD COLUMN updated_at TIMESTAMP",
+                    "ALTER TABLE agent_memories ADD COLUMN agent_id VARCHAR DEFAULT 'unknown'",
+                    "ALTER TABLE agent_memories ADD COLUMN memory_type VARCHAR DEFAULT 'fact'",
+                    "ALTER TABLE agent_memories ADD COLUMN content VARCHAR DEFAULT ''",
+                ],
+            },
         ]
         
         for migration in migrations:

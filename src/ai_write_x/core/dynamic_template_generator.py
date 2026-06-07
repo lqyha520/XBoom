@@ -142,7 +142,7 @@ class AIDesignOrchestrator:
     @staticmethod
     def get_design_prompt(title: str, topic: str, content_preview: str) -> str:
         from src.ai_write_x.utils.path_manager import PathManager
-        profile_path = PathManager.get_root_dir() / "config" / "aesthetic_profile.json"
+        profile_path = PathManager.get_config_dir() / "aesthetic_profile.json"
         dna_context = ""
         if profile_path.exists():
             try:

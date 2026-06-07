@@ -7,12 +7,13 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import asyncio
 
-from src.ai_write_x.core.quality_engine import (
-    ContentQualityEngine,
-    AutoOptimizer,
-    ContentAnalysisResult,
-)
 from src.ai_write_x.utils import log
+
+
+def get_quality_classes():
+    from src.ai_write_x.core.quality_engine import ContentQualityEngine, AutoOptimizer
+    return ContentQualityEngine, AutoOptimizer
+
 
 router = APIRouter(prefix="/api/quality", tags=["quality"])
 
@@ -53,6 +54,7 @@ class AnalyzeResponse(BaseModel):
 async def analyze_content(request: AnalyzeRequest):
     """分析内容质量"""
     try:
+        ContentQualityEngine, _ = get_quality_classes()
         engine = ContentQualityEngine()
         result = engine.analyze_content(request.content)
         
@@ -87,6 +89,7 @@ async def analyze_content(request: AnalyzeRequest):
 async def compare_contents(request: CompareRequest):
     """对比原文和优化后的内容"""
     try:
+        ContentQualityEngine, _ = get_quality_classes()
         engine = ContentQualityEngine()
         comparison = engine.compare_contents(request.original, request.optimized)
         
@@ -103,6 +106,7 @@ async def compare_contents(request: CompareRequest):
 async def get_optimization_suggestions(request: AnalyzeRequest):
     """获取优化建议"""
     try:
+        ContentQualityEngine, _ = get_quality_classes()
         engine = ContentQualityEngine()
         result = engine.analyze_content(request.content)
         # 调用AI生成个性化优化建议
@@ -126,6 +130,7 @@ async def get_optimization_suggestions(request: AnalyzeRequest):
 async def auto_optimize_content(request: OptimizeRequest):
     """自动优化内容 (返回优化计划，实际优化由前端调用AI完成)"""
     try:
+        ContentQualityEngine, AutoOptimizer = get_quality_classes()
         engine = ContentQualityEngine()
         optimizer = AutoOptimizer(engine)
         

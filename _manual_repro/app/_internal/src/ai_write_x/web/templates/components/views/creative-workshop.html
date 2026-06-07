@@ -1,0 +1,321 @@
+<div id="creative-workshop-view" class="view-content">
+    <div class="workshop-container">
+
+        <header class="workshop-page-header">
+            <div class="workshop-page-heading">
+                <h1 class="workshop-page-title">内容生成</h1>
+                <p class="workshop-page-desc">输入话题或留空，系统将自动带入热点并生成图文内容</p>
+            </div>
+            <div class="workshop-page-badges" aria-hidden="true">
+                <span class="workshop-badge">AI 写作</span>
+                <span class="workshop-badge">自动配图</span>
+                <span class="workshop-badge">模板排版</span>
+            </div>
+        </header>
+
+        <div class="workshop-layout">
+            <!-- 主创作区 -->
+            <section class="workshop-main">
+                <div class="workshop-card workshop-compose-card">
+                    <label class="compose-label" for="topic-input">话题/关键词</label>
+                    <textarea id="topic-input" class="topic-input"
+                        placeholder="例如：春季护肤避坑指南 · 留空则自动获取热搜话题" rows="3"></textarea>
+
+                    <div id="workflow-nodes" class="workflow-graph hidden">
+                        <div class="workflow-graph-head">
+                            <span class="workflow-graph-title">生成进度</span>
+                            <span id="workflow-stage-hint" class="workflow-stage-hint"></span>
+                        </div>
+                        <div class="workflow-track">
+                        <div class="wf-node" data-stage="init">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">1</span>
+                                <span class="wf-label">初始化</span>
+                            </div>
+                        </div>
+                        <div class="wf-line"></div>
+                        <div class="wf-node" data-stage="spider">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">2</span>
+                                <span class="wf-label">抓取解析</span>
+                            </div>
+                        </div>
+                        <div class="wf-line"></div>
+                        <div class="wf-node" data-stage="planning">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">3</span>
+                                <span class="wf-label">策划大纲</span>
+                            </div>
+                        </div>
+                        <div class="wf-line"></div>
+                        <div class="wf-node" data-stage="writing">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">4</span>
+                                <span class="wf-label">撰写</span>
+                            </div>
+                        </div>
+                        <div class="wf-line"></div>
+                        <div class="wf-node" data-stage="review">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">5</span>
+                                <span class="wf-label">终审</span>
+                            </div>
+                        </div>
+                        <div class="wf-line"></div>
+                        <div class="wf-node" data-stage="reflexion">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">6</span>
+                                <span class="wf-label">优化</span>
+                            </div>
+                        </div>
+                        <div class="wf-line"></div>
+                        <div class="wf-node" data-stage="visual">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">7</span>
+                                <span class="wf-label">配图排版</span>
+                            </div>
+                        </div>
+                        <div class="wf-line"></div>
+                        <div class="wf-node" data-stage="retemplate" id="wf-node-retemplate" style="display:none;">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">8</span>
+                                <span class="wf-label">换模板</span>
+                            </div>
+                        </div>
+                        <div class="wf-line" id="wf-line-retemplate" style="display:none;"></div>
+                        <div class="wf-node" data-stage="done">
+                            <div class="wf-step-chip">
+                                <span class="wf-step-badge">✓</span>
+                                <span class="wf-label">完成</span>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    <div class="input-toolbar workshop-tool-row">
+                        <div class="toolbar-left">
+                            <button type="button" id="reference-mode-btn" class="toolbar-btn" title="借鉴模式与模板参数">
+                                <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                                </svg>
+                                <span>借鉴模式</span>
+                            </button>
+                            <button type="button" id="log-progress-btn" class="toolbar-btn">
+                                <svg class="btn-icon" viewBox="0 0 24 24">
+                                    <path d="M12 20h9" />
+                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                </svg>
+                                <span id="progress-text">运行日志</span>
+                            </button>
+                            <button type="button" id="live-preview-btn" class="toolbar-btn" title="实时预览生成中的文章">
+                                <svg class="btn-icon" viewBox="0 0 24 24">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                    <polyline points="14 2 14 8 20 8" />
+                                    <line x1="16" y1="13" x2="8" y2="13" />
+                                    <line x1="16" y1="17" x2="8" y2="17" />
+                                </svg>
+                                <span>实时预览</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 借鉴模式配置 -->
+                <div id="reference-mode-panel" class="workshop-config-panel collapsed">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <svg class="panel-icon" viewBox="0 0 24 24">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                            </svg>
+                            借鉴与模板
+                        </h3>
+                    </div>
+                    <div class="panel-content">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="workshop-template-category">模板分类</label>
+                                <select id="workshop-template-category" class="form-select">
+                                    <option value="">随机分类</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="workshop-template-name">模板名称</label>
+                                <select id="workshop-template-name" class="form-select">
+                                    <option value="">随机模板</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="reference-ratio">借鉴比例</label>
+                                <select id="reference-ratio" class="form-select">
+                                    <option value="10">10%</option>
+                                    <option value="20">20%</option>
+                                    <option value="30" selected>30%</option>
+                                    <option value="50">50%</option>
+                                    <option value="75">75%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="reference-urls">
+                                参考链接
+                                <span class="label-hint">(多个链接用 | 分隔)</span>
+                            </label>
+                            <textarea id="reference-urls" class="form-textarea"
+                                placeholder="https://example.com/article1 | https://example.com/article2" rows="2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="reference-articles">
+                                热点文章借鉴
+                                <span class="label-hint">(选择后自动加载)</span>
+                            </label>
+                            <div class="reference-article-row">
+                                <select id="reference-articles" class="form-select">
+                                    <option value="">-- 选择抓取的热点文章 --</option>
+                                </select>
+                                <button type="button" id="load-article-btn" class="btn btn-secondary btn-sm">重新加载</button>
+                            </div>
+                            <small class="form-help">选择后将自动提取话题与参考链接</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输出区：预览 / 日志 -->
+                <div class="workshop-output-section">
+                    <div class="workshop-output-tabs" role="tablist">
+                        <button type="button" class="output-tab is-active" id="tab-preview-btn" data-output-tab="preview" role="tab" aria-selected="true">
+                            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            实时写作
+                        </button>
+                        <button type="button" class="output-tab" id="tab-logs-btn" data-output-tab="logs" role="tab" aria-selected="false">
+                            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                            运行日志
+                        </button>
+                    </div>
+
+                    <div class="workshop-output-panels">
+                <div id="live-preview-panel" class="workshop-config-panel workshop-output-panel live-preview-panel">
+                    <div class="panel-header live-preview-header">
+                        <h3 class="panel-title">
+                            文章预览
+                            <span id="live-preview-status" class="live-preview-status status-idle">等待生成</span>
+                        </h3>
+                        <div class="panel-header-actions">
+                            <span id="live-preview-meta" class="live-preview-meta"></span>
+                            <button type="button" class="icon-btn icon-btn-text" id="open-sidebar-preview-btn" title="在侧栏打开手机/桌面预览">
+                                <span>侧栏预览</span>
+                            </button>
+                            <button type="button" class="icon-btn icon-btn-text" id="live-preview-scroll-btn" title="滚动到底部">
+                                <span>↓ 底部</span>
+                            </button>
+                            <button type="button" class="icon-btn icon-btn-text" id="live-preview-clear-btn" title="清空预览">
+                                <span>清空</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-content live-preview-body">
+                        <div id="live-preview-content" class="live-preview-content">
+                            <div id="live-preview-placeholder" class="live-preview-placeholder">
+                                <div class="placeholder-icon" aria-hidden="true">📝</div>
+                                <p class="placeholder-title">暂无预览内容</p>
+                                <p class="placeholder-hint">点击「开始生成」后，文章将在此以阅读模式实时呈现</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="generation-progress" class="workshop-config-panel workshop-output-panel collapsed">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                            运行日志
+                        </h3>
+                        <div class="panel-header-actions">
+                            <button type="button" id="copy-logs-btn" class="icon-btn" title="复制日志">
+                                <svg class="btn-icon-small" viewBox="0 0 24 24">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                            </button>
+                            <button type="button" id="clear-logs-btn" class="icon-btn" title="清空日志">
+                                <svg class="btn-icon-small" viewBox="0 0 24 24">
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                            </button>
+                            <button type="button" id="export-logs-btn" class="icon-btn" title="导出日志">
+                                <svg class="btn-icon-small" viewBox="0 0 24 24">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="7 10 12 15 17 10" />
+                                    <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="logs-output" class="logs-output"></div>
+                    </div>
+                </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 右侧：生成选项 -->
+            <aside class="workshop-sidebar">
+                <div class="workshop-options-card">
+                    <h2 class="options-card-title">生成选项</h2>
+
+                    <div class="options-field">
+                        <label class="options-label" for="article-count">生成数量</label>
+                        <input type="number" id="article-count" class="options-input options-input-number" min="1" max="20" value="1">
+                    </div>
+
+                    <div class="options-field">
+                        <label class="options-label" for="post-action">完成后</label>
+                        <select id="post-action" class="options-input options-select">
+                            <option value="none">不操作</option>
+                            <option value="save" selected>存草稿</option>
+                            <option value="publish">发布</option>
+                        </select>
+                    </div>
+
+                    <div class="options-toggles">
+                        <label class="auto-retemplate-toggle options-toggle" title="跳过深度审计与标题优化，加快生成">
+                            <input type="checkbox" id="workshop-fast-mode">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">极速模式</span>
+                        </label>
+                        <label class="auto-retemplate-toggle options-toggle" title="过滤最近30天内已处理过的话题">
+                            <input type="checkbox" id="workshop-filter-processed">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">过滤已写</span>
+                        </label>
+                        <label class="auto-retemplate-toggle options-toggle" title="生成后自动换模板并保存（保留配图；极速模式下不可用）">
+                            <input type="checkbox" id="auto-retemplate-switch">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">自动换模板</span>
+                        </label>
+                        <label class="auto-retemplate-toggle options-toggle" title="合集模式：话题作为固定前缀，每天生成不同子话题，标题格式为「话题：子话题」">
+                            <input type="checkbox" id="workshop-collection-mode">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">合集模式</span>
+                        </label>
+                    </div>
+
+                    <button type="button" id="generate-btn" class="generate-btn generate-btn-block">
+                        <svg class="btn-icon" viewBox="0 0 24 24">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        </svg>
+                        <span>开始生成</span>
+                    </button>
+                </div>
+            </aside>
+        </div>
+
+        {% include 'components/quality-panel.html' %}
+    </div>
+</div>

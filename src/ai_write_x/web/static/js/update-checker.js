@@ -9,6 +9,8 @@ class UpdateChecker {
         this.forceMode = false;
         this.silentAutoMode = false;
         this.autoRestartTriggered = false;
+        this.installAfterDownload = false;
+        this.backgroundProgressTimer = null;
         this.currentStepId = 'check';
         this.elements = {};
         this._displayProgress = 0;   // 当前显示的平滑进度
@@ -276,70 +278,104 @@ class UpdateChecker {
     async checkStartupPolicy() {
         try {
             const policy = await this.fetchPolicy();
-            if (!policy.enabled || !policy.startup_check) {
+            if (!policy.enabled || !policy.startup_check || !policy.has_update) {
                 return;
             }
 
-            // 创作中不自动开始更新流程，只记录有更新可用
+            this.policy = policy;
             if (this._isCreativeBusy()) {
-                if (policy.has_update) {
-                    this.policy = policy;
-                    if (window.footerMarquee?.addMessage) {
-                        window.footerMarquee.addMessage(
-                            `发现新版本 v${policy.latest_version}，当前正在创作中，创作结束后可手动更新`,
-                            'info', false, 0
-                        );
-                    }
+                if (window.footerMarquee?.addMessage) {
+                    window.footerMarquee.addMessage(
+                        `????? v${policy.latest_version}???????????`,
+                        'info', false, 0
+                    );
                 }
                 return;
             }
 
-            if (policy.should_auto_update) {
-                this.policy = policy;
-                await this.beginAutoUpdateFlow(true);
-                return;
-            }
-            if (policy.has_update && policy.can_update && policy.auto_update_silent) {
-                this.policy = policy;
-                await this.beginAutoUpdateFlow(true);
-                return;
-            }
-            if (policy.force_update) {
-                if (policy.auto_update_silent && policy.can_update) {
-                    if (this._isCreativeBusy()) {
-                        // 强制更新但正在创作中，等待创作结束
-                        this.policy = policy;
-                        this.appendLog('⚠️ 强制更新可用，但当前正在创作中，等待创作结束后自动更新');
-                        if (window.footerMarquee?.addMessage) {
-                            window.footerMarquee.addMessage(
-                                `发现强制更新 v${policy.latest_version}，当前正在创作中，创作结束后将自动更新`,
-                                'warning', false, 0
-                            );
-                        }
-                        // 等待创作结束后自动开始更新
-                        if (!this._creativeWaitTimer) {
-                            this._creativeWaitTimer = setInterval(() => {
-                                if (!this._isCreativeBusy()) {
-                                    clearInterval(this._creativeWaitTimer);
-                                    this._creativeWaitTimer = null;
-                                    this.appendLog('✅ 创作已结束，开始强制更新');
-                                    this.beginAutoUpdateFlow(true);
-                                }
-                            }, 3000);
-                        }
-                    } else {
-                        this.policy = policy;
-                        await this.beginAutoUpdateFlow(true);
-                    }
+            if (policy.force_update || policy.should_auto_update || policy.install_mode === 'immediate') {
+                if (policy.can_update && (policy.auto_install || policy.force_update || policy.should_auto_update)) {
+                    await this.beginAutoUpdateFlow(true);
                 } else {
                     this.showForceOverlay(policy);
                 }
+                return;
+            }
+
+            if (policy.can_update && policy.auto_download !== false) {
+                await this.prepareUpdateInBackground(policy);
+            } else if (policy.can_update && window.footerMarquee?.addMessage) {
+                window.footerMarquee.addMessage(
+                    `????? v${policy.latest_version}????????????`,
+                    'info', false, 0
+                );
             }
         } catch (error) {
             console.error('Startup update check failed:', error);
             if (window.footerMarquee?.addMessage) {
-                window.footerMarquee.addMessage(`检查更新失败：${this.normalizeError(error.message)}`, 'warning', false, 1);
+                window.footerMarquee.addMessage(`???????${this.normalizeError(error.message)}`, 'warning', false, 1);
             }
+        }
+    }
+
+    async prepareUpdateInBackground(policy) {
+        if (!policy?.download_url || this.backgroundProgressTimer) return;
+        this.policy = policy;
+        try {
+            const response = await fetch('/api/system/update', {
+                method: 'POST',
+                headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    download_url: policy.download_url || '',
+                    sha256: policy.sha256 || '',
+                }),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(body.detail || '??????');
+            }
+            if (window.footerMarquee?.addMessage) {
+                window.footerMarquee.addMessage(
+                    `????????? v${policy.latest_version}`,
+                    'info', false, 1
+                );
+            }
+            this.backgroundProgressTimer = setInterval(() => this.pollBackgroundPreparation(), 2000);
+            await this.pollBackgroundPreparation();
+        } catch (error) {
+            console.warn('Background update prepare failed:', error);
+            if (window.footerMarquee?.addMessage) {
+                window.footerMarquee.addMessage(`?????????${this.normalizeError(error.message)}`, 'warning', false, 1);
+            }
+        }
+    }
+
+    async pollBackgroundPreparation() {
+        try {
+            const response = await fetch('/api/system/update-progress', { headers: this.getHeaders() });
+            const data = await response.json().catch(() => ({}));
+            if (data.status === 'ready_to_install') {
+                if (this.backgroundProgressTimer) {
+                    clearInterval(this.backgroundProgressTimer);
+                    this.backgroundProgressTimer = null;
+                }
+                if (window.footerMarquee?.addMessage) {
+                    window.footerMarquee.addMessage(
+                        `??? v${this.policy?.latest_version || ''} ?????????????????`,
+                        'success', false, 0
+                    );
+                }
+            } else if (data.status === 'error') {
+                if (this.backgroundProgressTimer) {
+                    clearInterval(this.backgroundProgressTimer);
+                    this.backgroundProgressTimer = null;
+                }
+                if (window.footerMarquee?.addMessage) {
+                    window.footerMarquee.addMessage(`???????${this.normalizeError(data.error || data.message)}`, 'warning', false, 1);
+                }
+            }
+        } catch (error) {
+            console.warn('Background update progress failed:', error);
         }
     }
 
@@ -388,7 +424,7 @@ class UpdateChecker {
         this.renderFooter('');
 
         // 启动 helper 脚本（它会主动关闭旧进程、安装、启动新版本）
-        await this.startInstaller();
+        await this.restartAndInstall();
     }
 
     _isCreativeBusy() {
@@ -534,6 +570,7 @@ class UpdateChecker {
 
         this.forceMode = forceMode;
         this.silentAutoMode = forceMode;
+        this.installAfterDownload = true;
         this.openModal(forceMode);
         this.resetUiForFlow();
         this.fillVersionInfo(this.policy);
@@ -681,7 +718,7 @@ class UpdateChecker {
             const response = await fetch('/api/system/update', {
                 method: 'POST',
                 headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({ download_url: this.policy?.download_url || '' }),
+                body: JSON.stringify({ download_url: this.policy?.download_url || '', sha256: this.policy?.sha256 || '' }),
                 signal: controller.signal,
             });
             clearTimeout(timeoutId);

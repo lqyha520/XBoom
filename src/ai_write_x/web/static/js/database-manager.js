@@ -29,7 +29,8 @@ class DatabaseManager {
 
     init() {
         if (this.initialized) return;
-        this.refreshAll();
+        // 延迟加载，不阻塞启动
+        setTimeout(() => this.refreshAll(), 2000);
         this.initialized = true;
         console.log('DatabaseManager Initialized');
     }

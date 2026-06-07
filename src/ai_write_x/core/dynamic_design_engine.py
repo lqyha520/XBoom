@@ -25,8 +25,14 @@ class DynamicDesignEngine:
     def load_config(self):
         """加载设计元素和色彩系统配置"""
         try:
-            design_path = PathManager.get_root_dir() / "config" / "design_elements.json"
-            color_path = PathManager.get_root_dir() / "config" / "color_system.json"
+            config_dir = PathManager.get_config_dir()
+            bundled_config_dir = PathManager.get_base_dir() / "config"
+            design_path = config_dir / "design_elements.json"
+            color_path = config_dir / "color_system.json"
+            if not design_path.exists():
+                design_path = bundled_config_dir / "design_elements.json"
+            if not color_path.exists():
+                color_path = bundled_config_dir / "color_system.json"
             
             if design_path.exists():
                 with open(design_path, "r", encoding="utf-8") as f:

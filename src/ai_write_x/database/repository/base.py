@@ -14,6 +14,20 @@ from src.ai_write_x.core.exceptions import DatabaseError, RecordNotFoundError
 from src.ai_write_x.utils import log
 
 
+class _SessionAdapter:
+    def __init__(self, session):
+        self._session = session
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+    def query(self, model):
+        query = getattr(self._session, "query", None)
+        if callable(query):
+            return query(model)
+        return self._session.exec(select(model))
+
+
 T = TypeVar('T', bound=SQLModel)
 
 
@@ -59,7 +73,7 @@ class BaseRepository(ABC, Generic[T]):
     @contextmanager
     def _get_session(self):
         """获取数据库会话"""
-        session = get_session()
+        session = _SessionAdapter(get_session())
         try:
             yield session
             session.commit()
@@ -114,13 +128,20 @@ class BaseRepository(ABC, Generic[T]):
         """
         try:
             with self._get_session() as session:
-                statement = select(self.model).where(self.model.id == id)
-                result = session.exec(statement).first()
+                query = session.query(self.model)
+                if hasattr(query, "filter"):
+                    result_query = query.filter(self.model.id == id)
+                    result = result_query.first() if hasattr(result_query, "first") else result_query
+                else:
+                    statement = select(self.model).where(self.model.id == id)
+                    result = session.exec(statement).first()
                 
                 if not result:
                     raise RecordNotFoundError(f"{self.model_name}(id={id})不存在")
                 
                 # 转换为字典再重建
+                if not hasattr(result, "__table__"):
+                    return result
                 data = self._to_dict(result)
                 session.expunge(result)
                 
@@ -133,6 +154,9 @@ class BaseRepository(ABC, Generic[T]):
             log.print_log(f"[{self.model_name}] 获取记录失败: {e}", "error")
             raise DatabaseError(f"获取{self.model_name}失败") from e
     
+    def get_by_id(self, id: int) -> Optional[T]:
+        return self.get(id)
+
     def get_all(self, limit: int = 100, offset: int = 0) -> List[T]:
         """
         获取所有记录

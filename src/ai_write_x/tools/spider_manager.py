@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 
 from src.ai_write_x.config.config import Config
+from src.ai_write_x.utils.path_manager import PathManager
 
 
 class SpiderDataManager:
@@ -18,7 +19,7 @@ class SpiderDataManager:
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
-            data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "spider")
+            data_dir = PathManager.get_output_dir() / "spider"
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.data_file = self.data_dir / "articles.json"

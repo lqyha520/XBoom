@@ -6,11 +6,18 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-from src.ai_write_x.core.knowledge_graph import (
-    get_semantic_analyzer,
-    EntityType,
-)
 from src.ai_write_x.utils import log
+
+
+def get_semantic_analyzer():
+    from src.ai_write_x.core.knowledge_graph import get_semantic_analyzer as _get_semantic_analyzer
+    return _get_semantic_analyzer()
+
+
+def get_entity_type_class():
+    from src.ai_write_x.core.knowledge_graph import EntityType
+    return EntityType
+
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -91,6 +98,7 @@ async def get_top_entities(entity_type: Optional[str] = None, limit: int = 10):
         et = None
         if entity_type:
             try:
+                EntityType = get_entity_type_class()
                 et = EntityType(entity_type)
             except ValueError:
                 pass
@@ -152,7 +160,7 @@ async def get_entity_types():
     }
 
 
-def _get_entity_type_label(entity_type: EntityType) -> str:
+def _get_entity_type_label(entity_type) -> str:
     """获取实体类型的中文标签"""
     labels = {
         EntityType.PERSON: "人物",

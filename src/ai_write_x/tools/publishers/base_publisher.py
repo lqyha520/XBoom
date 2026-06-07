@@ -4,6 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from typing import Optional
 from playwright.sync_api import sync_playwright, Page, BrowserContext
+from src.ai_write_x.utils.path_manager import PathManager
 from src.ai_write_x.utils import log as lg
 
 
@@ -18,8 +19,7 @@ class PlaywrightPublisher(ABC):
         self.headless = headless
         
         # Determine the base directory for saving cookies
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-        self.cookies_dir = os.path.join(base_dir, "data", "cookies")
+        self.cookies_dir = str(PathManager.get_app_data_dir() / "data" / "cookies")
         os.makedirs(self.cookies_dir, exist_ok=True)
         self.cookie_file = os.path.join(self.cookies_dir, f"{self.platform_name}_cookies.json")
 

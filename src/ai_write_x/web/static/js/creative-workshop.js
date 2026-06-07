@@ -225,10 +225,22 @@ class CreativeWorkshopManager {
 
         const generateBtn = document.getElementById('generate-btn');
         if (generateBtn) {
-            generateBtn.addEventListener('click', () => {
+            generateBtn.addEventListener('click', (e) => {
+                // 防止重复点击：禁用按钮一小段时间
+                if (generateBtn.disabled) {
+                    console.log('[CreativeWorkshop] 按钮已禁用，忽略点击');
+                    return;
+                }
+                
                 if (this.isGenerating) {
                     this.stopGeneration();
                 } else {
+                    // 禁用按钮2秒，防止连续点击
+                    generateBtn.disabled = true;
+                    setTimeout(() => {
+                        generateBtn.disabled = false;
+                    }, 2000);
+                    
                     this.startGeneration();
                 }
             });
@@ -590,22 +602,40 @@ class CreativeWorkshopManager {
 
     async startGeneration() {
         // ========== 阶段 1: 前置检查 ==========  
-        if (this.isGenerating) return;
+        // 防止重复点击：立即设置生成状态
+        if (this.isGenerating) {
+            console.log('[CreativeWorkshop] 正在生成中，忽略重复点击');
+            return;
+        }
+        
+        // 立即设置状态，防止配置验证期间的重复点击
+        this.isGenerating = true;
+        this.updateGenerationUI(true);
 
         // 每次点击「开始生成」都放弃上次未完成任务，从零开始
         await this.resetStaleGenerationState();
 
         // ========== 阶段 2: 系统配置校验 ==========  
+        // 显示配置验证提示
+        this.appendLog('⚙️ 正在验证系统配置...', 'status', false, Date.now() / 1000);
+        
         try {
             const configResponse = await fetch('/api/config/validate');
             if (!configResponse.ok) {
                 const error = await configResponse.json();
                 this.showConfigErrorDialog(error.detail || '系统配置错误,请检查配置');
+                // 重置状态
+                this.isGenerating = false;
+                this.updateGenerationUI(false);
                 return;
             }
+            this.appendLog('✅ 配置验证通过', 'success', false, Date.now() / 1000);
         } catch (error) {
             console.error('配置验证失败:', error);
             this.showConfigErrorDialog('无法验证配置,请检查设置');
+            // 重置状态
+            this.isGenerating = false;
+            this.updateGenerationUI(false);
             return;
         }
 
@@ -690,6 +720,9 @@ class CreativeWorkshopManager {
 
             // 自动获取热搜交由后端处理
             if (!topic && !referenceConfig) {
+                // 显示正在获取热搜的提示
+                this.appendLog('🔍 未指定话题，正在自动获取今日热搜...', 'status', false, Date.now() / 1000);
+                
                 // 获取批量生成配置
                 const currentArticleCount = parseInt(document.getElementById('article-count')?.value || '1', 10);
 

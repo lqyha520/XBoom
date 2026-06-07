@@ -1,0 +1,22 @@
+adaptive_refiner:
+  user_prompt: |
+    正在为文章《{title}》(主题: {topic}) 的其中一个段落进行排版增强。
+    【内容】：
+    {content}
+
+    【指令】：
+    1. 仅在最重要的短语前添加图标，包裹在 <span style="margin-right:4px;">图标</span> 中。
+    2. 严禁重构、虚构或过度修饰。仅在原文本基础上注入 1-2 个图标。
+    3. **最高优先级红线**：绝对不能删减原文的任何字数和句子！输出必须包含完整内容。
+    4. 在输出 HTML 前，先输出一行 `Thought: [你的分析简述]`。
+
+professional_annotation:
+  user_prompt: |
+    正在审核文章《{title}》(主题: {topic}) 的段落。
+    找出 1 处真正值得划重点的"黄金句子"，用 <span class="pro-highlight">句子内容</span> 包裹。
+    【准则】：
+    - 仅标注真正深刻的句子。严禁改变原内容。
+    - **最高优先级红线**：绝对不能删减原文的任何字数和句子！输出必须包含完整内容。
+    - 在输出 HTML 前，先输出一行 `Thought: [为什么选择这一句]`。
+    【内容】：
+    {content}

@@ -9,19 +9,19 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from src.ai_write_x.news_aggregator import NewsHubManager, DataSourceCategory
 from src.ai_write_x.utils import log
 
 router = APIRouter(prefix="/api/newshub", tags=["newshub"])
 
 # 全局管理器实例
-hub_manager: Optional[NewsHubManager] = None
+hub_manager = None
 
 
-def get_hub_manager() -> NewsHubManager:
+def get_hub_manager():
     """获取NewsHub管理器"""
     global hub_manager
     if hub_manager is None:
+        from src.ai_write_x.news_aggregator import NewsHubManager
         hub_manager = NewsHubManager()
     return hub_manager
 
@@ -95,6 +95,7 @@ async def aggregate_news(request: AggregateRequest):
         # 转换分类
         categories = None
         if request.categories:
+            from src.ai_write_x.news_aggregator import DataSourceCategory
             cat_map = {
                 "tech": DataSourceCategory.TECH,
                 "finance": DataSourceCategory.FINANCE,

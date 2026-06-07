@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from sqlmodel import select, or_
+from sqlmodel import SQLModel, create_engine
 from src.ai_write_x.database import (
     init_db, engine, get_session, 
     Topic, Article, AgentMemory, SystemSetting, 
@@ -23,6 +24,11 @@ class DBManager:
         if not DBManager._initialized:
             init_db()
             DBManager._initialized = True
+
+    Base = SQLModel
+
+    def create_tables(self) -> None:
+        self.Base.metadata.create_all(engine)
 
     # --- Topic Operations ---
     def add_topic(self, title: str, source_platform: str = "unknown", hot_score: int = 0) -> Optional[Topic]:

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, List
 
 from playwright.async_api import async_playwright, Page, BrowserContext
+from src.ai_write_x.utils.path_manager import PathManager
 from src.ai_write_x.utils import log as lg
 from src.ai_write_x.utils.performance_optimizer import browser_pool
 
@@ -29,8 +30,7 @@ class AsyncPlaywrightPublisher(ABC):
         self.headless = headless
         
         # 确定Cookie保存路径
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-        self.cookies_dir = os.path.join(base_dir, "data", "cookies")
+        self.cookies_dir = str(PathManager.get_app_data_dir() / "data" / "cookies")
         os.makedirs(self.cookies_dir, exist_ok=True)
         self.cookie_file = os.path.join(self.cookies_dir, f"{self.platform_name}_cookies.json")
     

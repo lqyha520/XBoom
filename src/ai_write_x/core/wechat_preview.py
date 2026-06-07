@@ -38,8 +38,8 @@ class WeChatPreviewEngine:
     ]
     
     def __init__(self):
-        self.preview_dir = PathManager.get_root_dir() / "previews"
-        self.preview_dir.mkdir(exist_ok=True)
+        self.preview_dir = PathManager.get_output_dir() / "previews"
+        self.preview_dir.mkdir(parents=True, exist_ok=True)
     
     def generate_preview_html(self, content: str, title: str = "文章预览") -> str:
         """生成微信预览 HTML（1:1 还原手机版）"""

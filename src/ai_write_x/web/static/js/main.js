@@ -107,7 +107,21 @@ class AIWriteXApp {
             } else {
                 window.databaseManager.refreshAll();
             }
+            
+            // 后台异步采集资讯，不阻塞主功能
+            if (!window.newshubManager) {
+                window.newshubManager = new NewsHubManager();
+            }
+            // 延迟5秒后开始后台采集，避免影响启动速度
+            setTimeout(() => {
+                if (window.newshubManager) {
+                    console.log('[资讯采集] 开始后台异步采集');
+                    window.newshubManager.backgroundInit();
+                }
+            }, 5000);
         }, 1000);
+
+        this._showFirstRunGuide();
     }
 
     setupResizeListener() {
@@ -437,6 +451,38 @@ class AIWriteXApp {
 
     _onNotificationRemoved() {
         this._activeNotifications = this._activeNotifications.filter(n => n.parentElement);
+    }
+
+    _showFirstRunGuide() {
+        const key = 'xboom_first_run_guide_seen_v1';
+        if (localStorage.getItem(key) === '1') return;
+        localStorage.setItem(key, '1');
+        setTimeout(() => {
+            const guide = document.createElement('div');
+            guide.className = 'first-run-guide notification info';
+            guide.innerHTML = `
+                <div class="notification-content first-run-guide-content">
+                    <div class="first-run-guide-text">
+                        <strong>首次使用？</strong>
+                        <span>请先配置 API Key 以开始创作之旅</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm" data-action="open-config">去配置</button>
+                    <button class="notification-close" data-action="close">×</button>
+                </div>
+            `;
+            guide.querySelector('[data-action="open-config"]')?.addEventListener('click', () => {
+                this.showView('config-manager');
+                window.configManager?.showConfigPanel?.('api');
+                guide.remove();
+                this._onNotificationRemoved();
+            });
+            guide.querySelector('[data-action="close"]')?.addEventListener('click', () => {
+                guide.remove();
+                this._onNotificationRemoved();
+            });
+            document.body.appendChild(guide);
+            this._activeNotifications.push(guide);
+        }, 900);
     }
 
     // ========== V3: 全局键盘快捷键系统 ==========

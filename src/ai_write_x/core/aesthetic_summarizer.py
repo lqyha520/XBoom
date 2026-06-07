@@ -17,7 +17,7 @@ class AestheticSummarizer:
     
     def __init__(self):
         self.config = Config.get_instance()
-        self.profile_path = PathManager.get_root_dir() / "config" / "aesthetic_profile.json"
+        self.profile_path = PathManager.get_config_dir() / "aesthetic_profile.json"
         self.agent_factory = AgentFactory()
 
     async def summarize(self):

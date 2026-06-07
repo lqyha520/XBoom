@@ -1,0 +1,181 @@
+<div id="scheduler-view" class="view-content" style="display: none;">
+    <div class="manager-layout scheduler-layout">
+        <aside class="manager-sidebar scheduler-sidebar scheduler-sidebar-glass">
+            <div class="sidebar-header">
+                <h3>自动化任务</h3>
+                <p class="text-secondary" style="font-size:12px;margin:8px 0 0;line-height:1.5;">
+                    与「内容生成」一致：到点自动写稿、保存到<strong>文章库</strong>，并可发布公众号。约每 1 分钟检查一次；需保持应用在运行。
+                </p>
+            </div>
+            <div class="scheduler-side-stats">
+                <div class="scheduler-stat-item">
+                    <span class="scheduler-stat-label">等待/运行</span>
+                    <strong id="scheduler-active-count">0</strong>
+                </div>
+                <div class="scheduler-stat-item">
+                    <span class="scheduler-stat-label">全部任务</span>
+                    <strong id="scheduler-total-count">0</strong>
+                </div>
+                <div class="scheduler-stat-item">
+                    <span class="scheduler-stat-label">今日执行</span>
+                    <strong id="scheduler-log-count">0</strong>
+                </div>
+            </div>
+            <div class="sidebar-divider"></div>
+            <div class="scheduler-sidebar-tasks-header">
+                <span style="font-size:13px;font-weight:600;">我的任务</span>
+                <button type="button" class="btn btn-link btn-sm" style="padding:0;"
+                    onclick="window.schedulerManager.refreshData(true)">刷新</button>
+            </div>
+            <div id="scheduler-sidebar-task-list" class="scheduler-sidebar-task-list">
+                <p class="text-secondary" style="font-size:12px;margin:8px 0;">加载中…</p>
+            </div>
+            <div class="sidebar-divider"></div>
+            <button type="button" class="btn btn-primary" style="width:100%;margin-bottom:8px;"
+                onclick="window.schedulerManager.openAddTaskModal()">＋ 新建任务</button>
+            <p class="text-secondary" style="font-size:11px;margin-top:14px;line-height:1.6;">
+                当前仅 <strong>微信公众号</strong> 支持自动发布与连接检测；其他平台请先手动发布。
+            </p>
+        </aside>
+
+        <main class="main-wrapper scheduler-main">
+            <div class="manager-toolbar scheduler-toolbar">
+                <div>
+                    <h2 style="margin:0;font-size:20px;">定时发布</h2>
+                    <p class="text-secondary" style="margin:4px 0 0;font-size:13px;">控制台风格：任务总览 + 执行日志，删除与刷新即时生效</p>
+                </div>
+                <div class="scheduler-toolbar-actions">
+                    <span id="scheduler-last-refresh" class="scheduler-last-refresh text-secondary">—</span>
+                    <button type="button" class="btn btn-secondary" id="scheduler-refresh-btn-lite"
+                        onclick="window.schedulerManager.refreshData(true)">刷新</button>
+                    <button type="button" class="btn btn-primary"
+                        onclick="window.schedulerManager.openAddTaskModal()">＋ 新建任务</button>
+                </div>
+            </div>
+
+            <div id="scheduler-load-error" class="scheduler-banner scheduler-banner-error" style="display:none;"></div>
+
+            <div class="scheduler-panels">
+                <section class="section-card scheduler-panel">
+                    <div class="section-header">
+                        <h3>任务列表</h3>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span id="scheduler-list-hint" class="text-secondary" style="font-size:12px;"></span>
+                            <button type="button" class="btn btn-secondary btn-sm" id="scheduler-refresh-btn"
+                                onclick="window.schedulerManager.refreshData(true)">刷新列表</button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>编号</th>
+                                    <th>话题 / 说明</th>
+                                    <th>平台</th>
+                                    <th>下次执行</th>
+                                    <th>周期</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scheduler-task-list">
+                                <tr>
+                                    <td colspan="7" class="text-center py-5">正在加载…</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="section-card scheduler-panel">
+                    <div class="section-header">
+                        <h3>执行日志</h3>
+                    </div>
+                    <div class="table-container scheduler-log-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>结果</th>
+                                    <th>说明</th>
+                                    <th>文章</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scheduler-log-list">
+                                <tr>
+                                    <td colspan="4" class="text-center py-5">暂无日志</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div id="task-edit-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content surface-card scheduler-modal">
+            <div class="modal-header">
+                <h3 id="task-modal-title">新建定时任务</h3>
+                <button type="button" class="modal-close" onclick="window.schedulerManager.closeModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>创作话题 <span class="text-secondary">（可留空，到时自动抓热点）</span></label>
+                    <textarea id="task-topic" class="form-control" rows="3"
+                        placeholder="例如：春季护肤避坑指南"></textarea>
+                </div>
+                <div class="form-row scheduler-form-row">
+                    <div class="form-group">
+                        <label>发布平台</label>
+                        <select id="task-platform" class="form-control"
+                            onchange="window.schedulerManager.checkPlatformConnection(this.value)">
+                            <option value="wechat">微信公众号（支持自动发布）</option>
+                            <option value="xiaohongshu" disabled>小红书（暂不支持定时发布）</option>
+                            <option value="zhihu" disabled>知乎（暂不支持定时发布）</option>
+                            <option value="toutiao" disabled>今日头条（暂不支持定时发布）</option>
+                        </select>
+                        <div id="platform-verify-tip" class="scheduler-verify-tip" style="display: none;"></div>
+                    </div>
+                    <div class="form-group scheduler-count-field">
+                        <label>每次篇数</label>
+                        <input type="number" id="task-article-count" class="form-control" value="1" min="1" max="5">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>首次执行时间 <span class="required">*</span></label>
+                    <div class="scheduler-time-row">
+                        <input type="datetime-local" id="task-exec-time" class="form-control" step="1">
+                        <button type="button" class="btn btn-secondary btn-sm"
+                            onclick="window.schedulerManager.setDelayTime(30)">30秒后</button>
+                        <button type="button" class="btn btn-secondary btn-sm"
+                            onclick="window.schedulerManager.setPresetDaily(9)">每天9点</button>
+                    </div>
+                </div>
+                <div class="scheduler-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="task-beautify" checked>
+                        生成后补齐配图
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="task-recurring"
+                            onchange="window.schedulerManager.toggleInterval(this.checked)">
+                        周期重复
+                    </label>
+                    <label class="checkbox-label" title="合集模式：话题作为固定前缀，每次生成不同子话题，标题格式为「话题：子话题」">
+                        <input type="checkbox" id="task-collection-mode">
+                        合集模式
+                    </label>
+                </div>
+                <div id="task-interval-group" class="form-group" style="display: none;">
+                    <label>间隔（小时）</label>
+                    <input type="number" id="task-interval" class="form-control" value="24" min="1" max="168">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="window.schedulerManager.closeModal()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="window.schedulerManager.saveTask()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>

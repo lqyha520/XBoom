@@ -1,7 +1,7 @@
 [Setup]
 AppId={{B8E4F2A1-6C3D-4F9E-A1B2-7D8E9F0C4A5B}}
 AppName=小爆来咯
-AppVersion=1.2.13
+AppVersion=1.2.14
 AppPublisher=小爆来咯
 DefaultDirName={autopf}\小爆来咯
 DefaultGroupName=小爆来咯
@@ -9,7 +9,7 @@ DisableDirPage=no
 UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 OutputDir=dist\installer
-OutputBaseFilename=小爆来咯-Setup-v1.2.13
+OutputBaseFilename=小爆来咯-Setup-v1.2.14
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -41,20 +41,24 @@ Filename: "{app}\小爆来咯.exe"; Description: "Launch 小爆来咯"; Flags: n
 
 [UninstallDelete]
 Type: files; Name: "{app}\logs\*"
+Type: filesandordirs; Name: "{app}\_internal"
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "AIWRITEX_DISABLE_BROWSER_FALLBACK"; ValueData: "1"; Flags: uninsdeletevalue preservestringtype
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "AIWRITEX_BROWSER_GUI"; ValueData: "0"; Flags: uninsdeletevalue preservestringtype
 
 [Code]
+var
+  DeleteUserDataOnUninstall: Boolean;
+
 function GetWebView2Version(): string;
 var
   RegVersion: string;
 begin
   Result := '';
-  if RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3B927B189}', 'pv', RegVersion) then
+  if RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', RegVersion) then
     Result := RegVersion
-  else if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3B927B189}', 'pv', RegVersion) then
+  else if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', RegVersion) then
     Result := RegVersion;
 end;
 
@@ -69,6 +73,41 @@ begin
   end else begin
     Log('WebView2 installed, version: ' + Version);
     Result := False;
+  end;
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  UserDataDir: string;
+begin
+  Result := True;
+  DeleteUserDataOnUninstall := False;
+  UserDataDir := ExpandConstant('{userappdata}\XBoom');
+
+  if DirExists(UserDataDir) and (not UninstallSilent) then begin
+    DeleteUserDataOnUninstall := MsgBox(
+      'XBoom user data was found on this computer.' + #13#10#13#10 +
+      'It may include settings, articles, logs, previews, cache files, and publishing cookies.' + #13#10 +
+      'Choose No if you may reinstall later and want to keep your data.' + #13#10#13#10 +
+      'Delete this user data now?' + #13#10 + UserDataDir,
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2
+    ) = IDYES;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  UserDataDir: string;
+begin
+  if CurUninstallStep = usPostUninstall then begin
+    UserDataDir := ExpandConstant('{userappdata}\XBoom');
+    if DeleteUserDataOnUninstall and DirExists(UserDataDir) then begin
+      Log('Deleting user data directory: ' + UserDataDir);
+      if not DelTree(UserDataDir, True, True, True) then
+        Log('Failed to delete user data directory: ' + UserDataDir);
+    end else begin
+      Log('User data directory preserved: ' + UserDataDir);
+    end;
   end;
 end;
 

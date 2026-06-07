@@ -1227,9 +1227,10 @@ class VisualAssetsManager:
                                 if old_cfg <= 1.5:
                                     ksampler["cfg"] = 3.5
                                     lg.print_log(f"  [NF4优化] CFG {old_cfg} → 3.5（启用负向提示词引导）")
-                                if old_steps <= 9:
-                                    ksampler["steps"] = 12
-                                    lg.print_log(f"  [NF4优化] Steps {old_steps} → 12（补偿CFG提升）")
+                                # 固定使用9步采样，优化生成速度
+                                ksampler["steps"] = 9
+                                if old_steps != 9:
+                                    lg.print_log(f"  [采样优化] Steps {old_steps} → 9（快速生成模式）")
 
                     # 3. 先建立 WebSocket 连接，再提交任务（确保不丢消息）
                     img_filename = None
@@ -1624,6 +1625,7 @@ class VisualAssetsManager:
         for anchor, is_cover in insert_targets:
             ctx = title if is_cover else anchor.get_text(strip=True)[:80]
             prompt_text, ratio = cls._image_prompt_text(topic, ctx, is_cover=is_cover)
+            # BeautifulSoup 处理带连字符的属性：使用 **{} 展开字典
             attrs = {
                 "class": "img-placeholder",
                 "data-img-prompt": prompt_text,
@@ -1631,7 +1633,8 @@ class VisualAssetsManager:
             }
             if is_cover:
                 attrs["data-cover"] = "1"
-            ph = soup.new_tag("div", attrs=attrs)
+            # 使用 **attrs 展开字典，而不是 attrs=attrs
+            ph = soup.new_tag("div", **attrs)
             ph.string = "配图生成中"
             anchor.insert_after(ph)
 

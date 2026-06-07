@@ -1,0 +1,62 @@
+.menu-ip-layout .main-wrapper {
+    padding: 20px 24px;
+    overflow-y: auto;
+}
+
+.menu-ip-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.menu-ip-status-badge {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    max-width: 360px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.menu-ip-status-badge.is-allowed {
+    color: #10b981;
+    border-color: rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.menu-ip-status-badge.is-denied {
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.menu-ip-banner-error {
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.menu-ip-table .tag-enabled {
+    color: #10b981;
+}
+
+.menu-ip-table .tag-disabled {
+    color: var(--text-secondary);
+}
+
+.menu-ip-table .btn-link-danger {
+    color: #ef4444;
+}
+
+.menu-ip-table .btn-link-danger:hover {
+    opacity: 0.85;
+}

@@ -8,7 +8,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 
-from src.ai_write_x.tools.spider_runner import spider_runner
+
+def get_spider_runner():
+    from src.ai_write_x.tools.spider_runner import spider_runner
+    return spider_runner
 
 router = APIRouter(prefix="/api/spider", tags=["spider"])
 
@@ -23,6 +26,7 @@ class RunSpiderRequest(BaseModel):
 async def get_spider_list():
     """获取爬虫列表"""
     # 等待后台加载完成，避免安装包冷启动时前端只拿到空列表
+    spider_runner = get_spider_runner()
     spider_runner.wait_for_loading(timeout=45.0)
     spiders = spider_runner.get_spider_list()
     return {
@@ -36,6 +40,7 @@ async def get_spider_list():
 @router.get("/stats")
 async def get_spider_stats():
     """获取爬虫统计"""
+    spider_runner = get_spider_runner()
     return {
         "success": True,
         "stats": spider_runner.get_stats()
@@ -50,6 +55,7 @@ async def get_articles(
 ):
     """获取爬取的文章列表 (整合 NewsHub 缓存)"""
     # 1. 获取基础爬虫文章
+    spider_runner = get_spider_runner()
     articles = spider_runner.get_articles(limit, source, category)
     
     # 2. 如果没有指定源或指定了 NewsHub，则加入 NewsHub 缓存
@@ -85,6 +91,7 @@ async def get_articles(
 async def run_spider(request: RunSpiderRequest):
     """运行爬虫"""
     try:
+        spider_runner = get_spider_runner()
         if request.spider_name:
             # 运行单个爬虫
             result = await spider_runner.run_spider(request.spider_name, request.limit)
@@ -108,6 +115,7 @@ async def get_status():
 async def run_single_spider(spider_name: str, limit: int = 10):
     """运行指定爬虫"""
     try:
+        spider_runner = get_spider_runner()
         result = await spider_runner.run_spider(spider_name, limit)
         return result
     except Exception as e:

@@ -17,16 +17,22 @@ class NewsHubManager {
     init() {
         if (this.initializing) return;
         if (this.initialized) {
-            this.refreshAll(false);
+            // 已初始化，仅刷新界面显示
+            this.applyNewsFilter();
             return;
         }
         this.initializing = true;
         this.bindEvents();
-        this.refreshAll(false).finally(() => {
-            this.initialized = true;
-            this.initializing = false;
-            this.startAutoRefresh();
-        });
+        
+        // 先标记已初始化，立即显示界面
+        this.initialized = true;
+        this.initializing = false;
+        
+        // 显示加载中状态
+        this.showLoadingState();
+        
+        // 后台异步加载数据，不阻塞界面
+        this.loadDataInBackground();
     }
 
     _authHeaders() {
@@ -426,6 +432,44 @@ class NewsHubManager {
         if (this.autoRefreshInterval) {
             clearInterval(this.autoRefreshInterval);
             this.autoRefreshInterval = null;
+        }
+    }
+
+    backgroundInit() {
+        // 后台静默采集，不显示界面，不阻塞其他操作
+        if (this.initialized) return;
+        
+        this.initialized = true;
+        this.initializing = false;
+        
+        console.log('[资讯采集] 后台静默采集开始');
+        
+        // 异步加载数据，不等待结果
+        this.loadDataInBackground().then(() => {
+            console.log('[资讯采集] 后台采集完成');
+        }).catch(e => {
+            console.error('[资讯采集] 后台采集失败:', e);
+        });
+    }
+
+    showLoadingState() {
+        const newsList = document.getElementById('nh-news-list');
+        if (newsList) {
+            newsList.innerHTML = '<div class="loading-state" style="text-align:center;padding:40px;color:var(--text-secondary);"><div class="spinner"></div><p>正在加载资讯...</p></div>';
+        }
+    }
+
+    async loadDataInBackground() {
+        try {
+            await this.loadSources();
+            await Promise.all([this.loadCache(), this.loadTrends(), this.loadGitHubTrending()]);
+            this.startAutoRefresh();
+        } catch (e) {
+            console.error('[资讯采集] 后台加载失败:', e);
+            const newsList = document.getElementById('nh-news-list');
+            if (newsList) {
+                newsList.innerHTML = '<div class="error-state" style="text-align:center;padding:40px;color:#ef4444;">加载失败，请稍后重试</div>';
+            }
         }
     }
 

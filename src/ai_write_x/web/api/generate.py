@@ -9,17 +9,16 @@ import asyncio
 import time
 import queue
 import os
+
+# 微信配置警告静默模式：避免重复警告
+_wechat_warning_shown = False
 from datetime import datetime
 
 from ..state import get_app_state
 from src.ai_write_x.core.task_manager import task_manager, TaskStatus
 
 from src.ai_write_x.config.config import Config
-from src.ai_write_x.crew_main import ai_write_x_main
-from src.ai_write_x.tools import hotnews
 from src.ai_write_x.utils import utils, log
-from src.ai_write_x.utils.topic_deduplicator import TopicDeduplicator
-from src.ai_write_x.core.task_distributor import TaskDistributor
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
@@ -411,6 +410,7 @@ async def generate_content(request: GenerateRequest):
                     if swarm_cfg.get("swarm_mode_enabled"):
                         lg.print_log(f"🐝 [Swarm] 检测到蜂群模式开启，正在进行去中心化派发...", "info")
                         try:
+                            from src.ai_write_x.core.task_distributor import TaskDistributor
                             distributor = TaskDistributor()
                             # V18 FIX: 在同步线程中使用 asyncio.run 驱动异步蜂群分发
                             import asyncio as async_executor
@@ -645,7 +645,11 @@ async def generate_content(request: GenerateRequest):
                                             author = wechat_cfg.get("author", "AIWriteX")
                                             
                                             if not appid or not appsecret:
-                                                lg.print_log("无法执行自动化动作: 未配置微信公众号 AppID 和 AppSecret", "warning")
+                                                # 静默模式：只显示一次警告
+                                                global _wechat_warning_shown
+                                                if not _wechat_warning_shown:
+                                                    lg.print_log("无法执行自动化动作: 未配置微信公众号 AppID 和 AppSecret，请在「设置 → 发布平台」配置", "warning")
+                                                    _wechat_warning_shown = True
                                             else:
                                                 from src.ai_write_x.tools.wx_publisher import pub2wx
 
@@ -727,7 +731,7 @@ async def generate_content(request: GenerateRequest):
                 # P2: 自动清理临时文件（超过1小时的env_*.json）
                 try:
                     import glob
-                    temp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))), "temp")
+                    temp_dir = str(PathManager.get_temp_dir())
                     if os.path.isdir(temp_dir):
                         cutoff = time.time() - 3600  # 1小时前
                         for f in glob.glob(os.path.join(temp_dir, "env_*.json")):
@@ -951,6 +955,7 @@ async def get_hot_topics():
         import random
 
         config = Config.get_instance()
+        from src.ai_write_x.utils.topic_deduplicator import TopicDeduplicator
         deduplicator = TopicDeduplicator(dedup_days=3)
 
         from src.ai_write_x.core.llm_client import LLMClient

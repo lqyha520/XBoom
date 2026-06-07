@@ -246,7 +246,7 @@ class KnowledgeGraph:
         
         # V14.6: 持久化路径
         from src.ai_write_x.utils.path_manager import PathManager
-        self.persist_path = PathManager.get_base_dir() / "knowledge_graph.json"
+        self.persist_path = PathManager.get_app_data_dir() / "knowledge_graph.json"
         
         # 初始化时尝试从本地加载
         self.load_from_file()

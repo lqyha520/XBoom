@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sys
 from datetime import datetime, timezone
@@ -12,6 +13,16 @@ from pathlib import Path
 import paramiko
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def file_sha256(path: Path | None) -> str:
+    if not path or not path.exists():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -91,6 +102,12 @@ def main() -> int:
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
+        if not setup_candidates:
+            setup_candidates = sorted(
+                (ROOT / "dist" / "installer").glob("*-Setup-v*.exe"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
         setup_path = setup_candidates[0] if setup_candidates else None
 
     existing_policy = {}
@@ -105,11 +122,18 @@ def main() -> int:
     policy = {
         "latest_version": version,
         "min_supported_version": min_supported,
+        "force_update": False,
+        "update_level": "normal",
+        "install_mode": "on_exit",
+        "auto_download": True,
+        "auto_install": False,
+        "rollout_percent": 100,
         "auto_update_on_startup": True,
         "auto_update_silent": True,
         "release_notes": f"小爆来咯 v{version}",
         "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "download_url": f"{base_url}/{installer_name}",
+        "sha256": file_sha256(setup_path),
     }
     policy_bytes = (json.dumps(policy, ensure_ascii=False, indent=4) + "\n").encode("utf-8")
     (ROOT / "version-policy.json").write_bytes(policy_bytes)

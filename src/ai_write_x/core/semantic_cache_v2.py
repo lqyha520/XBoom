@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from collections import OrderedDict
 import logging
 
+from src.ai_write_x.utils.path_manager import PathManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -181,7 +183,7 @@ class SemanticCacheV2:
         self._memory_lock = threading.RLock()
         
         # SQLite 持久化
-        self._db_path = db_path or "data/semantic_cache_v2.db"
+        self._db_path = db_path or str(PathManager.get_app_data_dir() / "data" / "semantic_cache_v2.db")
         self._init_database()
         
         # 统计

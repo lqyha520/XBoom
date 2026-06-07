@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import subprocess
 import sys
@@ -13,6 +14,14 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -51,6 +60,12 @@ def main() -> int:
         reverse=True,
     )
     if not setup_items:
+        setup_items = sorted(
+            (ROOT / "dist" / "installer").glob("*-Setup-v*.exe"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    if not setup_items:
         print("Run build_windows_installer.ps1 first", file=sys.stderr)
         return 1
     setup = setup_items[0]
@@ -59,7 +74,7 @@ def main() -> int:
     mirror_base = mirror.get("MIRROR_BASE_URL", "").rstrip("/")
     if not mirror_base:
         print(
-            "璇峰湪 scripts/update-mirror.env 閰嶇疆 MIRROR_BASE_URL锛堣吘璁簯 updates 鐩綍锛?,
+            "Please configure MIRROR_BASE_URL in scripts/update-mirror.env.",
             file=sys.stderr,
         )
         return 1
@@ -77,9 +92,16 @@ def main() -> int:
     policy = {
         "latest_version": version,
         "min_supported_version": min_supported,
+        "force_update": False,
+        "update_level": "normal",
+        "install_mode": "on_exit",
+        "auto_download": True,
+        "auto_install": False,
+        "rollout_percent": 100,
         "auto_update_on_startup": True,
         "auto_update_silent": True,
         "download_url": download_url,
+        "sha256": file_sha256(setup),
         "release_notes": f"灏忕垎鏉ュ挴 v{version}",
         "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
