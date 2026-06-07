@@ -116,3 +116,9 @@ pywebview/desktop/EBWebView/
 _test_*.py
 test_*.html
 test_images/
+
+# Local diagnostics and packaged repro artifacts
+.dbg/
+_manual_repro/
+_installer_verify/
+temp_main_before.js
