@@ -4,6 +4,7 @@
 import json
 import time
 import asyncio
+import copy
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,7 +16,6 @@ from src.ai_write_x.version import get_version
 from src.ai_write_x.config.config import Config
 from src.ai_write_x.utils import log
 from src.ai_write_x.utils.path_manager import PathManager
-from src.ai_write_x.core.platform_adapters import PlatformType
 
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -23,6 +23,43 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 class ConfigUpdateRequest(BaseModel):
     config_data: Dict[str, Any]
+
+
+SECRET_FIELD_NAMES = {
+    "api_key",
+    "appsecret",
+    "secret",
+    "token",
+    "password",
+    "authorization",
+    "x-api-key",
+}
+
+
+def _mask_secret_value(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_mask_secret_value(item) for item in value]
+    if isinstance(value, dict):
+        return _sanitize_config_for_client(value)
+    if value in ("", None):
+        return value
+    text = str(value)
+    if len(text) <= 8:
+        return "***"
+    return f"{text[:3]}***{text[-4:]}"
+
+
+def _sanitize_config_for_client(data: Any) -> Any:
+    sanitized = copy.deepcopy(data)
+    if isinstance(sanitized, dict):
+        for key, value in list(sanitized.items()):
+            if key.lower() in SECRET_FIELD_NAMES:
+                sanitized[key] = _mask_secret_value(value)
+            else:
+                sanitized[key] = _sanitize_config_for_client(value)
+    elif isinstance(sanitized, list):
+        sanitized = [_sanitize_config_for_client(item) for item in sanitized]
+    return sanitized
 
 
 @router.get("/")
@@ -35,10 +72,10 @@ async def get_config():
         config_data = {
             "platforms": config_dict.get("platforms", []),
             "publish_platform": config_dict.get("publish_platform", "wechat"),
-            "api": config_dict.get("api", {}),
-            "img_api": config_dict.get("img_api", {}),
+            "api": _sanitize_config_for_client(config_dict.get("api", {})),
+            "img_api": _sanitize_config_for_client(config_dict.get("img_api", {})),
             "update": config_dict.get("update", {}),
-            "wechat": config_dict.get("wechat", {}),
+            "wechat": _sanitize_config_for_client(config_dict.get("wechat", {})),
             "use_template": config_dict.get("use_template", True),
             "template_category": config_dict.get("template_category", ""),
             "template": config_dict.get("template", ""),
@@ -50,7 +87,7 @@ async def get_config():
             "format_publish": config_dict.get("format_publish", True),
             "dimensional_creative": config_dict.get("dimensional_creative", {}),
             "strict_freshness": config_dict.get("strict_freshness", True),
-            "aiforge_config": config.aiforge_config,
+            "aiforge_config": _sanitize_config_for_client(config.aiforge_config),
             "page_design": config_dict.get("page_design"),
         }
 
@@ -190,6 +227,7 @@ async def get_templates_by_category(category: str):
 async def get_platforms():
     """获取所有支持的发布平台"""
     try:
+        from src.ai_write_x.core.platform_adapters import PlatformType
         platforms = [
             {"value": platform_value, "label": PlatformType.get_display_name(platform_value)}
             for platform_value in PlatformType.get_all_platforms()

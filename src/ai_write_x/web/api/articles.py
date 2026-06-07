@@ -10,11 +10,8 @@ import json
 
 from src.ai_write_x.config.config import Config
 from src.ai_write_x.utils.path_manager import PathManager
-from src.ai_write_x.tools.wx_publisher import pub2wx
 from src.ai_write_x.utils import utils
 from src.ai_write_x.utils import log
-from src.ai_write_x.core.adaptive_template_engine import ContentAnalyzer, ModularTemplateBuilder, ComponentType, DesignScheme
-from src.ai_write_x.core.aesthetic_summarizer import AestheticSummarizer
 
 from bs4 import BeautifulSoup
 import re
@@ -76,6 +73,24 @@ def html_to_markdown(html_content: str) -> str:
 
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
+
+
+def _resolve_article_path(path: str, *, must_exist: bool = True) -> Path:
+    articles_dir = PathManager.get_article_dir().resolve()
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = articles_dir / candidate
+    resolved = candidate.resolve(strict=False)
+
+    try:
+        resolved.relative_to(articles_dir)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="非法文章路径")
+
+    if must_exist and not resolved.exists():
+        raise HTTPException(status_code=404, detail="文章不存在")
+    return resolved
+
 
 import threading
 import time as _time
@@ -248,8 +263,8 @@ async def smart_clean_articles():
 
 
 @router.get("/")
-async def list_articles():
-    """获取文章列表"""
+async def list_articles(page: int = 1, page_size: int = 50, status: str = None):
+    """获取文章列表 - 支持分页和筛选"""
     try:
         articles_dir = PathManager.get_article_dir()
         articles_dict = {}
@@ -292,7 +307,27 @@ async def list_articles():
 
         articles = list(articles_dict.values())
         articles.sort(key=lambda x: x["create_time"], reverse=True)
-        return {"status": "success", "data": articles}
+        
+        # 状态筛选
+        if status:
+            articles = [a for a in articles if a['status'] == status]
+        
+        # 分页处理
+        total = len(articles)
+        start = (page - 1) * page_size
+        end = start + page_size
+        articles = articles[start:end]
+        
+        return {
+            "status": "success", 
+            "data": articles,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": (total + page_size - 1) // page_size
+            }
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -300,9 +335,7 @@ async def list_articles():
 @router.get("/content")
 async def get_article_content(path: str):
     """获取文章内容 - 使用查询参数"""
-    file_path = Path(path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文章不存在")
+    file_path = _resolve_article_path(path)
 
     content = file_path.read_text(encoding="utf-8")
     return Response(content=content, media_type="text/plain; charset=utf-8")
@@ -311,9 +344,7 @@ async def get_article_content(path: str):
 @router.put("/content")
 async def update_article_content(path: str, update: ArticleContentUpdate):
     """更新文章内容"""
-    file_path = Path(path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文章不存在")
+    file_path = _resolve_article_path(path)
 
     file_path.write_text(update.content, encoding="utf-8")
     return {"status": "success", "message": "文章已保存"}
@@ -323,6 +354,7 @@ async def update_article_content(path: str, update: ArticleContentUpdate):
 async def summarize_aesthetic_dna():
     """触发 AI 汇总用户审美偏好并更新 Aesthetic Profile"""
     try:
+        from src.ai_write_x.core.aesthetic_summarizer import AestheticSummarizer
         summarizer = AestheticSummarizer()
         profile = await summarizer.summarize()
         if profile:
@@ -356,9 +388,7 @@ async def get_aesthetic_profile():
 @router.get("/preview")
 async def preview_article(path: str):
     """安全预览文章 - 使用查询参数"""
-    file_path = Path(path)
-    if not file_path.exists():
-        return HTMLResponse("<p>文章不存在</p>")
+    file_path = _resolve_article_path(path)
 
     content = file_path.read_text(encoding="utf-8")
     return HTMLResponse(
@@ -369,9 +399,7 @@ async def preview_article(path: str):
 @router.get("/source")
 async def get_article_source(path: str):
     """获取文章原始内容（不进行任何处理）"""
-    file_path = Path(path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文章不存在")
+    file_path = _resolve_article_path(path)
     
     content = file_path.read_text(encoding="utf-8")
     return Response(content=content, media_type="text/plain; charset=utf-8")
@@ -380,7 +408,7 @@ async def get_article_source(path: str):
 @router.delete("/")
 async def delete_article(path: str):
     """删除文章 - 删除所有关联格式文件"""
-    file_path = Path(path)
+    file_path = _resolve_article_path(path)
     stem = file_path.stem
     dir_path = file_path.parent
     
@@ -475,6 +503,7 @@ async def publish_articles(request: PublishRequest):
                     if ext != ".html" and format_publish:
                         article_to_publish = utils.get_format_article(ext, content)
 
+                    from src.ai_write_x.tools.wx_publisher import pub2wx
                     message, _, success = pub2wx(
                         title=title,
                         digest=digest,
@@ -1246,6 +1275,7 @@ async def vote_article_aesthetic(vote: AestheticVote):
             
             try:
                 import asyncio
+                from src.ai_write_x.core.aesthetic_summarizer import AestheticSummarizer
                 summarizer = AestheticSummarizer()
                 asyncio.create_task(summarizer.summarize())
                 log.print_log("🧵 [审美进化] 已在后台启动审美特征 DNA 更新流程", "info")

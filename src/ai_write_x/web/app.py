@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 
 import os
+import secrets
 import time
 import asyncio
 from pathlib import Path
@@ -23,10 +24,6 @@ import uvicorn
 from src.ai_write_x.version import get_version
 from src.ai_write_x.version import get_version_with_prefix 
 from src.ai_write_x.utils.path_manager import PathManager
-from src.ai_write_x.core.collaboration_hub import get_collaboration_hub
-from src.ai_write_x.core.swarm_state_manager import SwarmStateManager
-from src.ai_write_x.core.swarm_visualizer import SwarmVisualizer
-from src.ai_write_x.core.swarm_protocol import SwarmCapabilities
 from src.ai_write_x.utils import utils
 
 # 导入状态管理
@@ -45,6 +42,7 @@ from .api.newshub import router as newshub_router
 from .api.scheduler import router as scheduler_router
 from .api.updater import router as updater_router
 from .api.menu_ip_whitelist import router as menu_ip_whitelist_router
+from .api.batch import router as batch_router
 
 # 添加全局状态
 app_shutdown_event = asyncio.Event()
@@ -73,12 +71,16 @@ async def lifespan(app: FastAPI):
             log.print_log("配置加载失败，使用默认配置", "warning")
 
         # 注册 CrewAI 工具（含 news_hub_tool），自动化任务与内容生成共用
-        try:
-            from src.ai_write_x.core.system_init import initialize_global_tools
-            initialize_global_tools()
-            log.print_log("全局工具注册完成（含 news_hub_tool）", "success")
-        except Exception as tool_err:
-            log.print_log(f"全局工具注册失败: {tool_err}", "error")
+        async def warmup_global_tools():
+            try:
+                await asyncio.sleep(1.5)
+                from src.ai_write_x.core.system_init import initialize_global_tools
+                await asyncio.to_thread(initialize_global_tools)
+                log.print_log("?????????? news_hub_tool?", "success")
+            except Exception as tool_err:
+                log.print_log(f"????????: {tool_err}", "error")
+
+        asyncio.create_task(warmup_global_tools())
 
         # 服务启动时清掉上次未跑完的生成任务登记（不自动续跑）
         try:
@@ -115,6 +117,22 @@ async def lifespan(app: FastAPI):
             from src.ai_write_x.core.batch_processor import get_batch_processor
             from src.ai_write_x.core.semantic_cache_v2 import get_semantic_cache
             from src.ai_write_x.web.websocket_manager import get_websocket_manager
+            
+            # 初始化新的优化组件
+            from src.ai_write_x.utils.cache_manager import cache_manager
+            from src.ai_write_x.utils.cleanup_manager import cleanup_manager
+            
+            # 启动定期清理任务（每24小时）
+            async def periodic_cleanup():
+                while True:
+                    await asyncio.sleep(86400)  # 24小时
+                    try:
+                        cleanup_manager.full_cleanup()
+                        log.print_log('[清理] 定期清理完成', 'info')
+                    except Exception as e:
+                        log.print_log(f'[清理] 定期清理失败: {e}', 'warning')
+            
+            asyncio.create_task(periodic_cleanup())
             
             # 启动批处理器
             batch_processor = get_batch_processor()
@@ -347,10 +365,15 @@ app.include_router(newshub_router)
 app.include_router(scheduler_router)
 app.include_router(updater_router)
 app.include_router(menu_ip_whitelist_router)
+app.include_router(batch_router)
 
 
 # 全局允许的客户端令牌集合
-allowed_tokens = set()
+allowed_tokens = {
+    token.strip()
+    for token in os.environ.get("AIWRITEX_CLIENT_TOKEN", "").split(",")
+    if token.strip()
+}
 
 
 def _is_restricted_menu_visible(request: Request) -> bool:
@@ -430,18 +453,27 @@ async def verify_client_token(request: Request, call_next):
     # 获取查询参数中的token（用于首次加载同步到allowed_tokens）
     url_token = request.query_params.get("token")
     if path == "/" and url_token:
+        if allowed_tokens and url_token not in allowed_tokens:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Access Denied: invalid client token."}
+            )
         allowed_tokens.add(url_token)
         # 将token存入cookie，方便后续JS读取或通过JS设置到全局
         response = await call_next(request)
-        response.set_cookie(key="app_client_token", value=url_token, httponly=False) # JS需要读取
+        response.set_cookie(
+            key="app_client_token",
+            value=url_token,
+            httponly=False, # JS需要读取
+            samesite="strict",
+        )
         return response
 
     # 验证 header / cookie 中的 token（服务重启后 allowed_tokens 会清空，需从 cookie 恢复）
     header_token = request.headers.get("X-App-Client-Token")
     cookie_token = request.cookies.get("app_client_token")
     effective_token = header_token or cookie_token
-    if effective_token:
-        allowed_tokens.add(effective_token)
+    if effective_token and any(secrets.compare_digest(effective_token, token) for token in allowed_tokens):
         return await call_next(request)
 
     # 如果是访问主页但没带token，或者接口没带token且不在白名单，拒绝
@@ -536,6 +568,12 @@ async def get_metrics():
 @app.post("/shutdown")
 async def shutdown():
     """关闭服务器"""
+    try:
+        from src.ai_write_x.web.api.updater import start_prepared_update
+        start_prepared_update("shutdown")
+    except Exception as exc:
+        from src.ai_write_x.utils import log
+        log.print_log(f"[Updater] ?????????: {exc}", "warning")
     app_shutdown_event.set()
     return {"status": "shutting down"}
 

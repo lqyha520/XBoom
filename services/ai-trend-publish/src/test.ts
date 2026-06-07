@@ -75,4 +75,7 @@ async function bootstrap() {
   }
 }
 
-bootstrap().catch(console.error);
+bootstrap().catch((error) => {
+  console.error(error);
+  Deno.exit(1);
+});

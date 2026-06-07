@@ -76,7 +76,13 @@ export class ConfigManager {
     // 环境变量
     this.addSource(new EnvConfigSource());
     // Database
-    if (await this.get<boolean>("ENABLE_DB")) {
+    let enableDb = false;
+    try {
+      enableDb = await this.get<boolean>("ENABLE_DB");
+    } catch {
+      logger.info("DB disabled: ENABLE_DB is not configured");
+    }
+    if (enableDb) {
       logger.info("DB enabled");
       this.addSource(new DbConfigSource());
     }

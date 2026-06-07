@@ -3,7 +3,7 @@
 
 from datetime import datetime
 
-__version__ = "1.2.13"
+__version__ = "1.2.14"
 __author__ = "小爆来咯"
 __build_time__ = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -21,23 +21,9 @@ def get_version_with_prefix():
 
 
 def get_build_info():
-    """V23: 返回完整构建信息字典"""
     return {
         "version": __version__,
         "version_display": f"v{__version__}",
         "author": __author__,
         "build_time": __build_time__,
-        "codename": "Cognitive Singularity",
-        "features": [
-            "Autonomous Agent Swarms",
-            "Collective Consciousness",
-            "Distributed Consensus",
-            "Knowledge Organism",
-            "Self-Healing System",
-            "Cognitive Architecture",
-            "Neural Resonance",
-            "Multi-Modal Fusion",
-            "Predictive Intelligence",
-            "Quantum Flux Architecture",
-        ]
     }

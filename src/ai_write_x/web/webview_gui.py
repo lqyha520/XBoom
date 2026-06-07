@@ -27,6 +27,12 @@ class WebViewGUI:
     # 类级别单实例互斥锁
     _single_instance_mutex = None
 
+    @staticmethod
+    def _port_file_path() -> Path:
+        port_dir = PathManager.get_temp_dir()
+        port_dir.mkdir(parents=True, exist_ok=True)
+        return port_dir / "port.txt"
+
     def __init__(self):
         # 单实例检测：如果已有实例运行，激活它并退出
         if not self._acquire_single_instance():
@@ -40,8 +46,7 @@ class WebViewGUI:
         self.window = None
         self.main_ui_loaded = False
         self.server_port = self.find_free_port()
-        with open("port.txt", "w") as f:
-            f.write(str(self.server_port))
+        self._port_file_path().write_text(str(self.server_port), encoding="utf-8")
         self.tray_manager = TrayManager("小爆来咯")
         self.tray_thread = None
 
@@ -90,7 +95,7 @@ class WebViewGUI:
             return
         try:
             # 通过端口文件找到现有实例的端口
-            port_file = Path("port.txt")
+            port_file = cls._port_file_path()
             if port_file.exists():
                 port = port_file.read_text().strip()
                 if port:
@@ -297,8 +302,7 @@ class WebViewGUI:
 
     def write_crash_log(self, stage, error):
         try:
-            base_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path.cwd()
-            log_dir = base_dir / "logs"
+            log_dir = PathManager.get_log_dir()
             log_dir.mkdir(parents=True, exist_ok=True)
             crash_file = log_dir / "desktop_crash.log"
             content = (
@@ -322,6 +326,12 @@ class WebViewGUI:
             return
 
         self.is_shutting_down = True
+
+        try:
+            from src.ai_write_x.web.api.updater import start_prepared_update
+            start_prepared_update("quit_application")
+        except Exception as exc:
+            log.print_log(f"[Updater] ?????????: {exc}", "warning")
         
         # 0. 清理测试图片
         self.cleanup_test_images()
@@ -403,6 +413,7 @@ class WebViewGUI:
     def start_server(self):
         """启动FastAPI服务器"""
         try:
+            os.environ["AIWRITEX_CLIENT_TOKEN"] = self.client_token
             from src.ai_write_x.web.app import app
 
             config = uvicorn.Config(
@@ -774,8 +785,7 @@ def gui_start():
         log.print_log("用户中断程序", "info")
     except Exception as e:
         try:
-            base_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path.cwd()
-            log_dir = base_dir / "logs"
+            log_dir = PathManager.get_log_dir()
             log_dir.mkdir(parents=True, exist_ok=True)
             crash_file = log_dir / "desktop_crash.log"
             with open(crash_file, "a", encoding="utf-8") as f:
