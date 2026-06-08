@@ -4,7 +4,7 @@
 import re
 from typing import Optional
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 
 # 英文镜头/电影术语 → 中文（用于后处理兜底）
 _SHOT_LABEL_REPLACEMENTS = [
@@ -84,10 +84,63 @@ def _looks_like_image_prompt(text: str) -> bool:
         "legible", "typography", "| bad", "octane render", "editorial illustration",
     )
     hits = sum(1 for m in markers if m in lower)
-    return hits >= 2 or ("|" in text and "bad" in lower)
+    zh_markers = (
+        "镜头", "广角", "特写", "中景", "近景", "远景", "构图", "光影", "光线",
+        "背景", "画面", "景深", "焦点", "8k", "电影感", "写实摄影",
+    )
+    zh_hits = sum(1 for m in zh_markers if m in text)
+    return hits >= 2 or zh_hits >= 2 or ("|" in text and "bad" in lower)
 
 
 _CONTENT_CONTAINER_RE = re.compile(r"rich|article|content|post|media", re.I)
+
+_META_ENDING_LABEL_RE = re.compile(
+    r"^\s*(?:第?[一二三四五六七八九十百\d]+(?:部分|节)?[、.．:：]\s*)?"
+    r"(?:结尾|结语|总结|写在最后|最后的话|结论|收尾|尾声|后记|内容创作)"
+    r"(?:[：:\-—|]\s*)?",
+    re.I,
+)
+
+_META_COMMENT_RE = re.compile(
+    r"(?:结尾|结语|总结|写在最后|最后的话|结论|收尾|尾声|后记|内容创作|"
+    r"下一次汇报|准备怎么开始|本文将|接下来我们将)",
+    re.I,
+)
+
+_META_PARAGRAPH_PATTERNS = [
+    re.compile(r"你的下一次.{0,12}汇报.{0,12}准备怎么开始", re.I),
+    re.compile(r"^(?:以上就是|本文将|本文主要|接下来我们将|接下来，让我们|在本文中|希望本文)", re.I),
+    re.compile(r"^(?:总而言之|综上所述|总之|由此可见)[，,：:\s]", re.I),
+]
+
+_META_LABEL_ONLY_RE = re.compile(
+    r"^\s*(?:第?[一二三四五六七八九十百\d]+(?:部分|节)?[、.．:：]\s*)?"
+    r"(?:结尾|结语|总结|写在最后|最后的话|结论|收尾|尾声|后记|内容创作)"
+    r"\s*[：:：\-—]?\s*$",
+    re.I,
+)
+
+
+def _strip_meta_heading_prefix(text: str) -> tuple[str, bool]:
+    stripped = (text or "").strip()
+    if not stripped:
+        return text, False
+    cleaned = _META_ENDING_LABEL_RE.sub("", stripped, count=1).strip()
+    return cleaned, cleaned != stripped
+
+
+def _is_meta_template_paragraph(text: str) -> bool:
+    stripped = re.sub(r"\s+", " ", (text or "").strip())
+    if not stripped:
+        return False
+    if _META_LABEL_ONLY_RE.match(stripped):
+        return True
+    for pattern in _META_PARAGRAPH_PATTERNS:
+        if pattern.search(stripped):
+            return True
+    if stripped.startswith("#") and "内容创作" in stripped and len(stripped) < 80:
+        return True
+    return False
 
 
 def _is_protected_content_tag(tag) -> bool:
@@ -127,20 +180,83 @@ def strip_leaked_prompt_text(html: str) -> str:
         return re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
 
     soup = BeautifulSoup(html, "html.parser")
-    for tag in list(soup.find_all(["p", "em", "i", "blockquote", "div", "span", "section"])):
-        if _is_protected_content_tag(tag):
-            continue
+    for tag in list(soup.find_all(["p", "em", "i", "blockquote", "div", "span"])):
         text = tag.get_text(" ", strip=True)
         if not text:
             continue
+        is_protected = _is_protected_content_tag(tag)
         if _SCENE_LABEL_RE.match(text) or text.startswith("场景描述"):
             tag.decompose()
             continue
         # 仅删除“纯提示词泄漏”的短块；长正文块即使含英文技术词也保留
-        if _looks_like_image_prompt(text) and len(text) < 120 and "img-placeholder" not in (tag.get("class") or []):
+        if (
+            _looks_like_image_prompt(text)
+            and len(text) < (220 if is_protected else 120)
+            and "img-placeholder" not in (tag.get("class") or [])
+        ):
             tag.decompose()
 
     return soup.decode(formatter=None)
+
+
+def clean_meta_template_phrases(html: str) -> str:
+    """移除“结尾/写在最后/内容创作”等模板标签和元提示残留。"""
+    if not html or not html.strip():
+        return html
+
+    if "<" not in html:
+        cleaned_lines = []
+        for line in html.splitlines():
+            stripped = line.strip()
+            if _is_meta_template_paragraph(stripped):
+                continue
+            cleaned, changed = _strip_meta_heading_prefix(stripped)
+            if changed:
+                if cleaned and len(cleaned) >= 6 and not _is_meta_template_paragraph(cleaned):
+                    prefix = line[: len(line) - len(line.lstrip())]
+                    cleaned_lines.append(prefix + cleaned)
+                continue
+            cleaned_lines.append(line)
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned_lines)).strip()
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    for comment in list(soup.find_all(string=lambda text: isinstance(text, Comment))):
+        if _META_COMMENT_RE.search(str(comment)):
+            comment.extract()
+
+    for tag in list(soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])):
+        text = tag.get_text(" ", strip=True)
+        if not text:
+            continue
+        if _is_meta_template_paragraph(text):
+            tag.decompose()
+            continue
+        cleaned, changed = _strip_meta_heading_prefix(text)
+        if changed:
+            if cleaned and len(cleaned) >= 6 and not _is_meta_template_paragraph(cleaned):
+                tag.clear()
+                tag.append(cleaned)
+            else:
+                tag.decompose()
+
+    for tag in list(soup.find_all(["p", "div", "span", "blockquote", "li", "em", "strong"])):
+        if tag.find(["img", "video", "audio", "table"]):
+            continue
+        if tag.name in {"div", "blockquote", "li"} and tag.find(["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li"]):
+            continue
+        text = tag.get_text(" ", strip=True)
+        if not text:
+            continue
+        if _is_meta_template_paragraph(text):
+            tag.decompose()
+            continue
+        cleaned, changed = _strip_meta_heading_prefix(text)
+        if changed and cleaned and len(cleaned) >= 8:
+            tag.clear()
+            tag.append(cleaned)
+
+    return re.sub(r"\n{3,}", "\n\n", soup.decode(formatter=None)).strip()
 
 
 def strip_unprocessed_visual_markers(html: str) -> str:
@@ -173,6 +289,7 @@ def polish_html_output(html: str) -> str:
         return html
 
     html = strip_leaked_prompt_text(html)
+    html = clean_meta_template_phrases(html)
 
     for pattern, replacement in _SHOT_LABEL_REPLACEMENTS:
         html = pattern.sub(replacement, html)
@@ -351,6 +468,7 @@ def clean_article_visual_leaks(html: str) -> str:
     if not html:
         return html
     html = strip_leaked_prompt_text(html)
+    html = clean_meta_template_phrases(html)
     html = strip_unprocessed_visual_markers(html)
     return polish_html_output(html)
 

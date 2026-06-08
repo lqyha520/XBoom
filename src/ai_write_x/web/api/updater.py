@@ -858,7 +858,7 @@ def has_prepared_update() -> bool:
     return bool(_load_prepared_update_state())
 
 
-def start_prepared_update(reason: str = "manual") -> bool:
+def start_prepared_update(reason: str = "manual", restart_after_install: bool = False) -> bool:
     state = _load_prepared_update_state()
     installer_path = _coerce_installer_path(state.get("download_path"))
     if installer_path is None:
@@ -869,7 +869,7 @@ def start_prepared_update(reason: str = "manual") -> bool:
         _append_log(f"安装前校验失败: {_humanize_update_error(exc)}")
         _clear_prepared_update_state()
         return False
-    helper_script = _build_helper_script(installer_path)
+    helper_script = _build_helper_script(installer_path, restart_after_install=restart_after_install)
     _save_prepared_update_state(
         latest_version=str(state.get("latest_version") or ""),
         installer_path=installer_path,
@@ -918,7 +918,7 @@ def _resolve_installed_executable(settings: Dict[str, Any]) -> Path:
     return candidates[0]
 
 
-def _build_helper_script(installer_path: Path) -> Path:
+def _build_helper_script(installer_path: Path, restart_after_install: bool = False) -> Path:
     settings = _merge_update_config()
     script_path = _get_update_workspace() / "run_update.ps1"
     log_path = _get_update_workspace() / "update-helper.log"
@@ -932,6 +932,7 @@ def _build_helper_script(installer_path: Path) -> Path:
     installer_ps = _ps_single_quoted(installer_path)
     log_ps = _ps_single_quoted(log_path)
     install_dir_ps = _ps_single_quoted(str(install_dir))
+    restart_after_install_ps = "$true" if restart_after_install else "$false"
 
     script_content = f"""$ErrorActionPreference = 'Continue'
 $logFile = '{log_ps}'
@@ -944,6 +945,7 @@ $installerPath = '{installer_ps}'
 $targetPid = {current_pid}
 $targetInstallDir = '{install_dir_ps}'
 $appExe = Join-Path $targetInstallDir '{EXE_NAME}'
+$restartAfterInstall = {restart_after_install_ps}
 $argumentList = @(
     '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/FORCECLOSEAPPLICATIONS',
     "/DIR=$targetInstallDir"
@@ -989,6 +991,11 @@ try {{
 
 if ($installerExit -ne 0) {{
     Write-UpdateLog "安装程序返回非零退出码: $installerExit"
+}}
+
+if (-not $restartAfterInstall) {{
+    Write-UpdateLog "安装完成，按退出更新模式不自动启动新版"
+    exit 0
 }}
 
 Start-Sleep -Seconds 1
@@ -1038,7 +1045,7 @@ async def _run_download_update(
         used_url = await _stream_download_with_fallback(candidates, installer_path, settings)
         _append_log(f"下载源: {used_url}")
         _verify_installer_sha256(installer_path, expected_sha256)
-        helper_script = _build_helper_script(installer_path)
+        helper_script = _build_helper_script(installer_path, restart_after_install=False)
         _save_prepared_update_state(
             latest_version=latest_version,
             installer_path=installer_path,
@@ -1049,13 +1056,13 @@ async def _run_download_update(
         _update_progress.update({
             "status": "ready_to_install",
             "progress": 100,
-            "message": "更新已准备完成，退出程序后安装",
+            "message": "更新已准备完成，可立即更新并重启；直接退出则后台安装且不自动启动",
             "download_path": str(installer_path),
             "helper_script": str(helper_script),
             "sha256": expected_sha256,
         })
         _append_log("更新助手已生成")
-        _append_log("下载完成，等待退出程序后安装")
+        _append_log("下载完成，等待用户确认；退出程序时会安装但不自动启动")
     except Exception as exc:
         detail = _humanize_update_error(exc)
         try:
@@ -1175,28 +1182,16 @@ def _spawn_detached_powershell(script_path: Path) -> None:
 
 @router.post("/restart-and-update")
 async def restart_and_update():
-    helper_script = _update_progress.get("helper_script", "")
-    if not helper_script or not Path(helper_script).exists():
-        if not start_prepared_update("restart-and-update"):
-            raise HTTPException(status_code=404, detail="未找到更新助手，请先下载更新")
-        threading.Timer(1.2, os._exit, args=(0,)).start()
-        return {
-            "status": "restarting",
-            "message": "正在退出并安装更新",
-            "log_file": _update_progress.get("log_file", ""),
-        }
-
     try:
         if not _verify_prepared_update_before_install():
             raise HTTPException(status_code=400, detail="安装包校验失败，请重新下载更新")
-        _append_log("正在启动安装助手…")
-        _spawn_detached_powershell(Path(helper_script))
-        _clear_prepared_update_state()
+        if not start_prepared_update("restart-and-update", restart_after_install=True):
+            raise HTTPException(status_code=404, detail="未找到更新助手，请先下载更新")
         # 留出时间让 PowerShell 独立进程启动，再退出主程序
         threading.Timer(1.2, os._exit, args=(0,)).start()
         return {
             "status": "restarting",
-            "message": "正在退出并安装更新",
+            "message": "正在退出并安装更新，完成后会启动新版",
             "log_file": _update_progress.get("log_file", ""),
         }
     except Exception as exc:

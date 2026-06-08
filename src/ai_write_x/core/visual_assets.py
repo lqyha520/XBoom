@@ -1504,6 +1504,8 @@ class VisualAssetsManager:
             return False
         lower = src.lower()
         stock_hosts = (
+            "image.pollinations.ai",
+            "pollinations.ai",
             "picsum.photos",
             "placeholder.com",
             "via.placeholder",
@@ -1538,6 +1540,54 @@ class VisualAssetsManager:
             if os.path.isfile(src):
                 count += 1
         return count
+
+    @classmethod
+    def normalize_article_images(cls, html: str, target_count: Optional[int] = None) -> str:
+        """Deduplicate generated images and cap final image count to the configured target."""
+        if not html or "<img" not in html:
+            return html
+
+        from bs4 import BeautifulSoup
+
+        target = cls.get_target_image_count() if target_count is None else target_count
+        target = max(0, int(target or 0))
+        soup = BeautifulSoup(html, "html.parser")
+        seen_srcs = set()
+        kept_valid = 0
+        removed = 0
+
+        for img in list(soup.find_all("img")):
+            src = (img.get("src") or "").strip()
+            if not src:
+                img.decompose()
+                removed += 1
+                continue
+
+            is_valid = (
+                not src.startswith("data:")
+                and not cls.is_stock_placeholder_url(src)
+                and ("/images/" in src or not src.startswith(("http://", "https://")))
+            )
+
+            if src in seen_srcs:
+                img.decompose()
+                removed += 1
+                continue
+            seen_srcs.add(src)
+
+            if is_valid:
+                if target and kept_valid >= target:
+                    img.decompose()
+                    removed += 1
+                    continue
+                kept_valid += 1
+
+        if removed:
+            lg.print_log(
+                f"[VisualAssets] 已规范化配图：移除重复/超额图片 {removed} 张，保留有效图 {kept_valid} 张",
+                "info",
+            )
+        return soup.decode(formatter=None)
 
     @classmethod
     def has_scene_description_leaks(cls, html: str) -> bool:
@@ -1852,6 +1902,8 @@ class VisualAssetsManager:
             )
             html = html_before_leaks
 
+        html = cls.normalize_article_images(html, target_count=min_images)
+
         if article_path:
             cls.persist_cover_metadata(article_path, html)
 
@@ -1880,6 +1932,56 @@ class VisualAssetsManager:
         else:
             lg.print_log(f"[VisualAssets] HTML 配图完成，共 {final_valid} 张", "success")
         return html
+
+    @classmethod
+    def ensure_visible_image_fallbacks(cls, html: str, topic: str = "", title: str = "") -> str:
+        """Add polished visible fallbacks when image generation still did not produce enough images."""
+        if not html or not html.strip():
+            return html
+
+        valid = cls.count_valid_article_images(html)
+        target = max(1, cls.get_target_image_count())
+        if valid >= target:
+            return html
+
+        missing = max(1, target - valid)
+        fallback_html = []
+        label = title or topic or "文章配图"
+        for idx in range(missing):
+            fallback_html.append(
+                '<section class="image-fallback-card" '
+                'style="margin:18px 0;padding:24px 20px;border-radius:14px;'
+                'background:linear-gradient(135deg,#f8fafc 0%,#eef2ff 100%);'
+                'border:1px solid #dbe4ff;color:#334155;text-align:center;'
+                'box-shadow:0 8px 22px rgba(30,41,59,0.06);">'
+                '<div style="font-size:22px;font-weight:700;margin-bottom:8px;">配图待补齐</div>'
+                '<div style="font-size:14px;line-height:1.7;color:#64748b;">'
+                f'{label} 的第 {idx + 1} 张配图未成功生成，请检查图片 API 或稍后重试补图。'
+                '</div></section>'
+            )
+
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(html, "html.parser")
+            body = soup.body or soup.find("article") or soup.find("section") or soup
+            insert_after = body.find("p") or body.find(["h1", "h2"]) or None
+            fallback_soup = BeautifulSoup("\n".join(fallback_html), "html.parser")
+            nodes = list(fallback_soup.contents)
+            if insert_after:
+                for node in reversed(nodes):
+                    insert_after.insert_after(node)
+            else:
+                for node in nodes:
+                    body.append(node)
+            lg.print_log(
+                f"[VisualAssets] 已添加 {missing} 个可见配图兜底块，避免最终版空缺",
+                "warning",
+            )
+            return soup.decode(formatter=None)
+        except Exception as e:
+            lg.print_log(f"[VisualAssets] 添加配图兜底块失败: {e}", "warning")
+            return html + "\n" + "\n".join(fallback_html)
 
     @classmethod
     def article_needs_image_fix(cls, html: str) -> bool:

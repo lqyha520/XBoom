@@ -1,6 +1,6 @@
 [project]
 name = "ai_write_x"
-version = "1.2.16"
+version = "1.2.18"
 description = "AIWriteX/XBoom intelligent content creation desktop app"
 authors = [{ name = "iniwap", email = "iniwaper@gmail.com" }]
 requires-python = ">=3.10,<3.13"

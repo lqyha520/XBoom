@@ -67,6 +67,57 @@ class ArticleManager {
         }
     }
 
+    async copyArticleContent(article) {
+        try {
+            const response = await fetch(`/api/articles/content?path=${encodeURIComponent(article.path)}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const content = await response.text();
+            const html = this.normalizeArticleContentForClipboard(content, article.path);
+            const plainText = this.htmlToPlainText(html);
+
+            if (navigator.clipboard?.write && window.ClipboardItem) {
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'text/html': new Blob([html], { type: 'text/html' }),
+                        'text/plain': new Blob([plainText], { type: 'text/plain' })
+                    })
+                ]);
+                this.showNotification('已复制文章，粘贴到公众号会尽量保留样式', 'success');
+                return;
+            }
+
+            await this.copyToClipboard(plainText);
+        } catch (error) {
+            console.error('复制文章失败:', error);
+            this.showNotification('复制文章失败: ' + error.message, 'error');
+        }
+    }
+
+    normalizeArticleContentForClipboard(content, path = '') {
+        const trimmed = content.trim();
+        if (trimmed.startsWith('<')) return content;
+
+        const ext = path.toLowerCase().split('.').pop();
+        if ((ext === 'md' || ext === 'markdown') && window.markdownRenderer) {
+            const isDark = false;
+            if (typeof window.markdownRenderer.renderWithStyles === 'function') {
+                return window.markdownRenderer.renderWithStyles(content, isDark);
+            }
+            return window.markdownRenderer.render(content, isDark);
+        }
+
+        return content.split('\n')
+            .map(line => line.trim() ? `<p>${this.escapeHtml(line)}</p>` : '<p><br></p>')
+            .join('\n');
+    }
+
+    htmlToPlainText(html) {
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        return container.innerText || container.textContent || '';
+    }
+
     constructor() {
         this.articles = [];
         this.filteredArticles = [];
@@ -361,45 +412,16 @@ class ArticleManager {
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                     </svg>
                 </button>
-                <button class="btn-icon" data-action="view-source" title="查看原始热点内容">
+                <button class="btn-icon" data-action="preview" title="查看">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                         <circle cx="12" cy="12" r="3"/>
                     </svg>
                 </button>
-                <button class="btn-icon" data-action="re-template" title="AI 换模板">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-                    </svg>
-                </button>
-                <button class="btn-icon" data-action="optimize-title" title="AI 换标题">
+                <button class="btn-icon" data-action="copy" title="复制到公众号">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        <path d="M9 11l3 3"/>
-                    </svg>
-                </button>
-                <button class="btn-icon" data-action="generate-images" title="AI 配图">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                        <circle cx="8.5" cy="8.5" r="1.5"/>
-                        <polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                </button>
-                <button class="btn-icon" data-action="clean-visual-leaks" title="清理场景描述">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                        <line x1="10" y1="11" x2="10" y2="17"/>
-                        <line x1="14" y1="11" x2="14" y2="17"/>
-                    </svg>
-                </button>
-                <button class="btn-icon" data-action="illustration" title="设计">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
-                        <rect x="3" y="3" width="7" height="7"/>
-                        <rect x="14" y="3" width="7" height="7"/>
-                        <rect x="3" y="14" width="7" height="7"/>
-                        <rect x="14" y="14" width="7" height="7"/>
-                        <path d="M10 10l4 4"/>
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                     </svg>
                 </button>
                 <button class="btn-icon" data-action="publish" title="发布">
@@ -408,18 +430,7 @@ class ArticleManager {
                         <path d="M22 2l-7 20-4-9-9-4 20-7z"/>
                     </svg>
                 </button>
-                <button class="btn-icon vote-btn" data-action="vote" title="审美投票">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" style="color: #ff4d4f;">
-                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-                    </svg>
-                </button>
-                <button class="btn-icon" data-action="vote" title="审美投票 (影响 AI DNA)">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-                </svg>
-            </button>
-            <button class="btn-icon" data-action="delete" title="删除">
-
+                <button class="btn-icon" data-action="delete" title="删除">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
                         <polyline points="3 6 5 6 21 6"/>
                         <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
@@ -661,6 +672,12 @@ class ArticleManager {
         switch (action) {
             case 'edit':
                 await this.editArticle(article);
+                break;
+            case 'preview':
+                await this.previewArticle(article);
+                break;
+            case 'copy':
+                await this.copyArticleContent(article);
                 break;
             case 're-template':
                 if (window.taskQueue) {

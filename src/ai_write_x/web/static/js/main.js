@@ -453,11 +453,22 @@ class AIWriteXApp {
         this._activeNotifications = this._activeNotifications.filter(n => n.parentElement);
     }
 
-    _showFirstRunGuide() {
+    async _showFirstRunGuide() {
         const key = 'xboom_first_run_guide_seen_v1';
         if (localStorage.getItem(key) === '1') return;
-        localStorage.setItem(key, '1');
+
+        try {
+            const response = await fetch('/api/config/validate');
+            if (response.ok) {
+                localStorage.setItem(key, '1');
+                return;
+            }
+        } catch (error) {
+            console.debug('跳过首次配置校验:', error);
+        }
+
         setTimeout(() => {
+            if (localStorage.getItem(key) === '1') return;
             const guide = document.createElement('div');
             guide.className = 'first-run-guide notification info';
             guide.innerHTML = `
@@ -470,18 +481,26 @@ class AIWriteXApp {
                     <button class="notification-close" data-action="close">×</button>
                 </div>
             `;
+            const dismissGuide = () => {
+                localStorage.setItem(key, '1');
+                guide.remove();
+                this._onNotificationRemoved();
+            };
             guide.querySelector('[data-action="open-config"]')?.addEventListener('click', () => {
                 this.showView('config-manager');
                 window.configManager?.showConfigPanel?.('api');
-                guide.remove();
-                this._onNotificationRemoved();
+                dismissGuide();
             });
             guide.querySelector('[data-action="close"]')?.addEventListener('click', () => {
-                guide.remove();
-                this._onNotificationRemoved();
+                dismissGuide();
             });
             document.body.appendChild(guide);
             this._activeNotifications.push(guide);
+            setTimeout(() => {
+                if (guide.parentElement) {
+                    dismissGuide();
+                }
+            }, 8000);
         }, 900);
     }
 

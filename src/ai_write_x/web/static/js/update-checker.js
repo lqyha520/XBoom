@@ -11,6 +11,7 @@ class UpdateChecker {
         this.autoRestartTriggered = false;
         this.installAfterDownload = false;
         this.backgroundProgressTimer = null;
+        this.readyButton = null;
         this.currentStepId = 'check';
         this.elements = {};
         this._displayProgress = 0;   // 当前显示的平滑进度
@@ -74,6 +75,45 @@ class UpdateChecker {
         this.elements.footerHint = document.getElementById('update-footer-hint');
         this.elements.footerRight = document.querySelector('#update-modal-overlay .update-footer-actions');
         this.elements.closeButton = document.querySelector('#update-modal-overlay .update-close-btn');
+    }
+
+    ensureReadyButton() {
+        if (this.readyButton) return this.readyButton;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.id = 'update-ready-button';
+        button.textContent = '立即更新并重启';
+        button.style.cssText = [
+            'position:fixed',
+            'right:22px',
+            'bottom:22px',
+            'z-index:12000',
+            'display:none',
+            'border:0',
+            'border-radius:999px',
+            'padding:11px 18px',
+            'font-size:14px',
+            'font-weight:700',
+            'color:#fff',
+            'background:linear-gradient(135deg,#7c3aed,#ec4899)',
+            'box-shadow:0 12px 28px rgba(124,58,237,.28)',
+            'cursor:pointer'
+        ].join(';');
+        button.addEventListener('click', () => this.showReadyToInstallPrompt(true));
+        document.body.appendChild(button);
+        this.readyButton = button;
+        return button;
+    }
+
+    showReadyButton() {
+        const button = this.ensureReadyButton();
+        button.style.display = 'inline-flex';
+    }
+
+    hideReadyButton() {
+        if (this.readyButton) {
+            this.readyButton.style.display = 'none';
+        }
     }
 
     renderStepList() {
@@ -279,11 +319,22 @@ class UpdateChecker {
     async checkStartupPolicy() {
         try {
             const policy = await this.fetchPolicy();
+            this.policy = policy;
+            if (policy.update_ready) {
+                this.showReadyButton();
+                if (window.footerMarquee?.addMessage) {
+                    window.footerMarquee.addMessage(
+                        `新版 v${policy.latest_version || ''} 已下载，点击右下角“立即更新并重启”完成更新`,
+                        'success', true, null
+                    );
+                }
+                return;
+            }
             if (!policy.enabled || !policy.startup_check || !policy.has_update) {
+                this.hideReadyButton();
                 return;
             }
 
-            this.policy = policy;
             if (this._isCreativeBusy()) {
                 if (window.footerMarquee?.addMessage) {
                     window.footerMarquee.addMessage(
@@ -362,10 +413,11 @@ class UpdateChecker {
                 }
                 if (window.footerMarquee?.addMessage) {
                     window.footerMarquee.addMessage(
-                        `更新 v${this.policy?.latest_version || ''} 已下载，退出程序后会自动安装`,
+                        `新版 v${this.policy?.latest_version || ''} 已下载，点击“立即更新并重启”可马上完成更新`,
                         'success', false, 0
                     );
                 }
+                this.showReadyToInstallPrompt(true);
             } else if (data.status === 'error') {
                 if (this.backgroundProgressTimer) {
                     clearInterval(this.backgroundProgressTimer);
@@ -378,6 +430,28 @@ class UpdateChecker {
         } catch (error) {
             console.warn('Background update progress failed:', error);
         }
+    }
+
+    showReadyToInstallPrompt(openModal = true) {
+        this.forceMode = false;
+        this.silentAutoMode = false;
+        this.installAfterDownload = false;
+        this.autoRestartTriggered = false;
+        if (openModal) {
+            this.openModal(false);
+        }
+        this.resetUiForFlow();
+        this.fillVersionInfo(this.policy || {});
+        this.setStep('check', 'done', `当前 v${this.policy?.current_version || '--'}，最新 v${this.policy?.latest_version || '--'}`);
+        this.setStep('download', 'done', '安装包已下载');
+        this.setStep('install', 'active', '等待你确认更新并重启');
+        this.showProgressBlock(false);
+        this.setFooterHint('现在更新会关闭程序、静默安装并启动新版；直接关闭程序则会后台安装，但不会自动启动。');
+        this.renderFooter(`
+            <button type="button" class="update-btn update-btn-ghost" onclick="window.updateChecker.closeModal()">稍后</button>
+            <button type="button" class="update-btn update-btn-primary" onclick="window.updateChecker.installNow()">立即更新并重启</button>
+        `);
+        this.showReadyButton();
     }
 
     async triggerAutoRestart() {
@@ -647,6 +721,11 @@ class UpdateChecker {
             this.showReleaseNotes(true);
             this.setStep('check', 'done', `当前 v${policy.current_version}，最新 v${policy.latest_version}`);
 
+            if (policy.update_ready) {
+                this.showReadyToInstallPrompt(false);
+                return;
+            }
+
             if (policy.force_update) {
                 this.showForceOverlay(policy);
             }
@@ -844,9 +923,13 @@ class UpdateChecker {
                 }
                 this.applyProgressUi(100, 'ready_to_install');
                 this.setStep('download', 'done', '下载完成');
-                this.setStep('install', 'active', '准备安装…');
                 this.showProgressBlock(false);
-                await this.triggerAutoRestart();
+                if (this.installAfterDownload || this.forceMode || this.policy?.force_update || this.policy?.should_auto_update) {
+                    this.setStep('install', 'active', '准备安装…');
+                    await this.triggerAutoRestart();
+                } else {
+                    this.showReadyToInstallPrompt(false);
+                }
             } else if (data.status === 'error') {
                 if (this.progressTimer) {
                     clearInterval(this.progressTimer);

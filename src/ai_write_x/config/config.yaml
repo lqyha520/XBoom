@@ -363,8 +363,10 @@ api:
     api_key: []
     key_index: ''
     model:
+      - sensenova-6.7-flash-lite
       - deepseek-v4-flash
-    model_index: 0
+      - sensenova-u1-fast
+    model_index: 1
     api_base: https://token.sensenova.cn/v1
     provider: openai
   agnes:

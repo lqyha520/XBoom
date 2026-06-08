@@ -11,5 +11,5 @@
   "rollout_percent": 100,
   "auto_update_on_startup": true,
   "auto_update_silent": true,
-  "release_notes": "普通更新会在后台下载，用户退出程序后自动安装；只有旧版低于 min_supported_version 时才强制更新。"
+  "release_notes": "普通更新会在后台下载；用户可点击立即更新并重启，或直接退出让程序后台安装但不自动启动。只有旧版低于 min_supported_version 时才强制更新。"
 }

@@ -246,6 +246,10 @@ class UnifiedContentWorkflow:
         return cleaned
 
     # V4: 每阶段最大允许时长（秒）- 用户禁用时间限制，全部设置为99999秒
+    QUALITY_GATE_MIN_OVERALL = 75.0
+    QUALITY_GATE_MIN_ORIGINALITY = 75.0
+    QUALITY_GATE_MAX_AI_DETECTION = 30.0
+
     STAGE_TIMEOUT = {
         "INIT": 99999,      # 禁用 — 深度洞察
         "CREATIVE": 99999,  # 禁用 — 创意蓝图
@@ -348,13 +352,68 @@ class UnifiedContentWorkflow:
                 rewritten += chunk
         return utils.remove_code_blocks(rewritten).strip()
 
+    def _quality_gate_issues(self, qa_result) -> list:
+        """Return failed final-quality metrics with threshold details."""
+        checks = [
+            ("overall", "综合分", qa_result.overall_score, self.QUALITY_GATE_MIN_OVERALL, ">="),
+            ("originality", "原创性", qa_result.originality_score, self.QUALITY_GATE_MIN_ORIGINALITY, ">="),
+            ("ai_detection", "AI检测", qa_result.ai_detection_score, self.QUALITY_GATE_MAX_AI_DETECTION, "<="),
+        ]
+        issues = []
+        for key, label, current, target, direction in checks:
+            if direction == ">=" and current < target:
+                issues.append({
+                    "key": key,
+                    "label": label,
+                    "current": current,
+                    "target": target,
+                    "direction": direction,
+                    "gap": target - current,
+                })
+            elif direction == "<=" and current > target:
+                issues.append({
+                    "key": key,
+                    "label": label,
+                    "current": current,
+                    "target": target,
+                    "direction": direction,
+                    "gap": current - target,
+                })
+        return issues
+
     def _quality_gate_passed(self, qa_result) -> bool:
         """Return True when local quality metrics meet the publishable threshold."""
-        return (
-            qa_result.overall_score >= 75
-            and qa_result.originality_score >= 75
-            and qa_result.ai_detection_score <= 30
-        )
+        return not self._quality_gate_issues(qa_result)
+
+    def _quality_gate_severity(self, qa_result) -> str:
+        """Classify final-quality failure so repair and publish behavior is explainable."""
+        issues = self._quality_gate_issues(qa_result)
+        if not issues:
+            return "pass"
+        max_gap = max(issue["gap"] for issue in issues)
+        if (
+            qa_result.overall_score < 60
+            or qa_result.originality_score < 60
+            or qa_result.ai_detection_score > 50
+            or max_gap >= 20
+        ):
+            return "severe"
+        if len(issues) >= 2 or max_gap >= 10:
+            return "moderate"
+        return "minor"
+
+    @staticmethod
+    def _quality_gate_severity_label(severity: str) -> str:
+        return {
+            "pass": "通过",
+            "minor": "轻微不合格",
+            "moderate": "中度不合格",
+            "severe": "严重不合格",
+        }.get(severity, "未知")
+
+    @staticmethod
+    def _quality_gate_repair_attempts(severity: str) -> int:
+        return {"minor": 1, "moderate": 2, "severe": 2}.get(severity, 0)
 
     def _quality_gate_summary(self, qa_result) -> str:
         return (
@@ -363,6 +422,77 @@ class UnifiedContentWorkflow:
             f"AI检测 {qa_result.ai_detection_score:.1f}"
         )
 
+    def _quality_gate_top_suggestions(self, qa_result, limit: int = 3) -> list:
+        suggestions = []
+        seen = set()
+        for score in qa_result.quality_scores.values():
+            for item in getattr(score, "suggestions", []) or []:
+                item = str(item).strip()
+                if item and item not in seen:
+                    suggestions.append(item)
+                    seen.add(item)
+                if len(suggestions) >= limit:
+                    return suggestions
+        return suggestions
+
+    def _quality_gate_report(self, qa_result, action: str = "") -> str:
+        issues = self._quality_gate_issues(qa_result)
+        severity = self._quality_gate_severity(qa_result)
+        status = "通过" if not issues else "未达标"
+        parts = [
+            f"最终AI评分：{self._quality_gate_summary(qa_result)}",
+            f"结论：{status}；级别：{self._quality_gate_severity_label(severity)}",
+        ]
+        if issues:
+            issue_text = "；".join(
+                f"{issue['label']} {issue['current']:.1f} {issue['direction']} {issue['target']:.1f} "
+                f"(差 {issue['gap']:.1f})"
+                for issue in issues
+            )
+            parts.append(f"未达标项：{issue_text}")
+        suggestions = self._quality_gate_top_suggestions(qa_result)
+        if suggestions:
+            parts.append("优化建议：" + "；".join(suggestions))
+        if action:
+            parts.append(f"处理动作：{action}")
+        return " | ".join(parts)
+
+    @staticmethod
+    def _mask_quality_repair_protected_fragments(content: str) -> tuple:
+        """Mask layout and visual assets before LLM repair so final packaging survives."""
+        protected = []
+        masked = content or ""
+        patterns = [
+            r"<style\b[\s\S]*?</style>",
+            r"<script\b[\s\S]*?</script>",
+            r"<title\b[\s\S]*?</title>",
+            r"<h1\b[\s\S]*?</h1>",
+            r"<figure\b[\s\S]*?</figure>",
+            r"<div\b(?=[^>]*\bclass=[\"'][^\"']*img-placeholder)[\s\S]*?</div>",
+            r"<section\b(?=[^>]*\bclass=[\"'][^\"']*image-fallback-card)[\s\S]*?</section>",
+            r"<img\b[^>]*>",
+            r"\[\[V-SCENE:[\s\S]*?\]\]",
+            r"<!--\s*DESIGN_SYNC:[\s\S]*?-->",
+        ]
+        for pattern in patterns:
+            def repl(match):
+                token = f"__QUALITY_PROTECTED_ASSET_{len(protected)}__"
+                protected.append((token, match.group(0)))
+                return token
+            masked = re.sub(pattern, repl, masked, flags=re.IGNORECASE)
+        return masked, protected
+
+    @staticmethod
+    def _restore_quality_repair_protected_fragments(repaired: str, protected: list, fallback: str) -> str:
+        restored = repaired or ""
+        missing = [token for token, _ in protected if token not in restored]
+        if missing:
+            lg.print_log("QUALITY_REPAIR protected layout/image marker missing; keeping previous final content", "warning")
+            return fallback
+        for token, fragment in protected:
+            restored = restored.replace(token, fragment)
+        return restored
+
     def _repair_quality_with_llm(
         self,
         topic: str,
@@ -370,7 +500,7 @@ class UnifiedContentWorkflow:
         qa_result,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> str:
-        """Rewrite the article body when the local quality gate fails."""
+        """Rewrite visible article text when the final local quality gate fails."""
         self._raise_if_cancelled(cancel_check, "QUALITY_REPAIR")
         from src.ai_write_x.core.llm_client import LLMClient
 
@@ -378,8 +508,9 @@ class UnifiedContentWorkflow:
         for score in qa_result.quality_scores.values():
             suggestions.extend(getattr(score, "suggestions", []) or [])
         suggestion_text = "\n".join(f"- {item}" for item in suggestions[:8]) or "- 提升表达自然度、信息密度和段落衔接。"
+        masked_content, protected_fragments = self._mask_quality_repair_protected_fragments(content)
 
-        user_prompt = f"""请根据本地质量检测结果，对下面文章进行一次完整修复。
+        user_prompt = f"""请根据本地质量检测结果，对下面最终成品进行一次审慎修复。
 
 话题：{topic}
 当前检测结果：{self._quality_gate_summary(qa_result)}
@@ -390,23 +521,33 @@ class UnifiedContentWorkflow:
 
 硬性要求：
 1. 只输出修复后的完整正文，不要输出评分报告、解释、清单或代码块。
-2. 不改变文章核心事实、人物、时间、结论和主题立场。
-3. 保留 Markdown 正文结构，增强具体信息、过渡自然度和真人表达感。
-4. 避免模板化套话、机械排比、总结腔和“首先/其次/综上”等高AI痕迹表达。
+2. 不改变文章标题、核心事实、人物、时间、结论和主题立场。
+3. 保留现有 HTML/Markdown 结构，只修复可见正文的表达、节奏、过渡和信息密度。
+4. 所有 __QUALITY_PROTECTED_ASSET_N__ 占位符必须原样保留，不得删除、改名或重复。它们代表已完成的配图、排版或样式。
+5. 避免模板化套话、机械排比、总结腔和“首先/其次/综上”等高AI痕迹表达。
 
 待修复文章：
-{content}
+{masked_content}
 """
         messages = [
             {
                 "role": "system",
-                "content": "你是一位严谨的新媒体主编，只负责把低分文章修复成可发布正文。你绝不输出审稿报告或评分拆解。",
+                "content": "你是一位严谨的新媒体主编，只负责修复最终成品的可见正文。你必须保护标题、图片、样式和排版结构，绝不输出审稿报告或评分拆解。",
             },
             {"role": "user", "content": user_prompt},
         ]
         repaired = LLMClient().chat(messages=messages, temperature=0.55)
         self._raise_if_cancelled(cancel_check, "QUALITY_REPAIR")
-        return utils.remove_code_blocks(repaired or "").strip()
+        cleaned = utils.remove_code_blocks(repaired or "").strip()
+        restored = self._restore_quality_repair_protected_fragments(cleaned, protected_fragments, content)
+        if "<" in (content or "") and ">" in (content or ""):
+            try:
+                from src.ai_write_x.core.article_polish import merge_optimized_preserving_images
+
+                return merge_optimized_preserving_images(content, restored)
+            except Exception as merge_err:
+                lg.print_log(f"QUALITY_REPAIR HTML merge skipped: {merge_err}", "warning")
+        return restored
 
     def execute_stepwise(self, topic: str, **kwargs) -> Generator[Dict[str, Any], None, None]:
         """
@@ -443,7 +584,14 @@ class UnifiedContentWorkflow:
         kwargs["publish_platform"] = publish_platform
 
         quality_score = None  # V4: 用于记忆库质量反馈
-        fast_mode = bool(kwargs.get("fast_mode") or getattr(config, "fast_mode", False))
+        quality_gate_report = None
+        quality_gate_status = "pending"
+        quality_publish_blocked = False
+        requested_fast_mode = bool(kwargs.get("fast_mode") or getattr(config, "fast_mode", False))
+        # Quality-first is now the default: the old fast path skipped too many
+        # content and visual checks, which made articles thinner and layouts less stable.
+        quality_first = bool(kwargs.get("quality_first", True))
+        fast_mode = requested_fast_mode and not quality_first and bool(kwargs.get("allow_fast_shortcuts", False))
 
         # V11: 注入全局时间上下文，初始化对话链
         from datetime import datetime
@@ -456,6 +604,9 @@ class UnifiedContentWorkflow:
         ]
 
         try:
+            if requested_fast_mode and not fast_mode:
+                yield {"type": "log", "message": "🛡️ 已启用质量优先：保留完整打磨、配图、预览和标题优化，不再走粗略极速跳过"}
+
             # --- Step 1: Logic Deep Dive Agent (深度洞察) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:INIT:START]"}
@@ -742,12 +893,7 @@ class UnifiedContentWorkflow:
             final_title = getattr(transform_content, 'title', None) if 'transform_content' in locals() else kwargs.get("title", topic)
 
             from src.ai_write_x.core.visual_assets import VisualAssetsManager
-            if fast_mode:
-                yield {"type": "log", "message": "⚡ 极速模式：预置轻量配图提示词（HTML 定稿后统一生图）"}
-                final_content.content = VisualAssetsManager.inject_image_prompts_fast(final_content.content)
-            else:
-                final_content.content = VisualAssetsManager.inject_image_prompts(final_content.content)
-                yield {"type": "log", "message": "🖼️ 图像分镜已分析，将在 HTML 排版完成后生成配图..."}
+            yield {"type": "log", "message": "🖼️ 已切换为定稿后配图：排版模型只处理正文，避免图片提示词混入文章内容"}
 
             # 创建副本以防污染 kwargs
             transform_kwargs = kwargs.copy()
@@ -768,6 +914,22 @@ class UnifiedContentWorkflow:
                 fast_mode=fast_mode,
                 article_path=kwargs.get("article_path") or "",
             )
+            if VisualAssetsManager.article_needs_image_fix(transform_content.content):
+                yield {"type": "log", "message": "🖼️ 配图仍未完全就绪，正在执行二次补图兜底..."}
+                transform_content.content = VisualAssetsManager.finalize_html_images(
+                    transform_content.content,
+                    topic=topic,
+                    title=pack_title,
+                    fast_mode=False,
+                    article_path=kwargs.get("article_path") or "",
+                )
+            if VisualAssetsManager.article_needs_image_fix(transform_content.content):
+                transform_content.content = VisualAssetsManager.ensure_visible_image_fallbacks(
+                    transform_content.content,
+                    topic=topic,
+                    title=pack_title,
+                )
+                yield {"type": "log", "message": "⚠️ 部分配图仍未生成，已保留可见兜底块，避免最终排版出现空洞"}
 
             # --- Step 5 验证 (V19.5 强制 HTML 校验) ---
             trimmed_content = transform_content.content.strip()
@@ -898,7 +1060,7 @@ class UnifiedContentWorkflow:
             yield {"type": "progress", "message": "[PROGRESS:TITLE_OPT:END]"}
             self._raise_if_cancelled(cancel_check, "TITLE_OPT")
 
-            # V4: 对最终成品进行质量评估；不合格时自动修复一次并复评。
+            # V4: Final quality gate after visual packaging and title optimization.
             yield {"type": "progress", "message": "[PROGRESS:QUALITY:START]"}
             self._raise_if_cancelled(cancel_check, "QUALITY")
             try:
@@ -906,29 +1068,70 @@ class UnifiedContentWorkflow:
                 qe = ContentQualityEngine()
                 qa_result = qe.analyze_content(transform_content.content)
                 quality_score = qa_result.overall_score / 20.0  # 转为 0-5 分
-                yield {"type": "log", "message": f"最终AI评分: {self._quality_gate_summary(qa_result)}"}
+                severity = self._quality_gate_severity(qa_result)
+                quality_gate_status = "passed" if severity == "pass" else severity
+                quality_gate_report = self._quality_gate_report(
+                    qa_result,
+                    action="无需修复" if severity == "pass" else "准备自动修复",
+                )
+                yield {"type": "log", "message": quality_gate_report}
 
-                if not self._quality_gate_passed(qa_result):
-                    yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 最终成品未达标，正在自动修复 | {self._quality_gate_summary(qa_result)}"}
-                    repaired_content = self._repair_quality_with_llm(topic, transform_content.content, qa_result, cancel_check)
-                    repaired_content = self._ensure_publishable_article(
-                        repaired_content, transform_content.content, "QUALITY_REPAIR"
-                    )
-                    if repaired_content and repaired_content != transform_content.content:
+                if severity != "pass":
+                    max_attempts = self._quality_gate_repair_attempts(severity)
+                    yield {
+                        "type": "progress",
+                        "message": (
+                            f"[PROGRESS:QUALITY:DETAIL] {self._quality_gate_severity_label(severity)}，"
+                            f"将自动修复 {max_attempts} 次 | {self._quality_gate_summary(qa_result)}"
+                        ),
+                    }
+                    for attempt in range(1, max_attempts + 1):
+                        self._raise_if_cancelled(cancel_check, "QUALITY_REPAIR")
+                        yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 正在进行第 {attempt} 次质量修复"}
+                        previous_content = transform_content.content
+                        repaired_content = self._repair_quality_with_llm(topic, previous_content, qa_result, cancel_check)
+                        repaired_content = self._ensure_publishable_article(
+                            repaired_content, previous_content, "QUALITY_REPAIR"
+                        )
+                        if not repaired_content or repaired_content == previous_content:
+                            quality_gate_report = self._quality_gate_report(qa_result, action="修复未产生有效改动")
+                            yield {"type": "log", "message": quality_gate_report}
+                            break
+
                         transform_content.content = repaired_content
                         qa_result = qe.analyze_content(transform_content.content)
                         quality_score = qa_result.overall_score / 20.0
-                        if self._quality_gate_passed(qa_result):
-                            yield {"type": "log", "message": f"最终AI评分修复通过: {self._quality_gate_summary(qa_result)}"}
+                        severity = self._quality_gate_severity(qa_result)
+                        quality_gate_status = "passed" if severity == "pass" else severity
+                        quality_gate_report = self._quality_gate_report(qa_result, action=f"第 {attempt} 次修复后复评")
+                        yield {"type": "log", "message": quality_gate_report}
+
+                        if severity == "pass":
                             yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 修复通过 | {self._quality_gate_summary(qa_result)}"}
-                        else:
-                            yield {"type": "log", "message": f"最终AI评分修复后仍未完全达标: {self._quality_gate_summary(qa_result)}，继续保存成品"}
-                            yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 修复后仍需人工确认 | {self._quality_gate_summary(qa_result)}"}
-                    else:
-                        yield {"type": "log", "message": "最终AI评分修复未产生有效改动，保留当前成品继续"}
+                            break
+                        yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 复评仍未达标 | {self._quality_gate_summary(qa_result)}"}
+
+                    final_severity = self._quality_gate_severity(qa_result)
+                    quality_gate_status = "passed" if final_severity == "pass" else final_severity
+                    if final_severity == "severe":
+                        quality_publish_blocked = True
+                        quality_gate_report = self._quality_gate_report(
+                            qa_result,
+                            action="严重不合格，仅保存草稿，阻止自动发布",
+                        )
+                        yield {"type": "log", "message": quality_gate_report}
+                        yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 严重不合格，需人工确认 | {self._quality_gate_summary(qa_result)}"}
+                    elif final_severity != "pass":
+                        quality_gate_report = self._quality_gate_report(
+                            qa_result,
+                            action="修复后仍需人工确认，继续保存成品",
+                        )
+                        yield {"type": "log", "message": quality_gate_report}
+                        yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 修复后仍需人工确认 | {self._quality_gate_summary(qa_result)}"}
                 else:
                     yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 最终成品已达标 | {self._quality_gate_summary(qa_result)}"}
             except Exception as qe_err:
+                quality_gate_status = "skipped"
                 lg.print_log(f"V4最终质量评估跳过: {qe_err}", "warning")
             yield {"type": "progress", "message": "[PROGRESS:QUALITY:END]"}
             self._raise_if_cancelled(cancel_check, "QUALITY")
@@ -938,6 +1141,13 @@ class UnifiedContentWorkflow:
             yield {"type": "progress", "message": "[PROGRESS:SAVE:START]"}
             self._raise_if_cancelled(cancel_check, "SAVE")
             yield {"type": "log", "message": "💾 Agent Step 6: 正在将灵感编码并安全存储至本地知识库..."}
+            try:
+                from src.ai_write_x.core.article_polish import clean_article_visual_leaks
+                from src.ai_write_x.core.visual_assets import VisualAssetsManager
+                transform_content.content = clean_article_visual_leaks(transform_content.content)
+                transform_content.content = VisualAssetsManager.normalize_article_images(transform_content.content)
+            except Exception as img_norm_err:
+                lg.print_log(f"保存前成稿清理/配图去重跳过: {img_norm_err}", "warning")
             title = kwargs.get("title", topic)
             final_title = transform_content.title if getattr(transform_content, 'title', None) else title
             save_result = self._save_content(transform_content, final_title, reference_content=kwargs.get("reference_content", ""))
@@ -968,7 +1178,10 @@ class UnifiedContentWorkflow:
             yield {"type": "log", "message": "🎉 Agent Step 7: 全流程审计完成。UI 资产同步中，准备交付..."}
 
             publish_result = None
-            if self._should_publish():
+            should_publish = self._should_publish()
+            if should_publish and quality_publish_blocked:
+                yield {"type": "log", "message": "⛔ 最终AI评分严重不合格，已阻止自动发布，仅保存本地草稿"}
+            elif should_publish:
                 yield {"type": "log", "message": "📤 正在自动同步并发布至平台..."}
                 transform_content.title = final_title
 
@@ -991,6 +1204,9 @@ class UnifiedContentWorkflow:
                 "save_result": save_result,
                 "publish_result": publish_result,
                 "quality_score": quality_score,
+                "quality_gate_status": quality_gate_status,
+                "quality_gate_report": quality_gate_report,
+                "quality_publish_blocked": quality_publish_blocked,
                 "total_duration": round(total_duration, 1),
                 "success": True,
             }
@@ -1504,7 +1720,8 @@ class UnifiedContentWorkflow:
 3. **必须彻底清理 Markdown**：移除所有 `**`、`##`、`-` 、`>` 等 Markdown 符号。用 HTML 标签 (`<strong>`, `<h2>`) 代替。
 4. **图片处理**：保留已有 `<img>` 标签；`[[V-SCENE:...]]` 为内部占位符，排版时不得转成「场景描述」等可见正文。
 5. **禁止泄露生图信息**：不得把英文提示词、Negative Prompt、场景描述段落写进读者可见正文。
-5. **严禁输出解释文字**：禁止输出任何非 HTML 文本（如“好的”、“代码如下”）。
+6. **禁止模板标签外露**：不得输出可见的“结尾”“写在最后”“结语”“总结”“内容创作”等栏目名，也不得输出“你的下一次汇报，准备怎么开始？”这类写作/汇报引导语。
+7. **严禁输出解释文字**：禁止输出任何非 HTML 文本（如“好的”、“代码如下”）。
 
 ## 【布局与组件库】
 - **外层容器**：`<section style="max-width: 100%; margin: 10px auto; font-family: -apple-system, sans-serif; line-height: 1.8; color: #333;">`
@@ -1591,6 +1808,7 @@ class UnifiedContentWorkflow:
 8. **结构简洁**：优先使用 `<section>` + 内联样式，避免输出完整 `<!DOCTYPE html>` 文档壳。
 9. **配图位置**：图片放在对应段落文字之后，不要插在标题与小标题之间。
 10. **品牌配色一致**：若上方已给出品牌色，全文标题、装饰线、引用块边框必须使用该主色及辅色，禁止另起红/绿/紫等新主色。
+11. **禁止模板标签外露**：不得输出可见的“结尾”“写在最后”“结语”“总结”“内容创作”等栏目名，也不得输出“你的下一次汇报，准备怎么开始？”这类写作/汇报引导语。
 
 ## 【输出格式】
 直接输出以 `<section>` 开头，`</section>` 结尾的完整 HTML 段落。
@@ -1695,6 +1913,11 @@ class UnifiedContentWorkflow:
 
             fresh_html = VisualAssetsManager.prepare_for_wechat_publish(article_path)
             if fresh_html:
+                try:
+                    from src.ai_write_x.core.article_polish import clean_article_visual_leaks
+                    fresh_html = clean_article_visual_leaks(fresh_html)
+                except Exception as clean_err:
+                    lg.print_log(f"发布前成稿清理跳过: {clean_err}", "warning")
                 content.content = fresh_html
                 try:
                     with open(article_path, "w", encoding="utf-8") as f:

@@ -1,7 +1,7 @@
 [Setup]
 AppId={{B8E4F2A1-6C3D-4F9E-A1B2-7D8E9F0C4A5B}}
 AppName=小爆来咯
-AppVersion=1.2.16
+AppVersion=1.2.18
 AppPublisher=小爆来咯
 DefaultDirName={autopf}\小爆来咯
 DefaultGroupName=小爆来咯
@@ -9,7 +9,7 @@ DisableDirPage=no
 UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 OutputDir=dist\installer
-OutputBaseFilename=小爆来咯-Setup-v1.2.16
+OutputBaseFilename=小爆来咯-Setup-v1.2.18
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
