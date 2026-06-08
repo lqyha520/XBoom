@@ -3,7 +3,7 @@ import re
 import time
 import json
 import asyncio
-from typing import Dict, Any, Generator
+from typing import Callable, Dict, Any, Generator, Optional
 
 from src.ai_write_x.core.base_framework import (
     WorkflowConfig,
@@ -45,6 +45,11 @@ from src.ai_write_x.core.wechat_preview import WeChatPreviewEngine
 from src.ai_write_x.database import init_db
 
 
+class WorkflowCancelled(Exception):
+    """Raised when a caller requests cooperative workflow cancellation."""
+
+
+
 class UnifiedContentWorkflow:
     """统一的内容工作流编排器"""
 
@@ -77,11 +82,11 @@ class UnifiedContentWorkflow:
         """构建初稿提示词，返回 (system_prompt, user_prompt)"""
         config = Config.get_instance()
         reference_content = kwargs.get("reference_content", "")
-        
+
         from datetime import datetime
         current_date_str = datetime.now().strftime('%Y年%m月%d日 %H:%M')
         source_publish_time = kwargs.get("date_str", "近期 (以当前时间为准推算)")
-        
+
         date_context = prompt_loader.get_writer("date_context").format(
             current_date_str=current_date_str,
             source_publish_time=source_publish_time,
@@ -98,16 +103,16 @@ class UnifiedContentWorkflow:
                 memory_context += "\n" + rag_context
         except Exception as e:
             lg.print_log(f"读取记忆库失败: {e}", "warning")
-        
+
         persona_framework = prompt_loader.get_writer("persona_framework")
-        
+
         system_parts = [persona_framework, date_context]
         if memory_context:
             system_parts.append(memory_context)
         system_prompt = "\n\n".join(system_parts)
 
         topic_constraint = prompt_loader.get_writer("topic_constraint").format(topic=topic)
-        
+
         collection_mode = kwargs.get("collection_mode", False)
         collection_constraint = ""
         if collection_mode:
@@ -117,7 +122,7 @@ class UnifiedContentWorkflow:
                 f"文章标题必须以「{series_name}：」开头，后接具体的子话题。"
                 f"正文中可适当体现系列归属感，但不要生硬重复系列名。"
             )
-        
+
         if reference_content:
             reference_injection = prompt_loader.get_writer("reference_injection").format(reference_content=reference_content)
             core_requirements = prompt_loader.get_writer("core_requirements_with_reference").format(
@@ -154,30 +159,33 @@ class UnifiedContentWorkflow:
         """直接调用 LLM 生成初稿，绕过 CrewAI 框架开销"""
         from src.ai_write_x.core.llm_client import LLMClient
         client = LLMClient()
-        
+        cancel_check = self._cancel_check_from_kwargs(kwargs)
+        kwargs = self._kwargs_without_runtime_controls(kwargs)
+
         system_prompt, user_prompt = self._build_draft_prompt(topic, **kwargs)
-        
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        
+
         lg.print_log("✍️ 正在调用 LLM 生成初稿...", "info")
-        
+
         result_str = ""
         char_count_logged = 0
         for chunk in client.stream_chat(messages=messages):
+            self._raise_if_cancelled(cancel_check, "base_content_stream")
             if chunk:
                 result_str += chunk
                 if len(result_str) - char_count_logged >= 300:
                     lg.print_log(f"⏳ 初稿生成中... 已生成 {len(result_str)} 字", "status")
                     char_count_logged = len(result_str)
-        
+
         result_str = utils.remove_code_blocks(result_str).strip()
-        
+
         if not result_str:
             raise ValueError("LLM 返回空响应")
-        
+
         title = topic
         lines = result_str.split('\n')
         for line in lines:
@@ -185,15 +193,15 @@ class UnifiedContentWorkflow:
             if line_stripped.startswith('# ') and not line_stripped.startswith('## '):
                 title = line_stripped[2:].strip()
                 break
-        
+
         collection_mode = kwargs.get("collection_mode", False)
         if collection_mode:
             series_name = topic.split("：", 1)[0] if "：" in topic else topic
             if not title.startswith(series_name + "：") and not title.startswith(series_name + ":"):
                 title = f"{series_name}：{title}"
-        
+
         lg.print_log(f"✅ 初稿生成完成，约 {len(result_str)} 字", "success")
-        
+
         return ContentResult(
             title=title,
             content=result_str,
@@ -220,6 +228,22 @@ class UnifiedContentWorkflow:
             elif step["type"] == "final_results":
                 results = step["content"]
         return results
+
+    @staticmethod
+    def _cancel_check_from_kwargs(kwargs: Dict[str, Any]) -> Optional[Callable[[], bool]]:
+        cancel_check = kwargs.get("cancel_check")
+        return cancel_check if callable(cancel_check) else None
+
+    @staticmethod
+    def _raise_if_cancelled(cancel_check: Optional[Callable[[], bool]], stage: str):
+        if cancel_check and cancel_check():
+            raise WorkflowCancelled(f"Workflow cancelled during {stage}")
+
+    @staticmethod
+    def _kwargs_without_runtime_controls(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        cleaned = kwargs.copy()
+        cleaned.pop("cancel_check", None)
+        return cleaned
 
     # V4: 每阶段最大允许时长（秒）- 用户禁用时间限制，全部设置为99999秒
     STAGE_TIMEOUT = {
@@ -297,11 +321,20 @@ class UnifiedContentWorkflow:
     def _stream_article_rewrite(self, client, messages: list) -> str:
         rewritten = ""
         for chunk in client.stream_chat(messages=messages):
+            self._raise_if_cancelled(None, "stream_rewrite")
             if chunk:
                 rewritten += chunk
         return utils.remove_code_blocks(rewritten).strip()
 
-    def _fast_mode_topic_rewrite(self, topic: str, bad_content: str) -> str:
+    def _stream_article_rewrite_checked(self, client, messages: list, cancel_check: Optional[Callable[[], bool]] = None) -> str:
+        rewritten = ""
+        for chunk in client.stream_chat(messages=messages):
+            self._raise_if_cancelled(cancel_check, "stream_rewrite")
+            if chunk:
+                rewritten += chunk
+        return utils.remove_code_blocks(rewritten).strip()
+
+    def _fast_mode_topic_rewrite(self, topic: str, bad_content: str, cancel_check: Optional[Callable[[], bool]] = None) -> str:
         from src.ai_write_x.core.llm_client import LLMClient
         client = LLMClient()
         rewrite_prompt = (
@@ -310,14 +343,75 @@ class UnifiedContentWorkflow:
         )
         rewritten = ""
         for chunk in client.stream_chat(messages=[{"role": "user", "content": rewrite_prompt}]):
+            self._raise_if_cancelled(cancel_check, "topic_rewrite")
             if chunk:
                 rewritten += chunk
         return utils.remove_code_blocks(rewritten).strip()
 
+    def _quality_gate_passed(self, qa_result) -> bool:
+        """Return True when local quality metrics meet the publishable threshold."""
+        return (
+            qa_result.overall_score >= 75
+            and qa_result.originality_score >= 75
+            and qa_result.ai_detection_score <= 30
+        )
+
+    def _quality_gate_summary(self, qa_result) -> str:
+        return (
+            f"综合分 {qa_result.overall_score:.1f}，"
+            f"原创性 {qa_result.originality_score:.1f}，"
+            f"AI检测 {qa_result.ai_detection_score:.1f}"
+        )
+
+    def _repair_quality_with_llm(
+        self,
+        topic: str,
+        content: str,
+        qa_result,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> str:
+        """Rewrite the article body when the local quality gate fails."""
+        self._raise_if_cancelled(cancel_check, "QUALITY_REPAIR")
+        from src.ai_write_x.core.llm_client import LLMClient
+
+        suggestions = []
+        for score in qa_result.quality_scores.values():
+            suggestions.extend(getattr(score, "suggestions", []) or [])
+        suggestion_text = "\n".join(f"- {item}" for item in suggestions[:8]) or "- 提升表达自然度、信息密度和段落衔接。"
+
+        user_prompt = f"""请根据本地质量检测结果，对下面文章进行一次完整修复。
+
+话题：{topic}
+当前检测结果：{self._quality_gate_summary(qa_result)}
+合格标准：综合分 >= 75，原创性 >= 75，AI检测概率 <= 30。
+
+修复重点：
+{suggestion_text}
+
+硬性要求：
+1. 只输出修复后的完整正文，不要输出评分报告、解释、清单或代码块。
+2. 不改变文章核心事实、人物、时间、结论和主题立场。
+3. 保留 Markdown 正文结构，增强具体信息、过渡自然度和真人表达感。
+4. 避免模板化套话、机械排比、总结腔和“首先/其次/综上”等高AI痕迹表达。
+
+待修复文章：
+{content}
+"""
+        messages = [
+            {
+                "role": "system",
+                "content": "你是一位严谨的新媒体主编，只负责把低分文章修复成可发布正文。你绝不输出审稿报告或评分拆解。",
+            },
+            {"role": "user", "content": user_prompt},
+        ]
+        repaired = LLMClient().chat(messages=messages, temperature=0.55)
+        self._raise_if_cancelled(cancel_check, "QUALITY_REPAIR")
+        return utils.remove_code_blocks(repaired or "").strip()
+
     def execute_stepwise(self, topic: str, **kwargs) -> Generator[Dict[str, Any], None, None]:
         """
         V4: 核心 7 阶 Agent 驱动工作流 (Generator) — 增加超时保护、内容断言、细粒度进度
-        
+
         通过生成器 yield 返回每个阶段的增量状态，用于前端实时显示与后台异步监控。
 
         Args:
@@ -330,7 +424,9 @@ class UnifiedContentWorkflow:
         start_time = time.time()
         success = False
         config = Config.get_instance()
-        
+        cancel_check = self._cancel_check_from_kwargs(kwargs)
+        kwargs = self._kwargs_without_runtime_controls(kwargs)
+
         # V26: 清理缓存和上下文，防止上一篇文章的评估报告污染新文章
         try:
             from src.ai_write_x.core.semantic_cache_v2 import get_semantic_cache
@@ -340,31 +436,32 @@ class UnifiedContentWorkflow:
                 lg.print_log("🧹 已清理语义缓存，防止旧数据污染", "info")
         except Exception as cache_err:
             lg.print_log(f"⚠️ 缓存清理失败（非致命）: {cache_err}", "warning")
-        
+
         # 优先从 kwargs 获取，如果没有则从配置获取
         publish_platform = kwargs.get("publish_platform", config.publish_platform)
         # 统一存入 kwargs 供子流程使用
         kwargs["publish_platform"] = publish_platform
-        
+
         quality_score = None  # V4: 用于记忆库质量反馈
         fast_mode = bool(kwargs.get("fast_mode") or getattr(config, "fast_mode", False))
-        
+
         # V11: 注入全局时间上下文，初始化对话链
         from datetime import datetime
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
         conversation_history = [
             {
-                "role": "system", 
+                "role": "system",
                 "content": prompt_loader.get_writer("global_context_injection").format(current_time=current_time)
             }
-        ] 
-        
+        ]
+
         try:
             # --- Step 1: Logic Deep Dive Agent (深度洞察) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:INIT:START]"}
+            self._raise_if_cancelled(cancel_check, "INIT")
             yield {"type": "log", "message": "🧠 Agent Step 1: 正在进行全维度逻辑解构与内容建模..."}
-            
+
             # V11: 在生成前，先注入“对抗性共鸣”元数据
             try:
                 from src.ai_write_x.core.memory_manager import MemoryManager
@@ -385,20 +482,22 @@ class UnifiedContentWorkflow:
             base_content = self._generate_base_content(
                 topic, **kwargs
             )
-            
+
             conversation_history.append({"role": "user", "content": f"请针对话题'{topic}'撰写初稿。要求字数在 {config.min_article_len} 到 {config.max_article_len} 之间。"})
             conversation_history.append({"role": "assistant", "content": base_content.content})
-            
+
             self._check_stage_timeout("INIT", stage_start)
             self._assert_content(base_content.content, "Step1-深度洞察")
-            
+
             yield {"type": "log", "message": "✅ 初稿生成完成（含内置逻辑自检）"}
             yield {"type": "log", "message": f"✅ 深度洞察阶段完成 ({time.time()-stage_start:.1f}s)"}
             yield {"type": "progress", "message": "[PROGRESS:INIT:END]"}
-            
+            self._raise_if_cancelled(cancel_check, "INIT")
+
             # --- Step 2: Creative Blueprint Agent (创意蓝图) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:CREATIVE:START]"}
+            self._raise_if_cancelled(cancel_check, "CREATIVE")
             if fast_mode:
                 yield {"type": "log", "message": "⚡ 极速模式：跳过维度化创意改写，锁定原话题直出"}
                 final_content = base_content
@@ -408,14 +507,16 @@ class UnifiedContentWorkflow:
                 yield {"type": "log", "message": "✨ 创意框架已落定：已注入差异化认知角度"}
             self._check_stage_timeout("CREATIVE", stage_start)
             yield {"type": "progress", "message": "[PROGRESS:CREATIVE:END]"}
-            
+            self._raise_if_cancelled(cancel_check, "CREATIVE")
+
             # --- Step 3: Master Drafting Agent (大师撰稿) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:WRITING:START]"}
+            self._raise_if_cancelled(cancel_check, "WRITING")
             yield {"type": "log", "message": "✍️ Agent Step 3: 首席撰稿手正在进行高感知度正文创作..."}
             if fast_mode and self._is_fast_mode_off_topic(final_content.content):
                 yield {"type": "log", "message": "🚨 极速模式熔断触发：检测到跑题/元话术，正在自动纠偏重写..."}
-                corrected = self._fast_mode_topic_rewrite(topic, final_content.content)
+                corrected = self._fast_mode_topic_rewrite(topic, final_content.content, cancel_check)
                 if corrected and not self._is_fast_mode_off_topic(corrected):
                     final_content.content = corrected
                     yield {"type": "log", "message": "✅ 极速模式纠偏完成：已回归话题主线"}
@@ -431,7 +532,7 @@ class UnifiedContentWorkflow:
                     "type": "log",
                     "message": f"🚨 检测到内容与话题「{topic[:24]}」偏离（命中率 {overlap:.0%}），正在纠偏重写...",
                 }
-                corrected = self._fast_mode_topic_rewrite(topic, final_content.content)
+                corrected = self._fast_mode_topic_rewrite(topic, final_content.content, cancel_check)
                 if corrected and self._topic_keyword_overlap(topic, corrected) >= max(overlap, 0.35):
                     if not self._is_fast_mode_off_topic(corrected):
                         final_content.content = corrected
@@ -462,8 +563,9 @@ class UnifiedContentWorkflow:
                     lg.print_log(f"RSC自检异常，跳过: {rsc_err}", "warning")
                     yield {"type": "log", "message": "⚠️ RSC自检异常，已跳过继续流程"}
             yield {"type": "progress", "message": "[PROGRESS:WRITING:END]"}
+            self._raise_if_cancelled(cancel_check, "WRITING")
 
-            
+
             # --- Step 3.8: Fact Check Agent (独立事实核查) ---
             _has_reference = bool(kwargs.get("reference_content", "").strip())
             if fast_mode or not _has_reference:
@@ -513,6 +615,7 @@ class UnifiedContentWorkflow:
                         # --- Step 4: Reflexion & Polish Agent (打磨重塑) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:REVIEW:START]"}
+            self._raise_if_cancelled(cancel_check, "REVIEW")
             yield {"type": "log", "message": "💎 Agent Step 4: 正在进行语境打磨、去 AI 化处理及深度优化..."}
             
             from src.ai_write_x.core.final_reviewer import (
@@ -583,7 +686,7 @@ class UnifiedContentWorkflow:
                     {"role": "user", "content": fix_user},
                 ]
 
-                new_version = self._stream_article_rewrite(client, rewrite_messages)
+                new_version = self._stream_article_rewrite_checked(client, rewrite_messages, cancel_check)
                 new_version = self._ensure_publishable_article(
                     new_version, publishable_draft, f"Reflexion-R{iteration + 1}"
                 )
@@ -627,15 +730,17 @@ class UnifiedContentWorkflow:
             
             yield {"type": "log", "message": f"🖋️ 完成人类感重塑 ({time.time()-stage_start:.1f}s)：强化阅读呼吸感与抗 AI 特征注入"}
             yield {"type": "progress", "message": "[PROGRESS:REVIEW:END]"}
+            self._raise_if_cancelled(cancel_check, "REVIEW")
 
             # --- Step 5: Visual & Template Agent (视觉与排版美化) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:VISUAL:START]"}
+            self._raise_if_cancelled(cancel_check, "VISUAL")
             yield {"type": "log", "message": "📸 Agent Step 5: 正在进行视觉美化、注入图像占位符及 HTML 适配..."}
-            
+
             # V20.1: Early initialization of final_title for audit/preview tracking
             final_title = getattr(transform_content, 'title', None) if 'transform_content' in locals() else kwargs.get("title", topic)
-            
+
             from src.ai_write_x.core.visual_assets import VisualAssetsManager
             if fast_mode:
                 yield {"type": "log", "message": "⚡ 极速模式：预置轻量配图提示词（HTML 定稿后统一生图）"}
@@ -643,13 +748,13 @@ class UnifiedContentWorkflow:
             else:
                 final_content.content = VisualAssetsManager.inject_image_prompts(final_content.content)
                 yield {"type": "log", "message": "🖼️ 图像分镜已分析，将在 HTML 排版完成后生成配图..."}
-            
+
             # 创建副本以防污染 kwargs
             transform_kwargs = kwargs.copy()
             # 移除已显式传递的 publish_platform 以防 TypeError
             if "publish_platform" in transform_kwargs:
                 del transform_kwargs["publish_platform"]
-            
+
             yield {"type": "log", "message": "🎨 正在启动 Visual Packaging Expert 进行 HTML 封装..."}
             transform_content = self._transform_content(final_content, publish_platform, topic=topic, **transform_kwargs)
 
@@ -663,7 +768,7 @@ class UnifiedContentWorkflow:
                 fast_mode=fast_mode,
                 article_path=kwargs.get("article_path") or "",
             )
-            
+
             # --- Step 5 验证 (V19.5 强制 HTML 校验) ---
             trimmed_content = transform_content.content.strip()
             if not trimmed_content.startswith('<'):
@@ -671,16 +776,16 @@ class UnifiedContentWorkflow:
                 lg.print_log(f"内容预览 (前 200 字): {trimmed_content[:200]}", "warning")
             elif "[[V-SCENE:" in trimmed_content:
                 lg.print_log("⚠️ 警告：发现残留的 V-SCENE 标签，后处理可能未完全清理", "warning")
-            
+
             # V4: VISUAL 阶段用软警告而非硬超时 — 图片已生成完毕时不应丢弃成果
             visual_elapsed = time.time() - stage_start
             visual_max = self.STAGE_TIMEOUT.get("VISUAL", 900)
             if visual_elapsed > visual_max:
                 yield {"type": "log", "message": f"⚠️ VISUAL 阶段耗时 {visual_elapsed:.0f}s 超出预期 ({visual_max}s)，但图片已生成成功，继续保存"}
-            
-            yield {"type": "chunk", "message": transform_content.content} 
+
+            yield {"type": "chunk", "message": transform_content.content}
             yield {"type": "log", "message": f"🖼️ 视觉资产已同步 ({time.time()-stage_start:.1f}s)：封面图与正文配图已就绪"}
-            
+
             # --- Step 5.2: WeChat Preview (微信预览 - V19.5) ---
             if publish_platform == PlatformType.WECHAT.value and not fast_mode:
                 # 4. (V20.1) 微信预览自测自纠与 1:1 仿真库截图 (V-AUDIT)
@@ -690,12 +795,12 @@ class UnifiedContentWorkflow:
                     from src.ai_write_x.core.wechat_preview import WeChatPreviewEngine
                     preview_engine = WeChatPreviewEngine()
                     preview_path = preview_engine.save_preview(transform_content.content, final_title)
-                    
+
                     # 视觉自审
                     audit_res = preview_engine.audit_visuals(transform_content.content)
                     if not audit_res["passed"]:
                         lg.print_log(f"👀 视觉自审建议: {', '.join(audit_res['issues'])}", "warning")
-                    
+
                     # 截取手机端仿真图
                     lg.print_log("📸 正在捕获 3 张手机端 1:1 视觉仿真截图...", "status")
                     try:
@@ -708,28 +813,30 @@ class UnifiedContentWorkflow:
 
                         with concurrent.futures.ThreadPoolExecutor() as pool:
                             screenshots = pool.submit(_capture_screenshots).result()
-                            
+
                         if screenshots:
                             lg.print_log(f"✅ 已完成视觉采集: {len(screenshots)} 张样图已归档至 output/previews/", "success")
                     except Exception as screenshot_e:
                         lg.print_log(f"⚠️ 截图捕获失败 (可能是环境限制): {str(screenshot_e)}", "warning")
-                    
+
                     report = preview_engine.generate_compatibility_report(transform_content.content)
                     lg.print_log(f"📊 兼容性报告: {report}", "info")
                 except Exception as e:
                     yield {"type": "log", "message": f"⚠️ 预览与审计步骤失败: {str(e)}"}
-                
+
                 yield {"type": "progress", "message": "[PROGRESS:V-AUDIT:END]"}
             elif publish_platform == PlatformType.WECHAT.value and fast_mode:
                 yield {"type": "log", "message": "⚡ 极速模式：跳过微信预览审计与截图采集"}
-            
+
             yield {"type": "progress", "message": "[PROGRESS:VISUAL:END]"}
-            
+            self._raise_if_cancelled(cancel_check, "VISUAL")
+
             # --- Step 5.5: AI Auto Title Optimization (AI自动标题优化) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:TITLE_OPT:START]"}
+            self._raise_if_cancelled(cancel_check, "TITLE_OPT")
             yield {"type": "log", "message": "🎯 Agent Step 5.5: 正在启动AI智能标题优化引擎..."}
-            
+
             # Note: final_title is now initialized earlier in Step 5 Visual.
 
             if fast_mode:
@@ -740,10 +847,10 @@ class UnifiedContentWorkflow:
                     from src.ai_write_x.core.quality_engine import TitleOptimizer
                     title = kwargs.get("title", topic)
                     current_title = transform_content.title if getattr(transform_content, 'title', None) else title
-                    
+
                     from src.ai_write_x.core.article_polish import extract_plain_text
                     content_preview = extract_plain_text(transform_content.content, max_len=1500)
-                    
+
                     # 安全调用标题优化器，处理事件循环冲突
                     try:
                         loop = asyncio.get_running_loop()
@@ -770,7 +877,7 @@ class UnifiedContentWorkflow:
                             content=content_preview,
                             platform=publish_platform
                         ))
-                    
+
                     if opt_result.get("optimized_titles") and len(opt_result["optimized_titles"]) > 0:
                         new_title = opt_result.get("recommended", current_title)
                         collection_mode = kwargs.get("collection_mode", False)
@@ -784,20 +891,57 @@ class UnifiedContentWorkflow:
                         yield {"type": "log", "message": f"📊 共生成 {len(opt_result['optimized_titles'])} 个候选标题，已自动选择最优方案"}
                     else:
                         yield {"type": "log", "message": "⚠️ AI标题优化未返回有效结果，保留原标题"}
-                        
+
                 except Exception as e:
                     yield {"type": "log", "message": f"⚠️ AI标题优化步骤出错: {str(e)}，跳过并保留原标题"}
-            
+
             yield {"type": "progress", "message": "[PROGRESS:TITLE_OPT:END]"}
-            
+            self._raise_if_cancelled(cancel_check, "TITLE_OPT")
+
+            # V4: 对最终成品进行质量评估；不合格时自动修复一次并复评。
+            yield {"type": "progress", "message": "[PROGRESS:QUALITY:START]"}
+            self._raise_if_cancelled(cancel_check, "QUALITY")
+            try:
+                from src.ai_write_x.core.quality_engine import ContentQualityEngine
+                qe = ContentQualityEngine()
+                qa_result = qe.analyze_content(transform_content.content)
+                quality_score = qa_result.overall_score / 20.0  # 转为 0-5 分
+                yield {"type": "log", "message": f"最终AI评分: {self._quality_gate_summary(qa_result)}"}
+
+                if not self._quality_gate_passed(qa_result):
+                    yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 最终成品未达标，正在自动修复 | {self._quality_gate_summary(qa_result)}"}
+                    repaired_content = self._repair_quality_with_llm(topic, transform_content.content, qa_result, cancel_check)
+                    repaired_content = self._ensure_publishable_article(
+                        repaired_content, transform_content.content, "QUALITY_REPAIR"
+                    )
+                    if repaired_content and repaired_content != transform_content.content:
+                        transform_content.content = repaired_content
+                        qa_result = qe.analyze_content(transform_content.content)
+                        quality_score = qa_result.overall_score / 20.0
+                        if self._quality_gate_passed(qa_result):
+                            yield {"type": "log", "message": f"最终AI评分修复通过: {self._quality_gate_summary(qa_result)}"}
+                            yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 修复通过 | {self._quality_gate_summary(qa_result)}"}
+                        else:
+                            yield {"type": "log", "message": f"最终AI评分修复后仍未完全达标: {self._quality_gate_summary(qa_result)}，继续保存成品"}
+                            yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 修复后仍需人工确认 | {self._quality_gate_summary(qa_result)}"}
+                    else:
+                        yield {"type": "log", "message": "最终AI评分修复未产生有效改动，保留当前成品继续"}
+                else:
+                    yield {"type": "progress", "message": f"[PROGRESS:QUALITY:DETAIL] 最终成品已达标 | {self._quality_gate_summary(qa_result)}"}
+            except Exception as qe_err:
+                lg.print_log(f"V4最终质量评估跳过: {qe_err}", "warning")
+            yield {"type": "progress", "message": "[PROGRESS:QUALITY:END]"}
+            self._raise_if_cancelled(cancel_check, "QUALITY")
+
             # --- Step 6: Persistence & Orchestration Agent (持久化管理) ---
             stage_start = time.time()
             yield {"type": "progress", "message": "[PROGRESS:SAVE:START]"}
+            self._raise_if_cancelled(cancel_check, "SAVE")
             yield {"type": "log", "message": "💾 Agent Step 6: 正在将灵感编码并安全存储至本地知识库..."}
             title = kwargs.get("title", topic)
             final_title = transform_content.title if getattr(transform_content, 'title', None) else title
             save_result = self._save_content(transform_content, final_title, reference_content=kwargs.get("reference_content", ""))
-            
+
             if save_result.get("success", False):
                 article_path = save_result.get("path")
                 kwargs["article_path"] = article_path
@@ -808,7 +952,8 @@ class UnifiedContentWorkflow:
                     lg.print_log(f"封面元数据写入失败: {cover_err}", "warning")
                 yield {"type": "log", "message": f"📁 存储成功：文章已归档至 `{os.path.basename(article_path)}`"}
             yield {"type": "progress", "message": "[PROGRESS:SAVE:END]"}
-            
+            self._raise_if_cancelled(cancel_check, "SAVE")
+
             # V4: 成功后将话题写入全景记忆库（含质量反馈分数及全文内容分析）
             try:
                 from src.ai_write_x.core.memory_manager import MemoryManager
@@ -819,23 +964,24 @@ class UnifiedContentWorkflow:
 
             # --- Step 7: UI Handover & Completion (交付刷新) ---
             yield {"type": "progress", "message": "[PROGRESS:COMPLETE:START]"}
+            self._raise_if_cancelled(cancel_check, "COMPLETE")
             yield {"type": "log", "message": "🎉 Agent Step 7: 全流程审计完成。UI 资产同步中，准备交付..."}
-            
+
             publish_result = None
             if self._should_publish():
                 yield {"type": "log", "message": "📤 正在自动同步并发布至平台..."}
                 transform_content.title = final_title
-                
+
                 # _publish_content 已经接收 publish_platform 作为参数，kwargs 中不应包含它
                 publish_kwargs = kwargs.copy()
                 if "publish_platform" in publish_kwargs:
                     del publish_kwargs["publish_platform"]
-                    
+
                 publish_result = self._publish_content(
                     transform_content, publish_platform, **publish_kwargs
                 )
                 yield {"type": "log", "message": f"🚀 发布任务已下发：{publish_result.get('message')}"}
-            
+
             total_duration = time.time() - start_time
             success = True
             results = {
@@ -849,6 +995,18 @@ class UnifiedContentWorkflow:
                 "success": True,
             }
             yield {"type": "log", "message": f"⏱️ V4工作流总耗时: {total_duration:.1f}秒"}
+            yield {"type": "final_results", "content": results}
+            yield {"type": "done"}
+
+        except WorkflowCancelled as cancelled:
+            total_duration = time.time() - start_time
+            results = {
+                "success": False,
+                "cancelled": True,
+                "error": str(cancelled),
+                "total_duration": round(total_duration, 1),
+            }
+            yield {"type": "log", "message": f"Workflow cancelled: {cancelled}"}
             yield {"type": "final_results", "content": results}
             yield {"type": "done"}
 
@@ -867,17 +1025,17 @@ class UnifiedContentWorkflow:
     def _apply_final_html_packaging(self, content: ContentResult, publish_platform: str, **kwargs) -> ContentResult:
         """V23.0: 执行最终的 HTML 包装（新会话，零上下文）"""
         lg.print_log("[PROGRESS:HTML_PACKAGING:START]", "internal")
-        
+
         # 预先导入需要的模块
         import re
-        
+
         # 这种模式下，我们故意只传递最少的信息，避免干扰
         packaging_config = self._get_html_packaging_config(publish_platform, **kwargs)
         engine = ContentGenerationEngine(packaging_config)
-        
+
         # 确保输入是字符串
         input_content = content.content if hasattr(content, 'content') else str(content)
-        
+
         # V26/V27/V28: 过滤掉可能混入的评估报告/审核报告内容
         # 覆盖所有Agent输出：终审评估、事实核查、RSC逻辑审核、对齐检查、质量检测
         review_indicators = [
@@ -904,7 +1062,7 @@ class UnifiedContentWorkflow:
             '致命错误', '第一个致命错误', '第二个致命错误',
         ]
         has_review_content = any(indicator in input_content for indicator in review_indicators)
-        
+
         if input_content and len(input_content) > 100 and has_review_content:
             lg.print_log("⚠️ 检测到审核/评估报告内容混入正文，已自动过滤", "warning")
             patterns_to_remove = [
@@ -950,26 +1108,26 @@ class UnifiedContentWorkflow:
                 input_content = re.sub(pattern, '', input_content, flags=re.DOTALL | re.IGNORECASE)
             input_content = re.sub(r'\n{3,}', '\n\n', input_content)
             lg.print_log(f"✅ 已过滤审核报告，剩余内容长度: {len(input_content)} 字符", "info")
-        
+
         input_data = {
             "content": input_content, # Markdown 内容
             "title": kwargs.get("title", getattr(content, 'title', '')),
             "parse_result": False,
             "content_format": "html",
         }
-        
+
         try:
             ret_val = engine.execute_workflow(input_data)
             lg.print_log("✅ 最终 HTML 包装完成", "success")
             lg.print_log("[PROGRESS:HTML_PACKAGING:END]", "internal")
-            
+
             # 手动处理代码块提取 (如果是字符串返回)
             processed_html = ""
             if isinstance(ret_val, str):
                 processed_html = ret_val
             elif hasattr(ret_val, 'content'):
                 processed_html = ret_val.content
-            
+
             # 提取 ```html ... ``` 块
             code_block_match = re.search(r'```html\s*(.*?)\s*```', processed_html, re.DOTALL)
             if code_block_match:
@@ -978,7 +1136,7 @@ class UnifiedContentWorkflow:
             from src.ai_write_x.core.article_polish import polish_html_output, strip_leaked_prompt_text
             processed_html = polish_html_output(processed_html)
             processed_html = strip_leaked_prompt_text(processed_html)
-            
+
             if isinstance(ret_val, str):
                 return ContentResult(
                     title=kwargs.get("title", getattr(content, 'title', '')),
@@ -997,14 +1155,14 @@ class UnifiedContentWorkflow:
         self, content: ContentResult, publish_platform: str, **kwargs
     ) -> ContentResult:
         """转换内容格式，V23.0: 采用解耦的包装逻辑"""
-        
+
         # 记录转换模式
         transform_mode = kwargs.get("transform_mode", "design")
         lg.print_log(f"🎨 工具链 Step 5.1: 正在使用 {transform_mode} 模式进行核心 HTML 包装...", "info")
-        
+
         # V23.0: 所有路径最终都通过 _apply_final_html_packaging 保证零上下文质量
         # 但我们保留不同路径作为预处理或策略选择
-        
+
         if transform_mode == "design":
             # 这种模式下直接使用我们的新视觉包装引擎
             return self._apply_final_html_packaging(content, publish_platform, **kwargs)
@@ -1066,18 +1224,18 @@ class UnifiedContentWorkflow:
     def _apply_dynamic_template(self, content: ContentResult, **kwargs) -> ContentResult:
         """动态模板路径：使用AI生成独特的HTML模板"""
         from src.ai_write_x.tools.dynamic_template_tool import DynamicTemplateTool
-        
+
         lg.print_log("[PROGRESS:DYNAMIC_TEMPLATE:START]", "internal")
-        
+
         try:
             # 提取主题信息
             topic = kwargs.get('topic', '')
-            
+
             # 获取发布平台信息，判断是否开启极简模式
             publish_platform = kwargs.get('publish_platform', '')
             is_mobile = any(p in str(publish_platform).lower() for p in ['wechat', 'mobile', 'xiaohongshu'])
             format_mode = "simple" if is_mobile else "standard"
-            
+
             # 使用动态模板工具生成模板（默认使用AI设计师）
             tool = DynamicTemplateTool()
             template_html = tool._run(
@@ -1087,9 +1245,9 @@ class UnifiedContentWorkflow:
                 use_ai_designer=True,  # 使用AI生成独特模板
                 format_mode=format_mode
             )
-            
+
             lg.print_log("[PROGRESS:DYNAMIC_TEMPLATE:END]", "internal")
-            
+
             return ContentResult(
                 title=content.title,
                 content=template_html,
@@ -1102,7 +1260,7 @@ class UnifiedContentWorkflow:
                     "template_generated": True,
                 }
             )
-            
+
         except Exception as e:
             lg.print_log(f"AI动态模板生成失败，回退到预定义模板: {str(e)}", "warning")
             lg.print_log("[PROGRESS:DYNAMIC_TEMPLATE:END]", "internal")
@@ -1129,7 +1287,7 @@ class UnifiedContentWorkflow:
         }
 
         ret_val = engine.execute_workflow(input_data)
-        
+
         # V19.5: 后处理清理（确保执行且包含代码块提取）
         processed_html = ""
         if isinstance(ret_val, str):
@@ -1146,16 +1304,16 @@ class UnifiedContentWorkflow:
             if code_block_match:
                 processed_html = code_block_match.group(1).strip()
                 lg.print_log("✅ 已成功从代码块中提取 HTML 内容", "success")
-            
+
             # 2. 保留所有 V-SCENE 标签 (根据用户要求保存)
             # processed_html = re.sub(r'\[\[V-SCENE:.*?\]\]', '', processed_html, flags=re.DOTALL)
-            
+
             # 3. 将残留的 ** 符号转为 <strong> (容错处理)
             processed_html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', processed_html)
-            
+
             # 4. 移除残留的 Markdown 标题符号
             processed_html = re.sub(r'^#+\s+', '', processed_html, flags=re.MULTILINE)
-            
+
             # 更新返回值
             if isinstance(ret_val, str):
                 ret_val = processed_html
@@ -1312,13 +1470,13 @@ class UnifiedContentWorkflow:
 
     def _get_design_workflow_config(self, publish_platform: str, **kwargs) -> WorkflowConfig:
         """生成设计工作流配置 - V19.5 强制 HTML 输出"""
-        
+
         content_preview = kwargs.get("content", "")
         topic = kwargs.get("topic", "")
-        
+
         # 1. 分析内容调性
         tone = self._analyze_content_tone(content_preview, topic)
-        
+
         # 2. 尝试使用动态引擎，失败则回退到超强内置模板
         wechat_system_template = ""
         if DYNAMIC_DESIGN_AVAILABLE:
@@ -1392,17 +1550,17 @@ class UnifiedContentWorkflow:
 
     def _get_html_packaging_config(self, publish_platform: str, **kwargs) -> WorkflowConfig:
         """V23.0: 视觉包装节点配置 - 零上下文 HTML 包装"""
-        
+
         from src.ai_write_x.core.template_manager import TemplateManager
         tm = TemplateManager()
         # 获取对应平台的推荐模板
         recommended_templates = tm.get_templates_by_platform(publish_platform)[:2]
         template_codes = "\n\n".join([f"【模板 {i+1}】:\n{t.code}" for i, t in enumerate(recommended_templates)])
-        
+
         from src.ai_write_x.core.brand_style import get_brand_style_prompt
 
         brand_block = get_brand_style_prompt()
-        
+
         designer_des = f"""
 # 专业视觉包装专家 (Visual Packaging Expert)
 
@@ -1492,7 +1650,7 @@ class UnifiedContentWorkflow:
         # 保存文件
         with open(save_path, "w", encoding="utf-8") as f:
             f.write(content.content)
-            
+
         # V18: 保存原始参考内容，供前端“查看原热点内容”功能使用
         if reference_content:
             try:
@@ -1602,7 +1760,7 @@ class UnifiedContentWorkflow:
     def _analyze_content_tone(self, content: str, topic: str) -> str:
         """分析内容调性，用于配色方案选择 (V19.5 视觉增强)"""
         text = (topic + " " + content).lower()
-        
+
         # 调性关键词映射
         tone_map = {
             "military": ["军事", "战争", "国防", "武器", "航母", "演习"],
@@ -1614,41 +1772,41 @@ class UnifiedContentWorkflow:
             "growth": ["职场", "成长", "技能", "学习", "效率"],
             "medical": ["医疗", "健康", "医生", "疾病", "养生"]
         }
-        
+
         for tone, keywords in tone_map.items():
             if any(kw in text for kw in keywords):
                 return tone
-                
+
         return "default"
 
     def _apply_recursive_self_correction(self, content: str, topic: str, conversation_history: list = None, **kwargs) -> str:
         """V12.0: RSC 递归自我修正协议 - 2轮深度修正"""
         from src.ai_write_x.core.llm_client import LLMClient
         client = LLMClient()
-        
+
         current_content = content
         max_iterations = 2
-        
+
         if conversation_history is None:
             conversation_history = [
                 {"role": "user", "content": f"请针对话题'{topic}'撰写初稿。"},
                 {"role": "assistant", "content": content}
             ]
-        
+
         for i in range(max_iterations):
             lg.print_log(f"🧬 RSC 快速修正第 {i+1} 轮...", "info")
-            
+
             adversarial_prompt = prompt_loader.get_rsc("rsc", "adversarial_prompt").format(topic=topic)
             refactor_prompt = prompt_loader.get_rsc("rsc", "refactor_prompt")
-            
+
             combined_prompt = (
                 f"{adversarial_prompt}\n\n"
                 f"请先快速判断是否存在逻辑问题。如果有，直接按以下指令重构全文；如果逻辑无误，输出 PASS。\n\n"
                 f"【重构指令】\n{refactor_prompt}"
             )
-            
+
             conversation_history.append({"role": "user", "content": combined_prompt})
-            
+
             current_content_streamed = ""
             char_count_logged = 0
             for chunk in client.stream_chat(messages=conversation_history):
@@ -1657,14 +1815,14 @@ class UnifiedContentWorkflow:
                     if len(current_content_streamed) - char_count_logged >= 200:
                         lg.print_log(f"⏳ RSC 快速修正中... 已生成 {len(current_content_streamed)} 字", "status")
                         char_count_logged = len(current_content_streamed)
-            
+
             if "PASS" in current_content_streamed.upper()[:50]:
                 lg.print_log(f"✅ RSC 逻辑验证通过，无需修正", "success")
                 conversation_history.append({"role": "assistant", "content": current_content_streamed})
                 return current_content
-                    
+
             conversation_history.append({"role": "assistant", "content": current_content_streamed})
             current_content = utils.remove_code_blocks(current_content_streamed)
             lg.print_log(f"📝 RSC 快速修正完成，内容长度: {len(current_content)} 字", "success")
-            
+
         return current_content

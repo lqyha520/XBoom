@@ -1295,11 +1295,13 @@ class CreativeWorkshopManager {
         const stageMap = {
             'INIT': { stage: 'init', start: 0, end: 15 },
             'SPIDER': { stage: 'spider', start: 15, end: 30 },
+            'PLANNING': { stage: 'planning', start: 30, end: 45 },
             'CREATIVE': { stage: 'planning', start: 30, end: 45 },
             'WRITING': { stage: 'writing', start: 45, end: 70 },
             'REVIEW': { stage: 'review', start: 70, end: 85 },
             'VISUAL': { stage: 'visual', start: 85, end: 95 },
-            'SAVE': { stage: 'done', start: 95, end: 99 },
+            'QUALITY': { stage: 'quality', start: 95, end: 99 },
+            'SAVE': { stage: 'done', start: 99, end: 99 },
             'COMPLETE': { stage: 'done', start: 100, end: 100 }
         };
 

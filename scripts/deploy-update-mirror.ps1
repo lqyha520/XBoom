@@ -24,7 +24,9 @@ if (-not (Test-Path $EnvFile)) {
 Get-Content $EnvFile | ForEach-Object {
     $line = $_.Trim()
     if ($line -and -not $line.StartsWith('#') -and $line -match '^([^=]+)=(.*)$') {
-        Set-Variable -Name $matches[1].Trim() -Value $matches[2].Trim() -Scope Script
+        $name = $matches[1].Trim()
+        $value = $matches[2].Trim()
+        Set-Variable -Name $name -Value $value -Scope Script
     }
 }
 

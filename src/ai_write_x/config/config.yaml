@@ -111,7 +111,7 @@ api:
   OpenAI:
     key: OPENAI_API_KEY
     key_index: ''
-    api_key: []
+    api_key: ''
     model_index: 0
     fallback_model_index: -1
     model:
@@ -1163,9 +1163,9 @@ use_compress: true
 menu_access:
   enabled: true
   mysql:
-    host: 81.71.94.132
+    host: ''
     port: 3306
     database: XBoom
-    user: xboom
-    password: 4LBZ8n88Ijlyr6Lh
+    user: ''
+    password: ''
     connect_timeout: 5

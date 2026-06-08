@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import re
 import subprocess
@@ -121,6 +122,7 @@ def check_packaging_inputs() -> bool:
 def check_spec_does_not_package_local_state() -> bool:
     spec = _read_text(ROOT / "aiwritex_windows.spec")
     blocked_fragments = [
+        ".local_secrets",
         "root / 'secrets' / 'api_keys.yaml'",
         'root / "secrets" / "api_keys.yaml"',
         "src' / 'ai_write_x' / 'config' / 'config.yaml",
@@ -136,6 +138,18 @@ def check_spec_does_not_package_local_state() -> bool:
             _fail(f"Packaging spec contains release-sensitive fragment: {hit}")
         return False
     _ok("PyInstaller spec avoids direct local config, secrets, data, output, and logs")
+    return True
+
+
+def check_readme_version_alignment() -> bool:
+    version = get_runtime_version()
+    readme = _read_text(ROOT / "README.md")
+    expected = f"当前包版本为 `{version}`"
+    if expected not in readme:
+        _fail("README.md current version does not match runtime version")
+        _fail(f"Expected README fragment: {expected}")
+        return False
+    _ok("README.md current version matches runtime version")
     return True
 
 
@@ -248,7 +262,33 @@ def check_update_flow_static_contract() -> bool:
         for fragment in missing_updater:
             _fail(f"Updater flow missing expected fragment: {fragment}")
         return False
+
+    force_update = bool(policy.get("force_update"))
+    update_level = str(policy.get("update_level") or "normal").lower()
+    if not force_update and update_level != "critical":
+        if policy.get("min_supported_version") == policy.get("latest_version"):
+            _fail("Non-critical updates must not set min_supported_version to latest_version")
+            return False
+
     _ok("Updater flow static contract is present")
+    return True
+
+
+def check_version_policy_sha256() -> bool:
+    version = get_runtime_version()
+    policy = json.loads(_read_text(ROOT / "version-policy.json"))
+    installer_path = ROOT / "dist" / "installer" / f"小爆来咯-Setup-v{version}.exe"
+    if not installer_path.exists():
+        _warn(f"Installer not found for SHA256 check: {installer_path.relative_to(ROOT)}")
+        return True
+
+    digest = hashlib.sha256(installer_path.read_bytes()).hexdigest()
+    if policy.get("sha256") != digest:
+        _fail("version-policy.json sha256 does not match the built installer")
+        _fail(f"Expected: {digest}")
+        _fail(f"Actual:   {policy.get('sha256')}")
+        return False
+    _ok("version-policy.json sha256 matches the built installer")
     return True
 
 
@@ -258,11 +298,13 @@ def main() -> int:
         check_webview2_guid,
         check_packaging_inputs,
         check_spec_does_not_package_local_state,
+        check_readme_version_alignment,
         check_factory_config_export,
         check_local_secret_warning,
         check_required_packaging_dependencies,
         check_uninstall_user_data_prompt,
         check_update_flow_static_contract,
+        check_version_policy_sha256,
     ]
     results = [check() for check in checks]
     if all(results):

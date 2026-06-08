@@ -291,7 +291,7 @@ async def list_articles(page: int = 1, page_size: int = 50, status: str = None):
 
             stat = file_path.stat()
             title = stem.replace("_", "|")
-            status = get_publish_status(title)
+            publish_status = get_publish_status(title)
 
             articles_dict[stem] = {
                 "name": stem,
@@ -302,11 +302,17 @@ async def list_articles(page: int = 1, page_size: int = 50, status: str = None):
                 "create_time": datetime.fromtimestamp(stat.st_ctime).strftime(
                     "%Y-%m-%d %H:%M:%S"
                 ),
-                "status": status,
+                "status": publish_status,
             }
 
         articles = list(articles_dict.values())
         articles.sort(key=lambda x: x["create_time"], reverse=True)
+        status_counts = {
+            "all": len(articles),
+            "published": sum(1 for article in articles if article["status"] == "published"),
+            "failed": sum(1 for article in articles if article["status"] == "failed"),
+            "unpublished": sum(1 for article in articles if article["status"] == "unpublished"),
+        }
         
         # 状态筛选
         if status:
@@ -325,7 +331,8 @@ async def list_articles(page: int = 1, page_size: int = 50, status: str = None):
                 "page": page,
                 "page_size": page_size,
                 "total": total,
-                "total_pages": (total + page_size - 1) // page_size
+                "total_pages": (total + page_size - 1) // page_size,
+                "status_counts": status_counts,
             }
         }
     except Exception as e:

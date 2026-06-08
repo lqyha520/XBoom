@@ -4,6 +4,7 @@ import threading
 import queue
 import time
 import uuid
+from pathlib import Path
 from typing import Dict, Optional, Any, List
 from src.ai_write_x.utils import log
 
@@ -29,6 +30,27 @@ class BackgroundTaskManager:
         self.active_tasks: Dict[str, Any] = {} # taskId -> {process, thread, status, start_time, etc}
         self.log_queues: Dict[str, queue.Queue] = {} # taskId -> Queue
         self.task_registry_lock = threading.Lock()
+        self.cancel_dir = Path("cache") / "task_cancel"
+        self.cancel_dir.mkdir(parents=True, exist_ok=True)
+
+    def _cancel_marker_path(self, task_id: str) -> Path:
+        safe_task_id = "".join(ch for ch in task_id if ch.isalnum() or ch in ("-", "_"))
+        return self.cancel_dir / f"{safe_task_id}.cancel"
+
+    def _write_cancel_marker_unlocked(self, task_id: str):
+        try:
+            self._cancel_marker_path(task_id).write_text(str(time.time()), encoding="utf-8")
+        except Exception:
+            pass
+
+    def clear_cancel_marker(self, task_id: str):
+        try:
+            self._cancel_marker_path(task_id).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    def is_cancel_marker_set(self, task_id: str) -> bool:
+        return self._cancel_marker_path(task_id).exists()
 
     def _is_task_alive_unlocked(self, task: Dict) -> bool:
         thread = task.get("thread")
@@ -44,6 +66,9 @@ class BackgroundTaskManager:
             if p.is_alive():
                 try:
                     p.terminate()
+                    p.join(timeout=3)
+                    if p.is_alive():
+                        p.kill()
                 except Exception:
                     pass
 
@@ -59,9 +84,12 @@ class BackgroundTaskManager:
             if status != TaskStatus.RUNNING:
                 self.log_queues.pop(task_id, None)
                 del self.active_tasks[task_id]
+                self.clear_cancel_marker(task_id)
                 return True, "cleared previous task"
 
             self._terminate_sub_processes_unlocked(task)
+            task["stop_requested"] = True
+            self._write_cancel_marker_unlocked(task_id)
             alive = self._is_task_alive_unlocked(task)
             task["status"] = TaskStatus.STOPPED
             task["finished_at"] = time.time()
@@ -84,6 +112,7 @@ class BackgroundTaskManager:
         """启动一个新的后台任务线程"""
         with self.task_registry_lock:
             log_q = queue.Queue()
+            self.clear_cancel_marker(task_id)
             self.log_queues[task_id] = log_q
             
             task_info = {
@@ -91,6 +120,7 @@ class BackgroundTaskManager:
                 "status": TaskStatus.RUNNING,
                 "start_time": time.time(),
                 "log_queue": log_q,
+                "stop_requested": False,
                 "sub_processes": [] # 用于追踪产生的子进程
             }
             
@@ -121,7 +151,10 @@ class BackgroundTaskManager:
             
             func(*args)
                 
-            self.update_task_status(task_id, TaskStatus.COMPLETED)
+            if self.is_stop_requested(task_id):
+                self.update_task_status(task_id, TaskStatus.STOPPED, error="任务已停止")
+            else:
+                self.update_task_status(task_id, TaskStatus.COMPLETED)
         except Exception as e:
             log.print_log(f"Task {task_id} failed: {str(e)}", "error")
             self.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
@@ -163,16 +196,25 @@ class BackgroundTaskManager:
                 return False, "Task not found"
             
             task = self.active_tasks[task_id]
+            task["stop_requested"] = True
+            self._write_cancel_marker_unlocked(task_id)
             self._terminate_sub_processes_unlocked(task)
 
             if task.get("status") == TaskStatus.RUNNING and not self._is_task_alive_unlocked(task):
-                self.log_queues.pop(task_id, None)
-                del self.active_tasks[task_id]
+                task["status"] = TaskStatus.STOPPED
+                task["finished_at"] = time.time()
+                task["error"] = "任务已停止"
                 return True, "Stale task cleared"
 
             task["status"] = TaskStatus.STOPPED
             task["finished_at"] = time.time()
+            task["error"] = "任务已停止"
             return True, "Task stopped"
+
+    def is_stop_requested(self, task_id: str) -> bool:
+        with self.task_registry_lock:
+            task = self.active_tasks.get(task_id)
+            return bool(task and task.get("stop_requested"))
 
     def register_sub_process(self, task_id: str, process):
         with self.task_registry_lock:

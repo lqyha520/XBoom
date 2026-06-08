@@ -82,7 +82,7 @@ class ArticleManager {
         this.initializing = false;
         this.backgroundTasks = new Map(); // 存储后台任务: id -> {name, progress, status, controller}
         this.reTemplateAbortController = null;
-        
+
         // 分页相关
         this.currentPage = 1;
         this.pageSize = 50;
@@ -134,7 +134,7 @@ class ArticleManager {
         }
     }
 
-    // 加载平台列表(仅初始化时调用一次)  
+    // 加载平台列表(仅初始化时调用一次)
     async loadPlatforms() {
         try {
             const response = await fetch('/api/config/platforms');
@@ -147,34 +147,46 @@ class ArticleManager {
         }
     }
 
-    // 加载文章列表  
-    async loadArticles() {
+    // 加载文章列表
+    async loadArticles(options = {}) {
+        const { append = false, force = false, reset = !append } = options;
+        if (reset) {
+            this.currentPage = 1;
+        }
+
         // 防抖：避免短时间内重复加载
         const now = Date.now();
-        if (this._lastLoadTime && (now - this._lastLoadTime) < 1000) {
+        if (!force && this._lastLoadTime && (now - this._lastLoadTime) < 1000) {
             console.log('[ArticleManager] 加载请求过于频繁，已跳过');
             return;
         }
         this._lastLoadTime = now;
-        
+
         try {
             // 分页加载，默认第一页50条
             const page = this.currentPage || 1;
             const pageSize = this.pageSize || 50;
-            const response = await fetch(`/api/articles?page=${page}&page_size=${pageSize}`);
+            const params = new URLSearchParams({
+                page: String(page),
+                page_size: String(pageSize)
+            });
+            if (this.currentStatus && this.currentStatus !== 'all') {
+                params.set('status', this.currentStatus);
+            }
+            const response = await fetch(`/api/articles?${params.toString()}`);
             if (response.ok) {
                 const result = await response.json();
-                
+
                 // 保存分页信息
                 this.pagination = result.pagination || {};
-                
+
                 // 如果是首页，替换；否则追加（滚动加载）
-                if (page === 1) {
+                if (!append || page === 1) {
                     this.articles = result.data || [];
                 } else {
                     this.articles = [...this.articles, ...(result.data || [])];
                 }
-                
+
                 this.filterArticles();
                 this.renderStatusTree();
             }
@@ -184,12 +196,12 @@ class ArticleManager {
         }
     }
 
-    // 渲染状态分类树  
+    // 渲染状态分类树
     renderStatusTree() {
         const statusTree = document.getElementById('article-sidebar-tree');
         if (!statusTree) return;
 
-        const statusCounts = {
+        const statusCounts = this.pagination?.status_counts || {
             all: this.articles.length,
             published: this.articles.filter(a => a.status === 'published').length,
             failed: this.articles.filter(a => a.status === 'failed').length,
@@ -200,51 +212,51 @@ class ArticleManager {
             {
                 key: 'all',
                 label: '全部文章',
-                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>  
-                    <polyline points="14,2 14,8 20,8"/>  
+                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14,2 14,8 20,8"/>
                 </svg>`
             },
             {
                 key: 'published',
                 label: '已发布',
-                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>  
-                    <polyline points="22 4 12 14.01 9 11.01"/>  
+                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
                 </svg>`
             },
             {
                 key: 'failed',
                 label: '发布失败',
-                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                    <circle cx="12" cy="12" r="10"/>  
-                    <line x1="15" y1="9" x2="9" y2="15"/>  
-                    <line x1="9" y1="9" x2="15" y2="15"/>  
+                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="15" y1="9" x2="9" y2="15"/>
+                    <line x1="9" y1="9" x2="15" y2="15"/>
                 </svg>`
             },
             {
                 key: 'unpublished',
                 label: '未发布',
-                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                    <circle cx="12" cy="12" r="10"/>  
-                    <line x1="8" y1="12" x2="16" y2="12"/>  
+                icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="8" y1="12" x2="16" y2="12"/>
                 </svg>`
             }
         ];
 
-        statusTree.innerHTML = statuses.map(status => `  
-            <div class="tree-item ${this.currentStatus === status.key ? 'active' : ''}"   
-                data-status="${status.key}">  
-                <div>  
-                    <span class="tree-icon">${status.icon}</span>  
-                    <span>${status.label}</span>  
-                </div>  
-                <span class="item-count">${statusCounts[status.key]}</span>  
-            </div>  
+        statusTree.innerHTML = statuses.map(status => `
+            <div class="tree-item ${this.currentStatus === status.key ? 'active' : ''}"
+                data-status="${status.key}">
+                <div>
+                    <span class="tree-icon">${status.icon}</span>
+                    <span>${status.label}</span>
+                </div>
+                <span class="item-count">${statusCounts[status.key]}</span>
+            </div>
         `).join('');
     }
 
-    // 过滤文章  
+    // 过滤文章
     filterArticles() {
         if (this.currentStatus === 'all') {
             this.filteredArticles = [...this.articles];
@@ -256,14 +268,14 @@ class ArticleManager {
         this.renderArticles();
     }
 
-    // 渲染文章卡片  
+    // 渲染文章卡片
     renderArticles() {
         const grid = document.getElementById('article-content-grid');
         if (!grid) return;
 
         grid.className = `content-grid ${this.currentLayout === 'list' ? 'list-view' : ''}`;
 
-        // 添加空状态判断  
+        // 添加空状态判断
         if (this.filteredArticles.length === 0) {
             grid.innerHTML = '<div class="empty-state">暂无文章</div>';
             return;
@@ -284,12 +296,12 @@ class ArticleManager {
                 cards.forEach(card => this.observer.observe(card));
             }
         });
-        
+
         // 添加滚动加载监听
         this.setupInfiniteScroll();
     }
 
-    // 创建文章卡片  
+    // 创建文章卡片
     createArticleCard(article) {
         const card = document.createElement('div');
         card.className = `content-card article-card ${this.batchMode ? 'batch-mode' : ''}`;
@@ -308,7 +320,7 @@ class ArticleManager {
             'unpublished': '未发布'
         }[article.status] || '未发布';
 
-        // 时间格式化函数  
+        // 时间格式化函数
         const formatTime = (timeStr) => {
             const date = new Date(timeStr);
             const today = new Date();
@@ -320,20 +332,20 @@ class ArticleManager {
             return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
         };
 
-        card.innerHTML = `  
-            <label class="checkbox-wrapper">  
-                <input type="checkbox" class="batch-checkbox" ${this.selectedArticles.has(article.path) ? 'checked' : ''}>  
-                <span class="checkbox-custom"></span>  
-            </label>  
-            <div class="card-preview">  
-                <iframe sandbox="allow-same-origin allow-scripts"   
-                        loading="lazy"   
-                        data-article-path="${article.path}"  
+        card.innerHTML = `
+            <label class="checkbox-wrapper">
+                <input type="checkbox" class="batch-checkbox" ${this.selectedArticles.has(article.path) ? 'checked' : ''}>
+                <span class="checkbox-custom"></span>
+            </label>
+            <div class="card-preview">
+                <iframe sandbox="allow-same-origin allow-scripts"
+                        loading="lazy"
+                        data-article-path="${article.path}"
                         data-loaded="false"
                         onload="this.parentElement.querySelector('.preview-loading').style.display='none'"
-                        onerror="this.parentElement.querySelector('.preview-loading').style.display='none'"></iframe>  
-                <div class="preview-loading">加载中...</div>  
-            </div>  
+                        onerror="this.parentElement.querySelector('.preview-loading').style.display='none'"></iframe>
+                <div class="preview-loading">加载中...</div>
+            </div>
             <div class="card-content">
                 <h4 class="card-title" title="${this.escapeHtml(article.title)}">${this.escapeHtml(article.title)}</h4>
                 <div class="card-meta">
@@ -342,64 +354,64 @@ class ArticleManager {
                     ${article.size ? `<span class="size-info">${article.size}</span>` : ''}
                 </div>
             </div>
-            <div class="card-actions">  
-                <button class="btn-icon" data-action="edit" title="编辑">  
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>  
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>  
-                    </svg>  
-                </button>  
+            <div class="card-actions">
+                <button class="btn-icon" data-action="edit" title="编辑">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                </button>
                 <button class="btn-icon" data-action="view-source" title="查看原始热点内容">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                         <circle cx="12" cy="12" r="3"/>
                     </svg>
                 </button>
-                <button class="btn-icon" data-action="re-template" title="AI 换模板">  
+                <button class="btn-icon" data-action="re-template" title="AI 换模板">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
                     </svg>
                 </button>
-                <button class="btn-icon" data-action="optimize-title" title="AI 换标题">  
+                <button class="btn-icon" data-action="optimize-title" title="AI 换标题">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                         <path d="M9 11l3 3"/>
                     </svg>
                 </button>
-                <button class="btn-icon" data-action="generate-images" title="AI 配图">  
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>  
-                        <circle cx="8.5" cy="8.5" r="1.5"/>  
-                        <polyline points="21 15 16 10 5 21"/>  
-                    </svg>  
+                <button class="btn-icon" data-action="generate-images" title="AI 配图">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                        <polyline points="21 15 16 10 5 21"/>
+                    </svg>
                 </button>
-                <button class="btn-icon" data-action="clean-visual-leaks" title="清理场景描述">  
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">  
-                        <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>  
-                        <line x1="10" y1="11" x2="10" y2="17"/>  
-                        <line x1="14" y1="11" x2="14" y2="17"/>  
-                    </svg>  
-                </button>  
-                <button class="btn-icon" data-action="illustration" title="设计">  
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                        <rect x="3" y="3" width="7" height="7"/>  
-                        <rect x="14" y="3" width="7" height="7"/>  
-                        <rect x="3" y="14" width="7" height="7"/>  
-                        <rect x="14" y="14" width="7" height="7"/>  
-                        <path d="M10 10l4 4"/>  
-                    </svg>     
-                </button>  
-                <button class="btn-icon" data-action="publish" title="发布">  
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                        <path d="M22 2L11 13"/>  
-                        <path d="M22 2l-7 20-4-9-9-4 20-7z"/>  
-                    </svg>  
-                </button>  
-                <button class="btn-icon vote-btn" data-action="vote" title="审美投票">  
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" style="color: #ff4d4f;">  
-                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>  
-                    </svg>  
+                <button class="btn-icon" data-action="clean-visual-leaks" title="清理场景描述">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                        <line x1="10" y1="11" x2="10" y2="17"/>
+                        <line x1="14" y1="11" x2="14" y2="17"/>
+                    </svg>
+                </button>
+                <button class="btn-icon" data-action="illustration" title="设计">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                        <rect x="3" y="3" width="7" height="7"/>
+                        <rect x="14" y="3" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/>
+                        <path d="M10 10l4 4"/>
+                    </svg>
+                </button>
+                <button class="btn-icon" data-action="publish" title="发布">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                        <path d="M22 2L11 13"/>
+                        <path d="M22 2l-7 20-4-9-9-4 20-7z"/>
+                    </svg>
+                </button>
+                <button class="btn-icon vote-btn" data-action="vote" title="审美投票">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" style="color: #ff4d4f;">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                    </svg>
                 </button>
                 <button class="btn-icon" data-action="vote" title="审美投票 (影响 AI DNA)">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -407,13 +419,13 @@ class ArticleManager {
                 </svg>
             </button>
             <button class="btn-icon" data-action="delete" title="删除">
-  
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                        <polyline points="3 6 5 6 21 6"/>  
-                        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>  
-                    </svg>  
-                </button>  
-            </div>  
+
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    </svg>
+                </button>
+            </div>
         `;
 
         return card;
@@ -421,28 +433,28 @@ class ArticleManager {
 
     async openImageDesigner(article) {
         try {
-            // 检查文件扩展名  
+            // 检查文件扩展名
             const ext = article.path.toLowerCase().split('.').pop();
 
             if (ext === 'md' || ext === 'markdown' || ext === 'txt') {
-                // 显示警告对话框,让用户选择是否继续  
+                // 显示警告对话框,让用户选择是否继续
                 window.dialogManager.showConfirm(
                     `警告: ${ext.toUpperCase()} 格式文件不适合使用可视化设计器编辑。\n` +
                     `使用页面设计器可能会破坏原始格式,建议使用"编辑"功能进行修改。\n` +
                     `是否仍要继续使用页面设计器？`,
                     async () => {
-                        // 用户点击确认,继续打开设计器  
+                        // 用户点击确认,继续打开设计器
                         if (!window.imageDesignerDialog) {
                             window.imageDesignerDialog = new ImageDesignerDialog();
                         }
                         await window.imageDesignerDialog.open(article.path, article.title);
                     },
                     () => {
-                        // 用户点击取消,不执行任何操作  
+                        // 用户点击取消,不执行任何操作
                     }
                 );
             } else {
-                // HTML 文件,直接打开  
+                // HTML 文件,直接打开
                 if (!window.imageDesignerDialog) {
                     window.imageDesignerDialog = new ImageDesignerDialog();
                 }
@@ -453,7 +465,7 @@ class ArticleManager {
         }
     }
 
-    // 添加新方法显示发布历史  
+    // 添加新方法显示发布历史
     async showPublishHistory(article) {
         try {
             const response = await fetch(`/api/articles/publish-history/${encodeURIComponent(article.path)}`);
@@ -464,7 +476,7 @@ class ArticleManager {
             const result = await response.json();
             const records = result.data.records || [];
 
-            // 显示发布历史对话框  
+            // 显示发布历史对话框
             this.renderPublishHistoryDialog(article, records);
         } catch (error) {
             this.showNotification('获取发布历史失败: ' + error.message, 'error');
@@ -472,35 +484,35 @@ class ArticleManager {
     }
 
     renderPublishHistoryDialog(article, records) {
-        const dialogHtml = `  
-            <div class="modal-overlay" id="publish-history-dialog">  
-                <div class="modal-content publish-history-modal">  
-                    <div class="modal-header">  
-                        <h3>发布记录</h3>  
-                        <button class="modal-close" onclick="window.articleManager.closePublishHistoryDialog()">×</button>  
-                    </div>  
-                    <div class="modal-body">  
-                        <div class="article-info">  
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>  
-                                <polyline points="14,2 14,8 20,8"/>  
-                            </svg>  
-                            <span class="article-title">${this.escapeHtml(article.title)}</span>  
-                        </div>  
-                        
-                        ${records.length === 0 ? `  
-                            <div class="empty-state">  
-                                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor">  
-                                    <circle cx="12" cy="12" r="10"/>  
-                                    <line x1="12" y1="8" x2="12" y2="12"/>  
-                                    <line x1="12" y1="16" x2="12.01" y2="16"/>  
-                                </svg>  
-                                <p>暂无发布记录</p>  
-                            </div>  
-                        ` : `  
-                            <div class="history-timeline">  
+        const dialogHtml = `
+            <div class="modal-overlay" id="publish-history-dialog">
+                <div class="modal-content publish-history-modal">
+                    <div class="modal-header">
+                        <h3>发布记录</h3>
+                        <button class="modal-close" onclick="window.articleManager.closePublishHistoryDialog()">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="article-info">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14,2 14,8 20,8"/>
+                            </svg>
+                            <span class="article-title">${this.escapeHtml(article.title)}</span>
+                        </div>
+
+                        ${records.length === 0 ? `
+                            <div class="empty-state">
+                                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <line x1="12" y1="8" x2="12" y2="12"/>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                </svg>
+                                <p>暂无发布记录</p>
+                            </div>
+                        ` : `
+                            <div class="history-timeline">
                                 ${records.map((record, index) => {
-            // 【修改】从 account_info 中提取信息  
+            // 【修改】从 account_info 中提取信息
             const accountInfo = record.account_info || {};
             const platform = record.platform || 'unknown';
             const platformName = {
@@ -509,61 +521,61 @@ class ArticleManager {
                 'douyin': '抖音'
             }[platform] || platform;
 
-            return `  
-                                        <div class="history-item ${record.success ? 'success' : 'failed'}">  
-                                            <div class="history-icon">  
-                                                ${record.success ? `  
-                                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">  
-                                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>  
-                                                        <polyline points="22 4 12 14.01 9 11.01"/>  
-                                                    </svg>  
-                                                ` : `  
-                                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">  
-                                                        <circle cx="12" cy="12" r="10"/>  
-                                                        <line x1="15" y1="9" x2="9" y2="15"/>  
-                                                        <line x1="9" y1="9" x2="15" y2="15"/>  
-                                                    </svg>  
-                                                `}  
-                                            </div>  
-                                            <div class="history-content">  
-                                                <div class="history-header">  
-                                                    <span class="history-platform">${this.escapeHtml(platformName)}</span>  
-                                                    <span class="history-account">${this.escapeHtml(accountInfo.author || '未知账号')}</span>  
-                                                    ${accountInfo.appid ? `<span class="history-appid">AppID: ${this.escapeHtml(accountInfo.appid)}</span>` : ''}  
-                                                </div>  
-                                                <div class="history-time">${this.formatHistoryTime(record.timestamp)}</div>  
-                                                ${record.error ? `  
-                                                    <div class="history-${record.success ? 'warning' : 'error'}">  
-                                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor">  
-                                                            ${record.success ? `  
-                                                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>  
-                                                                <line x1="12" y1="9" x2="12" y2="13"/>  
-                                                                <line x1="12" y1="17" x2="12.01" y2="17"/>  
-                                                            ` : `  
-                                                                <circle cx="12" cy="12" r="10"/>  
-                                                                <line x1="12" y1="8" x2="12" y2="12"/>  
-                                                                <line x1="12" y1="16" x2="12.01" y2="16"/>  
-                                                            `}  
-                                                        </svg>  
-                                                        <span>${this.escapeHtml(this.truncateError(record.error))}</span>  
-                                                    </div>  
-                                                ` : ''}  
-                                            </div>  
-                                            ${index < records.length - 1 ? '<div class="history-line"></div>' : ''}  
-                                        </div>  
+            return `
+                                        <div class="history-item ${record.success ? 'success' : 'failed'}">
+                                            <div class="history-icon">
+                                                ${record.success ? `
+                                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                                        <polyline points="22 4 12 14.01 9 11.01"/>
+                                                    </svg>
+                                                ` : `
+                                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                                        <circle cx="12" cy="12" r="10"/>
+                                                        <line x1="15" y1="9" x2="9" y2="15"/>
+                                                        <line x1="9" y1="9" x2="15" y2="15"/>
+                                                    </svg>
+                                                `}
+                                            </div>
+                                            <div class="history-content">
+                                                <div class="history-header">
+                                                    <span class="history-platform">${this.escapeHtml(platformName)}</span>
+                                                    <span class="history-account">${this.escapeHtml(accountInfo.author || '未知账号')}</span>
+                                                    ${accountInfo.appid ? `<span class="history-appid">AppID: ${this.escapeHtml(accountInfo.appid)}</span>` : ''}
+                                                </div>
+                                                <div class="history-time">${this.formatHistoryTime(record.timestamp)}</div>
+                                                ${record.error ? `
+                                                    <div class="history-${record.success ? 'warning' : 'error'}">
+                                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor">
+                                                            ${record.success ? `
+                                                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                                                <line x1="12" y1="9" x2="12" y2="13"/>
+                                                                <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                                            ` : `
+                                                                <circle cx="12" cy="12" r="10"/>
+                                                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                                            `}
+                                                        </svg>
+                                                        <span>${this.escapeHtml(this.truncateError(record.error))}</span>
+                                                    </div>
+                                                ` : ''}
+                                            </div>
+                                            ${index < records.length - 1 ? '<div class="history-line"></div>' : ''}
+                                        </div>
                                     `;
-        }).join('')}  
-                            </div>  
-                        `}  
-                    </div>  
-                </div>  
-            </div>  
+        }).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            </div>
         `;
 
         document.body.insertAdjacentHTML('beforeend', dialogHtml);
     }
 
-    // 辅助方法:格式化时间  
+    // 辅助方法:格式化时间
     formatHistoryTime(timestamp) {
         const date = new Date(timestamp);
         const now = new Date();
@@ -586,7 +598,7 @@ class ArticleManager {
         });
     }
 
-    // 辅助方法:截断错误信息  
+    // 辅助方法:截断错误信息
     truncateError(error) {
         if (!error) return '';
         const maxLength = 100;
@@ -598,17 +610,17 @@ class ArticleManager {
         if (dialog) dialog.remove();
     }
 
-    // 绑定卡片事件  
+    // 绑定卡片事件
     bindCardEvents() {
         const grid = document.getElementById('article-content-grid');
         if (!grid) return;
 
         grid.querySelectorAll('.article-card').forEach(card => {
-            // 状态徽章点击事件  
+            // 状态徽章点击事件
             const statusBadge = card.querySelector('.status-badge');
             if (statusBadge) {
                 statusBadge.addEventListener('click', (e) => {
-                    e.stopPropagation(); // 阻止事件冒泡  
+                    e.stopPropagation(); // 阻止事件冒泡
                     const path = card.dataset.path;
                     const article = this.articles.find(a => a.path === path);
                     if (article) {
@@ -617,7 +629,7 @@ class ArticleManager {
                 });
             }
 
-            // 卡片点击预览  
+            // 卡片点击预览
             card.addEventListener('click', (e) => {
                 if (!e.target.closest('.card-actions') &&
                     !e.target.closest('.batch-checkbox') &&
@@ -630,7 +642,7 @@ class ArticleManager {
                 }
             });
 
-            // 操作按钮点击  
+            // 操作按钮点击
             card.querySelectorAll('[data-action]').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -788,7 +800,7 @@ class ArticleManager {
             const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️', status: '🎨' };
             const div = document.createElement('div');
             div.style.color = colors[type] || colors.info;
-            div.innerHTML = `<span style="opacity:0.5">[${new Date().toLocaleTimeString()}]</span> ${icons[type] || ''} ${msg}`;
+            div.innerHTML = `<span style="opacity:0.5">[${new Date().toLocaleTimeString()}]</span> ${icons[type] || ''} ${this.escapeHtml(msg)}`;
             logEl.appendChild(div);
             logEl.scrollTop = logEl.scrollHeight;
         };
@@ -912,29 +924,29 @@ class ArticleManager {
         });
     }
 
-    // 初始化懒加载观察器    
+    // 初始化懒加载观察器
     initIntersectionObserver() {
         const options = {
             root: document.querySelector('#article-manager-view .manager-main'),
-            rootMargin: '200px',  // 提前200px开始加载  
+            rootMargin: '200px',  // 提前200px开始加载
             threshold: 0.01
         };
 
         this.observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
-                    const card = entry.target;  // 观察的是卡片本身  
+                    const card = entry.target;  // 观察的是卡片本身
                     const iframe = card.querySelector('iframe[data-article-path]');
                     if (iframe && iframe.dataset.loaded !== 'true') {
                         this.loadSinglePreview(iframe);
-                        this.observer.unobserve(card);  // 加载后立即取消观察  
+                        this.observer.unobserve(card);  // 加载后立即取消观察
                     }
                 }
             });
         }, options);
     }
 
-    // 加载单个预览    
+    // 加载单个预览
     async loadSinglePreview(iframe) {
         if (iframe.dataset.loaded === 'true') return;
         const card = iframe.closest('.article-card');
@@ -977,8 +989,8 @@ class ArticleManager {
                         overflow-x: hidden;
                     }
                     /* 给普通内容添加基础内间距容器，防止贴边 */
-                    .article-container { 
-                        padding: 16px; 
+                    .article-container {
+                        padding: 16px;
                     }
                     /* 如果是自定义 HTML 模板内容，不加容器 */
                     /* 标题样式 */
@@ -1049,24 +1061,23 @@ class ArticleManager {
     }
 
 
-    // 绑定事件  
+    // 绑定事件
     bindEvents() {
-        // 状态树点击    
+        // 状态树点击
         document.getElementById('article-sidebar-tree')?.addEventListener('click', (e) => {
             const item = e.target.closest('.tree-item');
             if (item) {
                 this.currentStatus = item.dataset.status;
-                this.filterArticles();
-                this.renderStatusTree();
+                this.loadArticles({ reset: true, force: true });
             }
         });
 
-        // 搜索    
+        // 搜索
         document.getElementById('article-search')?.addEventListener('input', (e) => {
             this.searchArticles(e.target.value);
         });
 
-        // 视图切换 - 删除全局绑定,只保留限定作用域的绑定  
+        // 视图切换 - 删除全局绑定,只保留限定作用域的绑定
         const articleView = document.getElementById('article-manager-view');
         if (articleView) {
             articleView.querySelectorAll('.view-btn').forEach(btn => {
@@ -1080,17 +1091,17 @@ class ArticleManager {
             });
         }
 
-        // 批量操作模式    
+        // 批量操作模式
         document.getElementById('batch-mode-toggle')?.addEventListener('click', () => {
             this.toggleBatchMode();
         });
 
-        // 批量删除    
+        // 批量删除
         document.getElementById('batch-delete')?.addEventListener('click', () => {
             this.batchDelete();
         });
 
-        // 批量发布    
+        // 批量发布
         document.getElementById('batch-publish')?.addEventListener('click', () => {
             this.batchPublish();
         });
@@ -1105,7 +1116,7 @@ class ArticleManager {
             this.invertSelection();
         });
 
-        // 卡片复选框变化    
+        // 卡片复选框变化
         document.addEventListener('change', (e) => {
             if (e.target.classList.contains('batch-checkbox')) {
                 const card = e.target.closest('.article-card');
@@ -1119,7 +1130,7 @@ class ArticleManager {
             }
         });
 
-        // 平台选择变化  
+        // 平台选择变化
         const platformSelect = document.getElementById('publish-platform-select');
         if (platformSelect) {
             platformSelect.addEventListener('change', (e) => {
@@ -1127,7 +1138,7 @@ class ArticleManager {
             });
         }
 
-        // 快捷键刷新 (F5 或 Ctrl+R) - 隐藏功能    
+        // 快捷键刷新 (F5 或 Ctrl+R) - 隐藏功能
         document.addEventListener('keydown', (e) => {
             const articleView = document.getElementById('article-manager-view');
             if (articleView && articleView.style.display !== 'none') {
@@ -1148,7 +1159,7 @@ class ArticleManager {
         }
     }
 
-    // 搜索文章  
+    // 搜索文章
     searchArticles(query) {
         if (!query.trim()) {
             this.filterArticles();
@@ -1162,7 +1173,7 @@ class ArticleManager {
         this.renderArticles();
     }
 
-    // 切换批量操作模式  
+    // 切换批量操作模式
     toggleBatchMode() {
         this.batchMode = !this.batchMode;
 
@@ -1172,27 +1183,27 @@ class ArticleManager {
         const batchText = toggleBtn.querySelector('.batch-mode-text');
 
         if (this.batchMode) {
-            // 进入批量模式  
+            // 进入批量模式
             toggleBtn.classList.add('active');
             batchText.textContent = '退出批量';
             batchCount.style.display = 'inline';
             subActions.style.display = 'flex';
 
-            // 只更新卡片class,不重新渲染  
+            // 只更新卡片class,不重新渲染
             document.querySelectorAll('.article-card').forEach(card => {
                 card.classList.add('batch-mode');
             });
         } else {
-            // 退出批量模式  
+            // 退出批量模式
             toggleBtn.classList.remove('active');
             batchText.textContent = '批量操作';
             batchCount.style.display = 'none';
             subActions.style.display = 'none';
 
-            // 清空选中状态  
+            // 清空选中状态
             this.selectedArticles.clear();
 
-            // 只更新卡片class,不重新渲染  
+            // 只更新卡片class,不重新渲染
             document.querySelectorAll('.article-card').forEach(card => {
                 card.classList.remove('batch-mode');
                 const checkbox = card.querySelector('.batch-checkbox');
@@ -1254,12 +1265,12 @@ class ArticleManager {
             batchCount.textContent = `(已选 ${count})`;
         }
 
-        // 根据选中数量启用/禁用子按钮  
+        // 根据选中数量启用/禁用子按钮
         if (batchPublish) batchPublish.disabled = count === 0;
         if (batchDelete) batchDelete.disabled = count === 0;
     }
 
-    // 更新批量操作按钮状态  
+    // 更新批量操作按钮状态
     updateBatchButtons() {
         const batchDelete = document.getElementById('batch-delete');
         const batchPublish = document.getElementById('batch-publish');
@@ -1296,7 +1307,7 @@ class ArticleManager {
         await this.previewArticle({ path, title: name.replace(/\.[^.]+$/, '') });
     }
 
-    // 预览文章  
+    // 预览文章
     async previewArticle(article) {
         try {
             const response = await fetch(`/api/articles/content?path=${encodeURIComponent(article.path)}`);
@@ -1316,7 +1327,7 @@ class ArticleManager {
                     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
                     htmlContent = window.markdownRenderer.renderWithStyles(content, isDark);
                 } else if (ext === 'txt') {
-                    // TXT文件:生成带滚动条的完整文档  
+                    // TXT文件:生成带滚动条的完整文档
                     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
                     const computedStyle = getComputedStyle(document.documentElement);
                     const bgColor = computedStyle.getPropertyValue('--background-color').trim();
@@ -1324,7 +1335,7 @@ class ArticleManager {
                     const secondaryColor = computedStyle.getPropertyValue('--secondary-color').trim();
                     const textColor = computedStyle.getPropertyValue('--text-primary').trim();
 
-                    // 将纯文本转换为HTML段落  
+                    // 将纯文本转换为HTML段落
                     const txtHtml = content.split('\n')
                         .map(line => line.trim() ? `<p>${line}</p>` : '<br>')
                         .join('\n');
@@ -1342,30 +1353,30 @@ class ArticleManager {
                                             color: ${textColor};
                                             background: transparent;
                                             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                                            line-height: 1.6;  
+                                            line-height: 1.6;
             }
 
                                             p {
-                                                margin: 0 0 16px 0;  
+                                                margin: 0 0 16px 0;
             }
 
                                             /* 使用与全局CSS相同的滚动条样式 */
                                             ::-webkit-scrollbar {
                                                 width: 6px;
-                                            height: 6px;  
+                                            height: 6px;
             }
 
                                             ::-webkit-scrollbar-track {
-                                                background: ${bgColor};  
+                                                background: ${bgColor};
             }
 
                                             ::-webkit-scrollbar-thumb {
                                                 background: ${borderColor};
-                                            border-radius: 3px;  
+                                            border-radius: 3px;
             }
 
                                             ::-webkit-scrollbar-thumb:hover {
-                                                background: ${secondaryColor};  
+                                                background: ${secondaryColor};
             }
                                         </style>
                                 </head>
@@ -1393,13 +1404,13 @@ class ArticleManager {
         }
     }
 
-    // 显示发布对话框  
+    // 显示发布对话框
     async showPublishDialog(path) {
         this.publishingArticles = [path];
         await this.loadAccountsAndShowDialog();
     }
 
-    // 批量发布  
+    // 批量发布
     async batchPublish() {
         if (this.selectedArticles.size === 0) {
             window.app?.showNotification('请先选择要发布的文章', 'warning');
@@ -1410,39 +1421,39 @@ class ArticleManager {
         await this.loadAccountsAndShowDialog();
     }
 
-    // 加载平台并显示对话框  
+    // 加载平台并显示对话框
     async loadAccountsAndShowDialog() {
         try {
-            // 清除缓存,强制重新加载    
+            // 清除缓存,强制重新加载
             this.platformAccounts = {};
 
-            // 如果平台列表未加载,先加载  
+            // 如果平台列表未加载,先加载
             if (!this.platforms) {
                 await this.loadPlatforms();
             }
 
-            // 填充平台选择器  
+            // 填充平台选择器
             const platformSelect = document.getElementById('publish-platform-select');
             if (platformSelect) {
                 platformSelect.innerHTML = '<option value="">请选择发布平台...</option>' +
                     this.platforms.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
             }
 
-            // 隐藏账号选择区域,等待用户选择平台  
+            // 隐藏账号选择区域,等待用户选择平台
             document.getElementById('account-selection-group').style.display = 'none';
             document.getElementById('no-accounts-tip').style.display = 'none';
 
-            // 禁用确认按钮  
+            // 禁用确认按钮
             document.getElementById('confirm-publish-btn').disabled = true;
 
-            // 显示对话框  
+            // 显示对话框
             document.getElementById('publish-dialog').style.display = 'flex';
         } catch (error) {
             window.app?.showNotification('加载平台列表失败: ' + error.message, 'error');
         }
     }
 
-    // 平台选择变化    
+    // 平台选择变化
     async onPlatformChange(platformId) {
         const accountSelectionGroup = document.getElementById('account-selection-group');
         const noAccountsTip = document.getElementById('no-accounts-tip');
@@ -1456,13 +1467,13 @@ class ArticleManager {
         }
 
         try {
-            // 检查缓存    
+            // 检查缓存
             if (this.platformAccounts[platformId]) {
                 this.renderPlatformAccounts(platformId, this.platformAccounts[platformId]);
                 return;
             }
 
-            // 获取该平台的账号列表    
+            // 获取该平台的账号列表
             const response = await fetch('/api/config/');
             if (!response.ok) throw new Error('加载配置失败');
 
@@ -1480,7 +1491,7 @@ class ArticleManager {
                 }));
             }
 
-            // 缓存账号列表    
+            // 缓存账号列表
             this.platformAccounts[platformId] = accounts;
 
             this.renderPlatformAccounts(platformId, accounts);
@@ -1489,7 +1500,7 @@ class ArticleManager {
         }
     }
 
-    // 渲染平台账号列表    
+    // 渲染平台账号列表
     renderPlatformAccounts(platformId, accounts) {
         const accountSelectionGroup = document.getElementById('account-selection-group');
         const noAccountsTip = document.getElementById('no-accounts-tip');
@@ -1503,20 +1514,20 @@ class ArticleManager {
             noAccountsTip.style.display = 'none';
             accountSelectionGroup.style.display = 'block';
 
-            // 渲染账号列表 - 新设计:可点击选择  
+            // 渲染账号列表 - 新设计:可点击选择
             accountList.innerHTML = accounts.map(account => `
-                        <div class="account-item" data-account-index="${account.index}">    
-                    <div class="account-info">    
-                        <span class="account-name" title="${account.author}">${account.author}</span>  
-                        <span class="account-detail">AppID: ${account.appid}</span>  
-                    </div>  
-                    <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">  
-                        <polyline points="20 6 9 17 4 12"/>  
-                    </svg>  
+                        <div class="account-item" data-account-index="${account.index}">
+                    <div class="account-info">
+                        <span class="account-name" title="${account.author}">${account.author}</span>
+                        <span class="account-detail">AppID: ${account.appid}</span>
+                    </div>
+                    <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
                 </div>
                         `).join('');
 
-            // 绑定点击事件  
+            // 绑定点击事件
             accountList.querySelectorAll('.account-item').forEach(item => {
                 item.addEventListener('click', () => {
                     item.classList.toggle('selected');
@@ -1530,16 +1541,16 @@ class ArticleManager {
         }
     }
 
-    // 更新已选账号数量  
+    // 更新已选账号数量
     updateSelectedAccountCount() {
-        const selectedItems = document.querySelectorAll('.account-item.selected');  // ✅ 修正  
+        const selectedItems = document.querySelectorAll('.account-item.selected');  // ✅ 修正
         const count = selectedItems.length;
 
         document.getElementById('selected-account-count').textContent = `(已选 ${count} 个)`;
         document.getElementById('confirm-publish-btn').disabled = count === 0;
     }
 
-    // 全选账号  
+    // 全选账号
     selectAllAccounts() {
         document.querySelectorAll('.account-item').forEach(item => {
             item.classList.add('selected');
@@ -1547,7 +1558,7 @@ class ArticleManager {
         this.updateSelectedAccountCount();
     }
 
-    // 取消全选  
+    // 取消全选
     deselectAllAccounts() {
         document.querySelectorAll('.account-item').forEach(item => {
             item.classList.remove('selected');
@@ -1555,7 +1566,7 @@ class ArticleManager {
         this.updateSelectedAccountCount();
     }
 
-    // 更新发布按钮状态  
+    // 更新发布按钮状态
     updatePublishButtonState() {
         const platformSelected = document.getElementById('publish-platform-select')?.value;
         const accountSelected = document.querySelectorAll('.account-item.selected').length > 0;
@@ -1566,14 +1577,14 @@ class ArticleManager {
         }
     }
 
-    // 前往设置  
+    // 前往设置
     goToSettings() {
         this.closePublishDialog();
         // 切换到设置-微信公众号
         const settingsLink = document.querySelector('[data-view="config-manager"]');
         if (settingsLink) {
             settingsLink.click();
-            // 延迟切换到微信公众号配置  
+            // 延迟切换到微信公众号配置
             setTimeout(() => {
                 const wechatConfig = document.querySelector('[data-config="wechat"]');
                 if (wechatConfig) wechatConfig.click();
@@ -1581,14 +1592,14 @@ class ArticleManager {
         }
     }
 
-    // 关闭发布对话框  
+    // 关闭发布对话框
     closePublishDialog() {
         document.getElementById('publish-dialog').style.display = 'none';
         this.publishingArticles = [];
     }
 
-    // 确认发布  
-    // 确认发布  
+    // 确认发布
+    // 确认发布
     async confirmPublish() {
         const platformId = document.getElementById('publish-platform-select')?.value;
         const selectedAccounts = Array.from(
@@ -1603,7 +1614,7 @@ class ArticleManager {
         const articlePaths = [...this.publishingArticles];
         this.closePublishDialog();
 
-        // 显示进度对话框  
+        // 显示进度对话框
         this.showPublishProgressDialog(articlePaths.length, selectedAccounts.length, true);
 
         // 获取文章标题列表
@@ -1627,7 +1638,7 @@ class ArticleManager {
             if (response.ok) {
                 const result = await response.json();
 
-                // 构建标题前缀  
+                // 构建标题前缀
                 let titlePrefix = '';
                 if (articleTitles.length === 1) {
                     titlePrefix = `《${articleTitles[0]}》 `;
@@ -1635,15 +1646,15 @@ class ArticleManager {
                     titlePrefix = `《${articleTitles[0]}》等${articleTitles.length} 篇 `;
                 }
 
-                // 检查进度对话框是否仍然存在  
+                // 检查进度对话框是否仍然存在
                 const progressDialog = document.getElementById('publish-progress-dialog');
 
                 if (progressDialog) {
-                    // 对话框仍然打开 - 更新为结果显示,不显示右上角通知  
+                    // 对话框仍然打开 - 更新为结果显示,不显示右上角通知
                     this.updateProgressDialogWithResult(result);
                 } else {
-                    // 对话框已关闭 - 显示右上角通知(简洁版本,包含文章标题)  
-                    let notificationMessage = titlePrefix + '发布完成: ';  // 添加标题前缀  
+                    // 对话框已关闭 - 显示右上角通知(简洁版本,包含文章标题)
+                    let notificationMessage = titlePrefix + '发布完成: ';  // 添加标题前缀
                     if (result.success_count > 0 && result.fail_count > 0) {
                         notificationMessage += `成功 ${result.success_count}, 失败 ${result.fail_count} `;
                     } else if (result.success_count > 0) {
@@ -1658,8 +1669,8 @@ class ArticleManager {
                     );
                 }
 
-                // 构建走马灯消息(包含文章标题)  
-                let marqueeMessage = titlePrefix;  // 以标题开头  
+                // 构建走马灯消息(包含文章标题)
+                let marqueeMessage = titlePrefix;  // 以标题开头
 
                 if (result.success_count > 0 && result.fail_count === 0) {
                     marqueeMessage += `发布完成: 成功 ${result.success_count} `;
@@ -1669,7 +1680,7 @@ class ArticleManager {
                     marqueeMessage += `发布完成: 失败 ${result.fail_count} `;
                 }
 
-                // 添加详细信息(最多3条)  
+                // 添加详细信息(最多3条)
                 if (result.error_details && result.error_details.length > 0) {
                     const details = result.error_details.slice(0, 3).join('; ');
                     marqueeMessage += ` | 详情: ${details} `;
@@ -1678,22 +1689,22 @@ class ArticleManager {
                     }
                 }
 
-                // 判断消息类型(正确区分成功/警告/错误)  
+                // 判断消息类型(正确区分成功/警告/错误)
                 let messageType;
                 if (result.fail_count === 0) {
-                    // 全部成功  
+                    // 全部成功
                     if (result.error_details && result.error_details.length > 0) {
-                        messageType = 'warning';  // 成功但有警告(如权限回收) - 橙色  
+                        messageType = 'warning';  // 成功但有警告(如权限回收) - 橙色
                     } else {
-                        messageType = 'success';  // 完全成功 - 绿色  
+                        messageType = 'success';  // 完全成功 - 绿色
                     }
                 } else if (result.success_count > 0) {
-                    messageType = 'warning';  // 部分成功 - 橙色  
+                    messageType = 'warning';  // 部分成功 - 橙色
                 } else {
-                    messageType = 'error';  // 全部失败 - 红色  
+                    messageType = 'error';  // 全部失败 - 红色
                 }
 
-                // 推送到走马灯(循环3次,使用正确的颜色)  
+                // 推送到走马灯(循环3次,使用正确的颜色)
                 if (window.footerMarquee) {
                     window.footerMarquee.addMessage(
                         marqueeMessage,
@@ -1712,7 +1723,7 @@ class ArticleManager {
                 }
 
                 await this.loadArticles();
-                this.renderStatusTree();                // 更新已发布文章的状态徽章,不重新渲染整个卡片  
+                this.renderStatusTree();                // 更新已发布文章的状态徽章,不重新渲染整个卡片
                 articlePaths.forEach(path => {
                     const card = document.querySelector(`.article-card[data-path="${path}"]`);
                     if (card) {
@@ -1729,7 +1740,7 @@ class ArticleManager {
                     }
                 });
 
-                // 退出批量模式  
+                // 退出批量模式
                 this.selectedArticles.clear();
                 this.batchMode = false;
                 this.toggleBatchMode();
@@ -1756,7 +1767,7 @@ class ArticleManager {
         }
     }
 
-    // 在进度对话框中显示结果  
+    // 在进度对话框中显示结果
     updateProgressDialogWithResult(result) {
         const dialog = document.getElementById('publish-progress-dialog');
         if (!dialog) return;
@@ -1764,22 +1775,22 @@ class ArticleManager {
         const modalBody = dialog.querySelector('.modal-body');
         if (!modalBody) return;
 
-        // 判断标题颜色  
+        // 判断标题颜色
         const hasWarnings = result.warning_details && result.warning_details.length > 0;
         const hasErrors = result.error_details && result.error_details.length > 0;
         const resultType = result.fail_count === 0 ? 'success' : (result.success_count > 0 ? 'warning' : 'error');
 
-        // 合并所有详情信息  
+        // 合并所有详情信息
         const allDetails = [];
 
-        // 添加警告信息(橙色竖线)  
+        // 添加警告信息(橙色竖线)
         if (hasWarnings) {
             result.warning_details.forEach(detail => {
                 allDetails.push({ text: detail, type: 'warning' });
             });
         }
 
-        // 添加错误信息(红色竖线)  
+        // 添加错误信息(红色竖线)
         if (hasErrors) {
             result.error_details.forEach(detail => {
                 allDetails.push({ text: detail, type: 'error' });
@@ -1788,31 +1799,31 @@ class ArticleManager {
 
         modalBody.innerHTML = `
                         <div class="result-summary ${resultType}">
-                            <h4>发布完成</h4>  
-                ${result.success_count > 0 ? `<p>✓ 成功: ${result.success_count}</p>` : ''}  
-                ${result.fail_count > 0 ? `<p>✗ 失败: ${result.fail_count}</p>` : ''}  
+                            <h4>发布完成</h4>
+                ${result.success_count > 0 ? `<p>✓ 成功: ${result.success_count}</p>` : ''}
+                ${result.fail_count > 0 ? `<p>✗ 失败: ${result.fail_count}</p>` : ''}
             </div>
-                        ${allDetails.length > 0 ? `  
-                <div class="error-details">  
-                    <h5 style="color: ${result.fail_count > 0 && result.success_count === 0 ? '#ef4444' : '#f59e0b'};">结果详情</h5>  
-                    <div class="error-list">  
-                        ${allDetails.map(item => `  
-                            <div class="${item.type === 'warning' ? 'warning-item' : 'error-item'}">${this.escapeHtml(item.text)}</div>  
-                        `).join('')}  
-                    </div>  
-                </div>  
+                        ${allDetails.length > 0 ? `
+                <div class="error-details">
+                    <h5 style="color: ${result.fail_count > 0 && result.success_count === 0 ? '#ef4444' : '#f59e0b'};">结果详情</h5>
+                    <div class="error-list">
+                        ${allDetails.map(item => `
+                            <div class="${item.type === 'warning' ? 'warning-item' : 'error-item'}">${this.escapeHtml(item.text)}</div>
+                        `).join('')}
+                    </div>
+                </div>
             ` : ''
             }
                     `;
 
-        // 更新对话框头部和按钮  
+        // 更新对话框头部和按钮
         const header = dialog.querySelector('.modal-header h3');
         if (header) header.textContent = '发布结果';
 
         const closeBtn = dialog.querySelector('.modal-close');
         if (closeBtn) closeBtn.onclick = () => this.closeProgressDialog();
 
-        // 添加底部按钮  
+        // 添加底部按钮
         let footer = dialog.querySelector('.modal-footer');
         if (!footer) {
             footer = document.createElement('div');
@@ -1826,7 +1837,7 @@ class ArticleManager {
                     `;
     }
 
-    // 格式化发布结果为走马灯消息  
+    // 格式化发布结果为走马灯消息
     formatPublishMarqueeMessage(result) {
         const { success_count, fail_count } = result;
         const parts = [];
@@ -1841,7 +1852,7 @@ class ArticleManager {
         return parts.length > 0 ? `发布完成: ${parts.join(', ')} ` : '发布完成';
     }
 
-    // 推送发布结果到走马灯  
+    // 推送发布结果到走马灯
     // AI 换模板功能
     // ================= 全局任务管理 =================
     addTask(id, taskInfo) {
@@ -2299,7 +2310,7 @@ class ArticleManager {
             div.style.animation = 'fadeInStatus 0.3s ease-out forwards';
             div.style.fontSize = '13px';
             div.style.lineHeight = '1.5';
-            div.innerHTML = `<span style="opacity: 0.5; margin-right: 8px; font-family: monospace;">[${new Date().toLocaleTimeString([], { hour12: false })}]</span><span>${msg}</span>`;
+            div.innerHTML = `<span style="opacity: 0.5; margin-right: 8px; font-family: monospace;">[${new Date().toLocaleTimeString([], { hour12: false })}]</span><span>${this.escapeHtml(msg)}</span>`;
             statusList.appendChild(div);
             // 自动滚动到底部
             statusList.scrollTo({
@@ -2401,7 +2412,7 @@ class ArticleManager {
                                     }
                                     const logEntry = document.createElement('div');
                                     logEntry.style.cssText = 'margin-bottom: 10px; padding: 8px 12px; background: #f8fafc; border-radius: 6px; font-size: 13px; color: #475569; border-left: 3px solid #3a7bd5; animation: slideIn 0.3s ease-out;';
-                                    logEntry.innerHTML = `<span style="opacity: 0.5; margin-right:6px; font-family:monospace;">[${new Date().toLocaleTimeString([], { hour12: false })}]</span> ${data.message} `;
+                                    logEntry.innerHTML = `<span style="opacity: 0.5; margin-right:6px; font-family:monospace;">[${new Date().toLocaleTimeString([], { hour12: false })}]</span> ${this.escapeHtml(data.message)} `;
                                     insightsContent.appendChild(logEntry);
                                     insightsContent.parentElement.scrollTo(0, insightsContent.parentElement.scrollHeight);
                                 }
@@ -2721,10 +2732,10 @@ class ArticleManager {
 
         const { success_count, fail_count, error_details } = result;
 
-        // 构建详细的结果消息  
+        // 构建详细的结果消息
         let message = '发布完成: ';
 
-        // 只显示非零的统计  
+        // 只显示非零的统计
         if (success_count > 0 && fail_count > 0) {
             message += `成功 ${success_count}, 失败 ${fail_count}`;
         } else if (success_count > 0) {
@@ -2733,7 +2744,7 @@ class ArticleManager {
             message += `失败 ${fail_count}`;
         }
 
-        // 添加失败详情(最多显示3条)  
+        // 添加失败详情(最多显示3条)
         if (fail_count > 0 && error_details && error_details.length > 0) {
             const details = error_details.slice(0, 3).join('; ');
             message += ` | 失败详情: ${details}`;
@@ -2742,52 +2753,52 @@ class ArticleManager {
             }
         }
 
-        // 推送到走马灯  
+        // 推送到走马灯
         window.footerMarquee.addMessage(
             message,
             fail_count === 0 ? 'success' : (success_count > 0 ? 'warning' : 'error'),
-            false,  // persistent=false (临时消息)  
-            1       // loopCount=1 (立即显示一次,不循环)  
+            false,  // persistent=false (临时消息)
+            1       // loopCount=1 (立即显示一次,不循环)
         );
     }
 
-    showPublishProgressDialog(articleCount, accountCount, showCloseButton = true) {  // ✅ 改为showCloseButton  
-        const dialogHtml = `    
-            <div class="modal-overlay" id="publish-progress-dialog" data-user-closed="false">    
-                <div class="modal-content publish-progress-modal">    
-                    <div class="modal-header">    
-                        <h3>正在发布</h3>    
-                        ${showCloseButton ? '<button class="btn-icon modal-close" onclick="window.articleManager.closeProgressDialog()">×</button>' : ''}    
-                    </div>  
-                    <div class="modal-body">    
-                        <div class="progress-info">    
-                            <p>正在发布 ${articleCount} 篇文章到 ${accountCount} 个账号...</p>    
-                            <p class="progress-detail">您可以关闭此窗口,发布将在后台继续</p>    
-                        </div>    
-                        <div class="progress-spinner">    
-                            <svg class="spinner" viewBox="0 0 50 50">    
-                                <circle cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>    
-                            </svg>    
-                        </div>    
-                    </div>    
-                </div>    
-            </div>    
+    showPublishProgressDialog(articleCount, accountCount, showCloseButton = true) {  // ✅ 改为showCloseButton
+        const dialogHtml = `
+            <div class="modal-overlay" id="publish-progress-dialog" data-user-closed="false">
+                <div class="modal-content publish-progress-modal">
+                    <div class="modal-header">
+                        <h3>正在发布</h3>
+                        ${showCloseButton ? '<button class="btn-icon modal-close" onclick="window.articleManager.closeProgressDialog()">×</button>' : ''}
+                    </div>
+                    <div class="modal-body">
+                        <div class="progress-info">
+                            <p>正在发布 ${articleCount} 篇文章到 ${accountCount} 个账号...</p>
+                            <p class="progress-detail">您可以关闭此窗口,发布将在后台继续</p>
+                        </div>
+                        <div class="progress-spinner">
+                            <svg class="spinner" viewBox="0 0 50 50">
+                                <circle cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
         `;
 
         document.body.insertAdjacentHTML('beforeend', dialogHtml);
     }
 
-    // 关闭进度对话框(转为后台执行)  
+    // 关闭进度对话框(转为后台执行)
     closeProgressDialog() {
         const dialog = document.getElementById('publish-progress-dialog');
         if (dialog) dialog.remove();
     }
 
-    // 显示简洁的发布通知  
+    // 显示简洁的发布通知
     showPublishNotification(result) {
         const { success_count, fail_count } = result;
 
-        // 构建简洁消息  
+        // 构建简洁消息
         let message = '发布完成';
         const parts = [];
 
@@ -2806,7 +2817,7 @@ class ArticleManager {
         window.app?.showNotification(message, type);
     }
 
-    // 显示详细结果对话框  
+    // 显示详细结果对话框
     showPublishResultDialog(result) {
         const { success_count, fail_count, error_details } = result;
 
@@ -2820,54 +2831,54 @@ class ArticleManager {
             statusText = '发布失败';
         }
 
-        const dialogHtml = `  
-            <div id="publish-result-dialog" class="modal-overlay">  
-                <div class="modal-content publish-result-modal">  
-                    <div class="modal-header">  
-                        <h3>发布结果</h3>  
-                        <button class="modal-close" onclick="window.articleManager.closeResultDialog()">×</button>  
-                    </div>  
-                    <div class="modal-body">  
-                        <div class="result-summary ${statusClass}">  
-                            <h4>${statusText}</h4>  
-                            <div class="result-stats">  
-                                ${success_count > 0 ? `  
-                                    <div class="stat-item">  
-                                        <div class="stat-number success">${success_count}</div>  
-                                        <div class="stat-label">成功</div>  
-                                    </div>  
-                                ` : ''}  
-                                ${fail_count > 0 ? `  
-                                    <div class="stat-item">  
-                                        <div class="stat-number failed">${fail_count}</div>  
-                                        <div class="stat-label">失败</div>  
-                                    </div>  
-                                ` : ''}  
-                            </div>  
-                        </div>  
-                        
-                        ${error_details && error_details.length > 0 ? `  
-                            <div class="error-details-section">  
-                                <div class="error-details-header">  
-                                    <span class="error-details-title">失败详情</span>  
-                                </div>  
-                                <div class="error-list">  
-                                    ${error_details.map(err => `  
-                                        <div class="error-item">${this.escapeHtml(err)}</div>  
-                                    `).join('')}  
-                                </div>  
-                            </div>  
-                        ` : ''}  
-                    </div>  
-                    <div class="modal-footer">  
-                        <button class="btn btn-secondary" onclick="window.articleManager.closeResultDialog()">关闭</button>  
-                        <button class="btn btn-primary" onclick="window.open('https://mp.weixin.qq.com', '_blank')">打开公众号后台</button>  
-                    </div>  
-                </div>  
-            </div>  
+        const dialogHtml = `
+            <div id="publish-result-dialog" class="modal-overlay">
+                <div class="modal-content publish-result-modal">
+                    <div class="modal-header">
+                        <h3>发布结果</h3>
+                        <button class="modal-close" onclick="window.articleManager.closeResultDialog()">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="result-summary ${statusClass}">
+                            <h4>${statusText}</h4>
+                            <div class="result-stats">
+                                ${success_count > 0 ? `
+                                    <div class="stat-item">
+                                        <div class="stat-number success">${success_count}</div>
+                                        <div class="stat-label">成功</div>
+                                    </div>
+                                ` : ''}
+                                ${fail_count > 0 ? `
+                                    <div class="stat-item">
+                                        <div class="stat-number failed">${fail_count}</div>
+                                        <div class="stat-label">失败</div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+
+                        ${error_details && error_details.length > 0 ? `
+                            <div class="error-details-section">
+                                <div class="error-details-header">
+                                    <span class="error-details-title">失败详情</span>
+                                </div>
+                                <div class="error-list">
+                                    ${error_details.map(err => `
+                                        <div class="error-item">${this.escapeHtml(err)}</div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="window.articleManager.closeResultDialog()">关闭</button>
+                        <button class="btn btn-primary" onclick="window.open('https://mp.weixin.qq.com', '_blank')">打开公众号后台</button>
+                    </div>
+                </div>
+            </div>
         `;
 
-        // 移除进度对话框  
+        // 移除进度对话框
         const progressDialog = document.getElementById('publish-progress-dialog');
         if (progressDialog) progressDialog.remove();
 
@@ -2879,7 +2890,7 @@ class ArticleManager {
         if (dialog) dialog.remove();
     }
 
-    // 删除文章  
+    // 删除文章
     async deleteArticle(path) {
         window.dialogManager.showConfirm(
             '确认删除这篇文章吗?',
@@ -2903,7 +2914,7 @@ class ArticleManager {
         );
     }
 
-    // 批量删除  
+    // 批量删除
     async batchDelete() {
         if (this.selectedArticles.size === 0) {
             window.app?.showNotification('请先选择要删除的文章', 'warning');
@@ -2937,7 +2948,7 @@ class ArticleManager {
 
                 await this.loadArticles();
 
-                // 退出批量模式  
+                // 退出批量模式
                 this.selectedArticles.clear();
                 this.batchMode = false;
                 this.toggleBatchMode();
@@ -2945,7 +2956,7 @@ class ArticleManager {
         );
     }
 
-    // HTML转义  
+    // HTML转义
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
@@ -2953,6 +2964,12 @@ class ArticleManager {
     }
 
     // ==================== AI一键换标题功能 ====================
+    escapeAttr(text) {
+        return this.escapeHtml(text)
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     async optimizeTitle(article) {
         const dialogId = 'optimize-title-dialog';
         const existingDialog = document.getElementById(dialogId);
@@ -2978,7 +2995,7 @@ class ArticleManager {
                             <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">当前标题</div>
                             <div id="opt-title-current" style="font-weight: 600; color: var(--text-primary);">${this.escapeHtml(article.title)}</div>
                         </div>
-                        
+
                         <!-- 平台选择 -->
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <label style="font-size: 14px; color: var(--text-secondary);">目标平台：</label>
@@ -3084,10 +3101,10 @@ class ArticleManager {
                         <div style="font-size: 48px; margin-bottom: 15px;">⚠️</div>
                         <div style="font-size: 16px; font-weight: 600; margin-bottom: 10px;">AI标题生成失败</div>
                         <div style="color: var(--text-secondary); font-size: 14px; line-height: 1.6;">
-                            ${result.message || 'AI服务暂时不可用，请检查API配置'}
+                            ${this.escapeHtml(result.message || 'AI服务暂时不可用，请检查API配置')}
                         </div>
                         <div style="margin-top: 20px; font-size: 12px; color: #888;">
-                            错误类型: ${result.error_type || 'unknown'}
+                            错误类型: ${this.escapeHtml(result.error_type || 'unknown')}
                         </div>
                     </div>
                 `;
@@ -3111,7 +3128,7 @@ class ArticleManager {
                     <div style="font-size: 48px; margin-bottom: 15px;">⚠️</div>
                     <div style="font-size: 16px; font-weight: 600; margin-bottom: 10px;">请求失败</div>
                     <div style="color: var(--text-secondary); font-size: 14px;">
-                        ${error.message || '网络错误，请检查连接后重试'}
+                        ${this.escapeHtml(error.message || '网络错误，请检查连接后重试')}
                     </div>
                 </div>
             `;
@@ -3173,12 +3190,12 @@ class ArticleManager {
             const isRecommended = item.title === recommended || item.is_recommended;
 
             const optionHtml = `
-                <div class="opt-title-item" data-title="${this.escapeHtml(item.title)}" 
-                     onclick="window.articleManager.selectTitleOption(this, '${item.title.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')"
-                     style="cursor: pointer; padding: 14px 16px; border-radius: 10px; border: 2px solid ${isRecommended ? typeInfo.color : 'var(--border-color)'}; 
+                <div class="opt-title-item" data-title="${this.escapeAttr(item.title)}"
+                     onclick="window.articleManager.selectTitleOption(this, this.dataset.title)"
+                     style="cursor: pointer; padding: 14px 16px; border-radius: 10px; border: 2px solid ${isRecommended ? typeInfo.color : 'var(--border-color)'};
                             background: ${isRecommended ? typeInfo.color + '10' : 'var(--bg-secondary)'}; transition: all 0.2s;">
                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
-                        <span style="background: ${typeInfo.color}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">${typeInfo.label}</span>
+                        <span style="background: ${typeInfo.color}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">${this.escapeHtml(typeInfo.label)}</span>
                         ${isRecommended ? '<span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;">⭐ 推荐</span>' : ''}
                     </div>
                     <div style="font-weight: 600; font-size: 15px; color: var(--text-primary); margin-bottom: 6px; line-height: 1.4;">${this.escapeHtml(item.title)}</div>
@@ -3255,7 +3272,7 @@ class ArticleManager {
         }
     }
 
-    // 显示通知  
+    // 显示通知
     showNotification(message, type = 'info') {
         if (window.app?.showNotification) {
             window.app.showNotification(message, type);
@@ -3355,14 +3372,17 @@ class ArticleManager {
         if (emptyEl) emptyEl.style.display = 'none';
 
         grid.innerHTML = images.map(img => {
-            const safeFilename = img.filename.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const safeFilename = this.escapeAttr(img.filename || '');
+            const safePath = this.escapeAttr(img.path || '');
+            const displayFilename = this.escapeHtml(img.filename || '');
+            const displayMeta = this.escapeHtml(`${img.size_display || ''} · ${img.create_time || ''}`);
             return `
-            <div class="image-gallery-card" data-filename="${safeFilename}" style="background:var(--card-bg,#fff);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);transition:transform .2s,box-shadow .2s;border:1px solid var(--border-color,#e0e0e0)">
-                <div style="position:relative;aspect-ratio:1;overflow:hidden;cursor:pointer" onclick="window.open('${img.path}','_blank')">
-                    <img src="${img.path}" alt="${safeFilename}" loading="lazy" style="width:100%;height:100%;object-fit:cover;transition:transform .3s" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div class="image-gallery-card" data-filename="${safeFilename}" data-image-path="${safePath}" style="background:var(--card-bg,#fff);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);transition:transform .2s,box-shadow .2s;border:1px solid var(--border-color,#e0e0e0)">
+                <div style="position:relative;aspect-ratio:1;overflow:hidden;cursor:pointer" onclick="window.open(this.closest('.image-gallery-card').dataset.imagePath,'_blank')">
+                    <img src="${safePath}" alt="${safeFilename}" loading="lazy" style="width:100%;height:100%;object-fit:cover;transition:transform .3s" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
                 </div>
                 <div style="padding:10px 12px">
-                    <div style="font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${safeFilename}">${img.filename}</div>
+                    <div style="font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${safeFilename}">${displayFilename}</div>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
                         <span style="font-size:11px;color:var(--text-tertiary)">${img.size_display} · ${img.create_time}</span>
                         <button class="img-delete-btn" data-filename="${safeFilename}" style="background:none;border:none;cursor:pointer;color:var(--danger-color,#ef4444);font-size:14px;padding:2px 4px;border-radius:4px;transition:background .2s" title="删除" onmouseover="this.style.background='rgba(239,68,68,.1)'" onmouseout="this.style.background='none'">🗑️</button>
@@ -3492,30 +3512,30 @@ class ArticleManager {
     setupInfiniteScroll() {
         const contentArea = document.querySelector('.content-area');
         if (!contentArea || this._scrollHandlerSet) return;
-        
+
         this._scrollHandlerSet = true;
-        
+
         contentArea.addEventListener('scroll', () => {
             const scrollTop = contentArea.scrollTop;
             const scrollHeight = contentArea.scrollHeight;
             const clientHeight = contentArea.clientHeight;
-            
+
             if (scrollHeight - scrollTop - clientHeight < 200) {
                 this.loadMoreArticles();
             }
         });
     }
-    
+
     async loadMoreArticles() {
         if (this.loadingMore) return;
         if (!this.pagination || !this.pagination.total_pages) return;
         if (this.currentPage >= this.pagination.total_pages) return;
-        
+
         this.loadingMore = true;
         this.currentPage++;
-        
+
         try {
-            await this.loadArticles();
+            await this.loadArticles({ append: true, force: true, reset: false });
         } catch (error) {
             console.error('加载更多文章失败:', error);
             this.currentPage--;

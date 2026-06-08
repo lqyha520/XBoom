@@ -244,8 +244,9 @@ class UpdateChecker {
     }
 
     async fetchPolicy(retries = 3) {
-        const response = await fetch('/api/system/update-policy', {
+        const response = await fetch(`/api/system/update-policy?_=${Date.now()}`, {
             headers: this.getHeaders(),
+            cache: 'no-store',
         });
         const data = await response.json().catch(() => ({}));
         if (response.status === 403 && retries > 0) {
@@ -286,7 +287,7 @@ class UpdateChecker {
             if (this._isCreativeBusy()) {
                 if (window.footerMarquee?.addMessage) {
                     window.footerMarquee.addMessage(
-                        `????? v${policy.latest_version}???????????`,
+                        `发现新版本 v${policy.latest_version}，正在创作中，稍后自动准备更新`,
                         'info', false, 0
                     );
                 }
@@ -306,14 +307,14 @@ class UpdateChecker {
                 await this.prepareUpdateInBackground(policy);
             } else if (policy.can_update && window.footerMarquee?.addMessage) {
                 window.footerMarquee.addMessage(
-                    `????? v${policy.latest_version}????????????`,
+                    `发现新版本 v${policy.latest_version}，可在更新面板中手动安装`,
                     'info', false, 0
                 );
             }
         } catch (error) {
             console.error('Startup update check failed:', error);
             if (window.footerMarquee?.addMessage) {
-                window.footerMarquee.addMessage(`???????${this.normalizeError(error.message)}`, 'warning', false, 1);
+                window.footerMarquee.addMessage(`检查更新失败：${this.normalizeError(error.message)}`, 'warning', false, 1);
             }
         }
     }
@@ -332,11 +333,11 @@ class UpdateChecker {
             });
             const body = await response.json().catch(() => ({}));
             if (!response.ok) {
-                throw new Error(body.detail || '??????');
+                throw new Error(body.detail || '准备更新失败');
             }
             if (window.footerMarquee?.addMessage) {
                 window.footerMarquee.addMessage(
-                    `????????? v${policy.latest_version}`,
+                    `正在后台下载更新 v${policy.latest_version}`,
                     'info', false, 1
                 );
             }
@@ -345,7 +346,7 @@ class UpdateChecker {
         } catch (error) {
             console.warn('Background update prepare failed:', error);
             if (window.footerMarquee?.addMessage) {
-                window.footerMarquee.addMessage(`?????????${this.normalizeError(error.message)}`, 'warning', false, 1);
+                window.footerMarquee.addMessage(`后台更新准备失败：${this.normalizeError(error.message)}`, 'warning', false, 1);
             }
         }
     }
@@ -361,7 +362,7 @@ class UpdateChecker {
                 }
                 if (window.footerMarquee?.addMessage) {
                     window.footerMarquee.addMessage(
-                        `??? v${this.policy?.latest_version || ''} ?????????????????`,
+                        `更新 v${this.policy?.latest_version || ''} 已下载，退出程序后会自动安装`,
                         'success', false, 0
                     );
                 }
@@ -371,7 +372,7 @@ class UpdateChecker {
                     this.backgroundProgressTimer = null;
                 }
                 if (window.footerMarquee?.addMessage) {
-                    window.footerMarquee.addMessage(`???????${this.normalizeError(data.error || data.message)}`, 'warning', false, 1);
+                    window.footerMarquee.addMessage(`更新下载失败：${this.normalizeError(data.error || data.message)}`, 'warning', false, 1);
                 }
             }
         } catch (error) {

@@ -401,6 +401,9 @@ async def generate_content(request: GenerateRequest):
                     lg.print_log(f"⚠️ ref_config_dict为None，已初始化为空字典", "warning")
                 
                 for i, t in enumerate(topics_to_generate):
+                    if task_manager.is_stop_requested("main_generate"):
+                        lg.print_log("用户已停止生成，正在退出后台写作流程", "warning")
+                        break
                     lg.print_log(f"=====================================", "internal")
                     lg.print_log(f"🔜 [批量进度] 正在生成第 {i+1}/{article_count} 篇文章", "success")
                     lg.print_log(f"🔍 变量状态: req_platform={req_platform}, d_str={d_str}, ref_config_dict={ref_config_dict}", "debug")
@@ -435,6 +438,7 @@ async def generate_content(request: GenerateRequest):
                             "fast_mode": fast_mode,
                             "collection_mode": collection_mode
                         }
+                        config_data["cancel_marker_path"] = str(task_manager._cancel_marker_path("main_generate"))
                         lg.print_log(f"✅ config_data创建成功", "debug")
                     except Exception as config_e:
                         lg.print_log(f"❌ config_data创建失败: {config_e}", "error")
@@ -500,6 +504,14 @@ async def generate_content(request: GenerateRequest):
                             # 循环读取日志，同时检测子进程存活状态
                             lg.print_log(f"⏳ 开始监听子进程日志...", "debug")
                             while process.is_alive() or not p_log_queue.empty():
+                                if task_manager.is_stop_requested("main_generate"):
+                                    lg.print_log("用户已停止生成，正在终止当前写作进程", "warning")
+                                    if process.is_alive():
+                                        process.terminate()
+                                        process.join(timeout=3)
+                                        if process.is_alive():
+                                            process.kill()
+                                    break
                                 try:
                                     msg = p_log_queue.get(timeout=0.1)
                                     # 将 internal 的 任务执行完成 拦截处理
@@ -531,6 +543,9 @@ async def generate_content(request: GenerateRequest):
                                     lg.print_log(f"⚠️ 日志处理异常: {loop_e}", "warning")
                                     
                             lg.print_log(f"⏳ 等待子进程结束...", "debug")
+                            if task_manager.is_stop_requested("main_generate"):
+                                lg.print_log("生成任务已停止，跳过后续保存与发布动作", "warning")
+                                break
                             process.join(timeout=99999)  # 用户禁用超时限制
                             
                             if process.is_alive():
@@ -801,8 +816,11 @@ async def generate_content(request: GenerateRequest):
 @router.post("/generate/stop")
 async def stop_generation():
     """停止并放弃当前/残留的生成任务（不续跑）"""
-    task_manager.prepare_for_new_task("main_generate")
-    return {"status": "success", "message": "已放弃未完成任务，可开始新创作"}
+    success, message = task_manager.stop_task("main_generate")
+    status = "success" if success else "idle"
+    if not success:
+        message = "没有正在运行的手动生成任务"
+    return {"status": status, "message": message}
 
 
 @router.post("/generate/reset")

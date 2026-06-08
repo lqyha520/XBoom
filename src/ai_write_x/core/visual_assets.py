@@ -788,8 +788,21 @@ class VisualAssetsManager:
             size = cls._ratio_to_size(ratio.strip())
             
             img_path = None
+            image_cache_key = f"{img_api_type}|{size}|{prompt}"
             try:
-                if img_api_type == "picsum":
+                if img_api_type != "picsum":
+                    try:
+                        from src.ai_write_x.utils.cache_manager import cache_manager
+                        cached_img_path = cache_manager.get_image_cache(image_cache_key)
+                        if cached_img_path:
+                            img_path = cached_img_path
+                            lg.print_log(f"  [缓存命中] 复用已生成图片: {os.path.basename(img_path)}")
+                    except Exception as cache_e:
+                        lg.print_log(f"  [缓存] 图片缓存读取失败，继续生成: {cache_e}", "warning")
+
+                if img_path:
+                    pass
+                elif img_api_type == "picsum":
                     # Picsum 随机图片
                     w_h = size.split("*")
                     download_url = f"https://picsum.photos/{w_h[0]}/{w_h[1]}?random={idx+1}"
@@ -1401,6 +1414,12 @@ class VisualAssetsManager:
             # 替换占位符
             if not img_path:
                 continue
+            if img_api_type != "picsum":
+                try:
+                    from src.ai_write_x.utils.cache_manager import cache_manager
+                    cache_manager.set_image_cache(image_cache_key, img_path)
+                except Exception as cache_e:
+                    lg.print_log(f"  [缓存] 图片缓存写入失败: {cache_e}", "warning")
             generated_count += 1
             is_cover = False
             if task.get("original_element") is not None:

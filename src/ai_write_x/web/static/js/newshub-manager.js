@@ -11,28 +11,40 @@ class NewsHubManager {
         this.refreshInterval = 300000;
         this.initialized = false;
         this.initializing = false;
+        this.eventsBound = false;
+        this.dataLoaded = false;
+        this.backgroundStarted = false;
         this._loading = false;
     }
 
     init() {
         if (this.initializing) return;
+        if (!this.eventsBound) {
+            this.bindEvents();
+            this.eventsBound = true;
+        }
         if (this.initialized) {
             // 已初始化，仅刷新界面显示
             this.applyNewsFilter();
+            this.startAutoRefresh();
             return;
         }
         this.initializing = true;
-        this.bindEvents();
         
         // 先标记已初始化，立即显示界面
         this.initialized = true;
         this.initializing = false;
         
-        // 显示加载中状态
-        this.showLoadingState();
+        if (this.dataLoaded) {
+            this.applyNewsFilter();
+        } else {
+            this.showLoadingState();
+        }
         
         // 后台异步加载数据，不阻塞界面
-        this.loadDataInBackground();
+        if (!this.dataLoaded) {
+            this.loadDataInBackground();
+        }
     }
 
     _authHeaders() {
@@ -423,7 +435,7 @@ class NewsHubManager {
 
     startAutoRefresh() {
         const autoRefresh = document.getElementById('nh-auto-refresh');
-        if (autoRefresh && !autoRefresh.checked) return;
+        if (!autoRefresh || !autoRefresh.checked) return;
         if (this.autoRefreshInterval) clearInterval(this.autoRefreshInterval);
         this.autoRefreshInterval = setInterval(() => this.aggregateNow(), this.refreshInterval);
     }
@@ -437,10 +449,8 @@ class NewsHubManager {
 
     backgroundInit() {
         // 后台静默采集，不显示界面，不阻塞其他操作
-        if (this.initialized) return;
-        
-        this.initialized = true;
-        this.initializing = false;
+        if (this.backgroundStarted || this.dataLoaded) return;
+        this.backgroundStarted = true;
         
         console.log('[资讯采集] 后台静默采集开始');
         
@@ -460,9 +470,12 @@ class NewsHubManager {
     }
 
     async loadDataInBackground() {
+        if (this._loading) return;
+        this._loading = true;
         try {
             await this.loadSources();
             await Promise.all([this.loadCache(), this.loadTrends(), this.loadGitHubTrending()]);
+            this.dataLoaded = true;
             this.startAutoRefresh();
         } catch (e) {
             console.error('[资讯采集] 后台加载失败:', e);
@@ -470,6 +483,8 @@ class NewsHubManager {
             if (newsList) {
                 newsList.innerHTML = '<div class="error-state" style="text-align:center;padding:40px;color:#ef4444;">加载失败，请稍后重试</div>';
             }
+        } finally {
+            this._loading = false;
         }
     }
 
@@ -620,7 +635,10 @@ class NewsHubManager {
     }
 
     escapeAttr(str) {
-        return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return this.escapeHtml(str)
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/\\/g, '\\\\');
     }
 
     showSuccess(message) {

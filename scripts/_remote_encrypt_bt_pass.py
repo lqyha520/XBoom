@@ -2,6 +2,8 @@
 import sqlite3
 import subprocess
 
+from ops_secrets import env_or_default
+
 plain = open("/www/wwwroot/updates.bcxtech.cn/stats/config.php", encoding="utf-8").read()
 import re
 pwd = re.search(r"'db_pass'\s*=>\s*'([^']*)'", plain).group(1)
@@ -21,12 +23,13 @@ print('ENC', enc)
 """
 # simpler - call panel database sync
 panel_py = "/www/server/panel/pyenv/bin/python3"
+db_password = env_or_default("XBOOM_DB_PASSWORD", pwd)
 proc = subprocess.run(
-    [panel_py, "-c", """
+    [panel_py, "-c", f"""
 import sys
 sys.path.insert(0,'/www/server/panel/class')
 import public
-p='4LBZ8n88Ijlyr6Lh'
+p={db_password!r}
 for fn in ('en_crypt','encrypt','db_encrypt'):
     if hasattr(public, fn):
         try:

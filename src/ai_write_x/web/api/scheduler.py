@@ -5,6 +5,7 @@ from datetime import datetime
 import traceback
 
 from src.ai_write_x.database.db_manager import db_manager
+from src.ai_write_x.core import task_status
 from src.ai_write_x.core.scheduler import scheduler_service
 from src.ai_write_x.utils import log
 
@@ -77,6 +78,10 @@ async def update_task(task_id: str, data: TaskUpdate):
     from src.ai_write_x.database.models import ScheduledTask
     try:
         task = ScheduledTask.get_by_id(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if task.status in task_status.ACTIVE_STATUSES and data.status and data.status != task.status:
+            raise HTTPException(status_code=409, detail="Task is running; cancel this run before changing status")
         if data.status:
             task.status = data.status
         if data.topic:
@@ -96,14 +101,30 @@ async def update_task(task_id: str, data: TaskUpdate):
         task.updated_at = datetime.now()
         task.save()
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=404, detail="Task not found or update failed")
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: str):
+    from src.ai_write_x.database.models import ScheduledTask
+
+    task = ScheduledTask.get_by_id(task_id)
+    if task and task.status in task_status.ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="Task is running; cancel this run before deleting")
     if db_manager.delete_task(task_id):
         return {"status": "success"}
     raise HTTPException(status_code=404, detail="Task not found")
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    success, message = scheduler_service.request_cancel(task_id)
+    if success:
+        return {"status": "success", "message": message}
+    if message == "Task not found":
+        raise HTTPException(status_code=404, detail=message)
+    return {"status": "idle", "message": message}
 
 @router.get("/logs")
 async def get_logs(limit: int = 50):

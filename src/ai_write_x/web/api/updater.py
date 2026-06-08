@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 
@@ -65,6 +65,7 @@ _update_progress: Dict[str, Any] = {
     "download_path": "",
     "helper_script": "",
     "log_file": "",
+    "sha256": "",
 }
 
 _download_lock = threading.Lock()
@@ -603,6 +604,7 @@ def _reset_progress() -> None:
         "logs": [],
         "download_path": "",
         "helper_script": "",
+        "sha256": "",
     })
 
 
@@ -702,13 +704,18 @@ async def _stream_download_with_fallback(
                 try:
                     _append_log(f"正在下载 ({index}/{len(candidates)}) 第 {attempt} 次尝试...")
                     _append_log(url)
+                    temp_path = installer_path.with_suffix(installer_path.suffix + ".part")
+                    try:
+                        temp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
                     async with client.stream("GET", url) as response:
                         response.raise_for_status()
                         total_size = int(response.headers.get("content-length", 0))
                         downloaded = 0
                         installer_path.parent.mkdir(parents=True, exist_ok=True)
                         last_ui_update = 0.0
-                        with installer_path.open("wb") as file_obj:
+                        with temp_path.open("wb") as file_obj:
                             async for chunk in response.aiter_bytes():
                                 file_obj.write(chunk)
                                 downloaded += len(chunk)
@@ -725,8 +732,13 @@ async def _stream_download_with_fallback(
                                         f"正在下载更新安装包... {progress}%"
                                     )
                                     last_ui_update = now
+                    temp_path.replace(installer_path)
                     return url
                 except Exception as exc:
+                    try:
+                        installer_path.with_suffix(installer_path.suffix + ".part").unlink(missing_ok=True)
+                    except Exception:
+                        pass
                     detail = _humanize_update_error(exc)
                     errors.append(f"{url} -> {detail}")
                     log.print_log(f"[Updater] 下载失败: {url} ({detail})", "warning")
@@ -742,7 +754,7 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _verify_installer_sha256(installer_path: Path, expected_sha256: str) -> None:
+def _verify_installer_sha256(installer_path: Path, expected_sha256: str, *, log_success: bool = True) -> None:
     expected = str(expected_sha256 or "").strip().lower()
     if not expected:
         return
@@ -755,7 +767,8 @@ def _verify_installer_sha256(installer_path: Path, expected_sha256: str) -> None
         except Exception:
             pass
         raise RuntimeError("安装包校验失败，请重新下载或联系发布方")
-    _append_log("安装包 SHA256 校验通过")
+    if log_success:
+        _append_log("安装包 SHA256 校验通过")
 
 
 def _get_update_workspace() -> Path:
@@ -775,21 +788,37 @@ def _load_prepared_update_state() -> Dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
+        _clear_prepared_update_state()
         return {}
-    installer_path = Path(str(data.get("download_path") or ""))
-    helper_script = Path(str(data.get("helper_script") or ""))
-    if not installer_path.exists() or not helper_script.exists():
+    if not isinstance(data, dict):
+        _clear_prepared_update_state()
         return {}
-    return data if isinstance(data, dict) else {}
+    installer_path = _coerce_installer_path(data.get("download_path"))
+    helper_script = _coerce_existing_file_path(data.get("helper_script"))
+    if installer_path is None or helper_script is None:
+        _clear_prepared_update_state()
+        return {}
+    try:
+        _verify_installer_sha256(installer_path, str(data.get("sha256") or ""), log_success=False)
+    except Exception:
+        _clear_prepared_update_state()
+        return {}
+    return data
 
 
 def _save_prepared_update_state(
-    *, latest_version: str, installer_path: Path, helper_script: Path, log_file: str = ""
+    *,
+    latest_version: str,
+    installer_path: Path,
+    helper_script: Path,
+    sha256: str = "",
+    log_file: str = "",
 ) -> None:
     state = {
         "latest_version": latest_version,
         "download_path": str(installer_path),
         "helper_script": str(helper_script),
+        "sha256": str(sha256 or "").strip().lower(),
         "log_file": log_file,
         "prepared_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
@@ -797,6 +826,25 @@ def _save_prepared_update_state(
         json.dumps(state, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _coerce_existing_file_path(value: Any) -> Optional[Path]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.exists() or not path.is_file():
+        return None
+    return path
+
+
+def _coerce_installer_path(value: Any) -> Optional[Path]:
+    path = _coerce_existing_file_path(value)
+    if path is None:
+        return None
+    if path.suffix.lower() != ".exe":
+        return None
+    return path
 
 
 def _clear_prepared_update_state() -> None:
@@ -812,20 +860,41 @@ def has_prepared_update() -> bool:
 
 def start_prepared_update(reason: str = "manual") -> bool:
     state = _load_prepared_update_state()
-    installer_path = Path(str(state.get("download_path") or ""))
-    if not installer_path.exists():
+    installer_path = _coerce_installer_path(state.get("download_path"))
+    if installer_path is None:
+        return False
+    try:
+        _verify_installer_sha256(installer_path, str(state.get("sha256") or ""))
+    except Exception as exc:
+        _append_log(f"安装前校验失败: {_humanize_update_error(exc)}")
+        _clear_prepared_update_state()
         return False
     helper_script = _build_helper_script(installer_path)
     _save_prepared_update_state(
         latest_version=str(state.get("latest_version") or ""),
         installer_path=installer_path,
         helper_script=helper_script,
+        sha256=str(state.get("sha256") or ""),
         log_file=_update_progress.get("log_file", ""),
     )
     _append_log(f"正在启动安装助手: {reason}")
     _spawn_detached_powershell(helper_script)
     _clear_prepared_update_state()
     return True
+
+
+def _verify_prepared_update_before_install() -> bool:
+    state = _load_prepared_update_state()
+    installer_path = _coerce_installer_path(state.get("download_path"))
+    if installer_path is None:
+        return False
+    try:
+        _verify_installer_sha256(installer_path, str(state.get("sha256") or ""))
+        return True
+    except Exception as exc:
+        _append_log(f"安装前校验失败: {_humanize_update_error(exc)}")
+        _clear_prepared_update_state()
+        return False
 
 
 def _ps_single_quoted(path: Path | str) -> str:
@@ -974,31 +1043,44 @@ async def _run_download_update(
             latest_version=latest_version,
             installer_path=installer_path,
             helper_script=helper_script,
+            sha256=expected_sha256,
             log_file=_update_progress.get("log_file", ""),
         )
         _update_progress.update({
             "status": "ready_to_install",
             "progress": 100,
-            "message": "更新已准备完成，正在启动安装…",
+            "message": "更新已准备完成，退出程序后安装",
             "download_path": str(installer_path),
             "helper_script": str(helper_script),
+            "sha256": expected_sha256,
         })
         _append_log("更新助手已生成")
-        _append_log("下载完成，即将自动安装并重启…")
+        _append_log("下载完成，等待退出程序后安装")
     except Exception as exc:
         detail = _humanize_update_error(exc)
+        try:
+            installer_path.unlink(missing_ok=True)
+            installer_path.with_suffix(installer_path.suffix + ".part").unlink(missing_ok=True)
+        except Exception:
+            pass
+        _clear_prepared_update_state()
         _update_progress.update({
             "status": "error",
             "progress": 0,
             "message": detail,
             "error": detail,
+            "download_path": "",
+            "helper_script": "",
+            "sha256": "",
         })
         _append_log(f"更新失败: {detail}")
         log.print_log(f"[Updater] 下载更新失败: {exc}", "error")
 
 
 @router.get("/update-policy", response_model=UpdatePolicyResponse)
-async def get_update_policy():
+async def get_update_policy(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     try:
         return await _build_update_policy()
     except Exception as exc:
@@ -1007,12 +1089,14 @@ async def get_update_policy():
 
 
 @router.get("/check-update", response_model=UpdatePolicyResponse)
-async def check_update():
-    return await get_update_policy()
+async def check_update(response: Response):
+    return await get_update_policy(response)
 
 
 @router.get("/update-progress")
 async def get_update_progress():
+    if _update_progress.get("status") == "ready_to_install" and not has_prepared_update():
+        _reset_progress()
     return _update_progress
 
 
@@ -1032,7 +1116,9 @@ async def prepare_update(request: UpdateRequest):
         if current_status == "downloading":
             return {"status": "downloading", "message": "正在下载更新安装包..."}
         if current_status == "ready_to_install":
-            return {"status": "ready_to_install", "message": "更新已准备完成"}
+            if _verify_prepared_update_before_install():
+                return {"status": "ready_to_install", "message": "更新已准备完成"}
+            _reset_progress()
 
         _reset_progress()
         _update_progress["status"] = "downloading"
@@ -1101,6 +1187,8 @@ async def restart_and_update():
         }
 
     try:
+        if not _verify_prepared_update_before_install():
+            raise HTTPException(status_code=400, detail="安装包校验失败，请重新下载更新")
         _append_log("正在启动安装助手…")
         _spawn_detached_powershell(Path(helper_script))
         _clear_prepared_update_state()

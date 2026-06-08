@@ -8,6 +8,7 @@ class BottomProgressManager {
             review: { id: 'review', name: '终审查对', icon: '👁️' },
             reflexion: { id: 'reflexion', name: '重写提升', icon: '🔄' },
             visual: { id: 'visual', name: '视觉排版', icon: '🖼️' },
+            quality: { id: 'quality', name: 'AI评分', icon: 'AI' },
             done: { id: 'done', name: '生成完成', icon: '✅' }
         };
 
@@ -137,7 +138,7 @@ class BottomProgressManager {
                 }
                 foundNode = true;
 
-                const pulseRates = { writing: '1.5s', reflexion: '0.8s', review: '2s', visual: '3s' };
+                const pulseRates = { writing: '1.5s', reflexion: '0.8s', review: '2s', visual: '3s', quality: '1.2s' };
                 node.style.setProperty('--pulse-duration', pulseRates[stageId] || '2s');
             } else {
                 node.classList.add('done');

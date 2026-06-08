@@ -135,6 +135,9 @@ def run(inputs):
             "fast_mode": inputs.get("fast_mode", False),
             "collection_mode": inputs.get("collection_mode", False)
         }
+        cancel_marker_path = inputs.get("cancel_marker_path")
+        if cancel_marker_path:
+            kwargs["cancel_check"] = lambda path=cancel_marker_path: os.path.exists(path)
 
         # V18.0: 蜂群并发逻辑判定
         config = Config.get_instance()
@@ -205,6 +208,8 @@ def ai_write_x_run(config_data=None):
         "fast_mode": config_data.get("fast_mode", False) if config_data else False,
         "collection_mode": config_data.get("collection_mode", False) if config_data else False
     }
+    if config_data and config_data.get("cancel_marker_path"):
+        inputs["cancel_marker_path"] = config_data.get("cancel_marker_path")
 
     if config_data:
         try:

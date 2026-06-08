@@ -79,7 +79,15 @@ if (-not (Test-Path $Setup)) {
 
 $Policy = @{
     latest_version = $Version
-    min_supported_version = $Version
+    # Keep minimum supported version independent from latest_version.
+    # Raising it only when old clients truly cannot continue prevents startup lockouts.
+    min_supported_version = if ($MIN_SUPPORTED_VERSION) { $MIN_SUPPORTED_VERSION } else { '1.0.4' }
+    force_update = $false
+    update_level = 'normal'
+    install_mode = 'on_exit'
+    auto_download = $true
+    auto_install = $false
+    rollout_percent = 100
     auto_update_on_startup = $true
     auto_update_silent = $true
     download_url = $DownloadUrl

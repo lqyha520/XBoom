@@ -1,15 +1,19 @@
 import subprocess
 
+from ops_secrets import require_env
+
 panel_py = "/www/server/panel/pyenv/bin/python3"
+db_password = require_env("XBOOM_DB_PASSWORD")
+
 proc = subprocess.run(
     [
         panel_py,
         "-c",
-        """
+        f"""
 import sys
 sys.path.insert(0,'/www/server/panel/class')
 import public
-p='4LBZ8n88Ijlyr6Lh'
+p={db_password!r}
 for key in ('BT-0x', 'bt', 'database', 'mysql', 'db', ''):
     try:
         e = public.en_crypt(key, p)

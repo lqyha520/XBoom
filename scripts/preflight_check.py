@@ -11,6 +11,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(ROOT) not in sys.path:
@@ -51,10 +53,12 @@ def check_entrypoint() -> bool:
 def check_secret_files(release: bool = False) -> bool:
     blocked = [
         ROOT / ".env",
-        ROOT / "secrets" / "api_keys.yaml",
         ROOT / "scripts" / "gitee-release.env",
         ROOT / "scripts" / "update-mirror.env",
         ROOT / "scripts" / "usage-stats.env",
+    ]
+    local_runtime_only = [
+        ROOT / "secrets" / "api_keys.yaml",
     ]
     found = [path for path in blocked if path.exists()]
     if found:
@@ -65,7 +69,33 @@ def check_secret_files(release: bool = False) -> bool:
             else:
                 _warn(f"Local secret file exists: {relative}")
         return not release
+
+    runtime_found = [path for path in local_runtime_only if path.exists()]
+    for path in runtime_found:
+        relative = path.relative_to(ROOT)
+        _warn(f"Local runtime secret exists but is ignored and not packaged: {relative}")
+
     _ok("No local secret files found in release-sensitive paths")
+    return True
+
+
+def check_private_key_files(release: bool = False) -> bool:
+    key_files = sorted(
+        path
+        for pattern in ("*.pem", "*.key")
+        for path in ROOT.glob(pattern)
+        if path.is_file()
+    )
+    if key_files:
+        for path in key_files:
+            relative = path.relative_to(ROOT)
+            if release:
+                _fail(f"Private key file exists in workspace root: {relative}")
+            else:
+                _warn(f"Private key file exists in workspace root: {relative}")
+        return not release
+
+    _ok("No private key files found in workspace root")
     return True
 
 
@@ -119,6 +149,31 @@ def check_config_defaults() -> bool:
         return False
 
 
+def check_repository_config_is_sanitized() -> bool:
+    config_path = SRC / "ai_write_x" / "config" / "config.yaml"
+    try:
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        _fail(f"Unable to parse repository config.yaml: {exc}")
+        return False
+
+    mysql = ((data.get("menu_access") or {}).get("mysql") or {})
+    filled = [
+        key
+        for key in ("host", "user", "password")
+        if str(mysql.get(key) or "").strip()
+    ]
+    if filled:
+        _fail(
+            "Repository config.yaml contains menu_access.mysql runtime values: "
+            + ", ".join(filled)
+        )
+        return False
+
+    _ok("Repository config.yaml keeps menu_access.mysql runtime values empty")
+    return True
+
+
 def check_pyproject_dependencies() -> bool:
     try:
         data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -165,8 +220,10 @@ def main(argv: list[str] | None = None) -> int:
         check_compile,
         check_entrypoint,
         lambda: check_secret_files(release=args.release),
+        lambda: check_private_key_files(release=args.release),
         check_tracked_runtime_files,
         check_config_defaults,
+        check_repository_config_is_sanitized,
         check_pyproject_dependencies,
     ]
     results = [check() for check in checks]

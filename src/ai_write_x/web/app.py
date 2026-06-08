@@ -47,6 +47,67 @@ from .api.batch import router as batch_router
 # 添加全局状态
 app_shutdown_event = asyncio.Event()
 
+OPTIONAL_STARTUP_ENV = "AIWRITEX_SKIP_STARTUP_TASKS"
+OPTIONAL_STARTUP_GROUPS = {
+    "network": {"usage_stats", "menu_ip_access", "newshub"},
+    "heavy": {"global_tools", "scavenger", "dashboard_render", "newshub"},
+    "background": {
+        "global_tools",
+        "scavenger",
+        "scheduler",
+        "usage_stats",
+        "menu_ip_access",
+        "periodic_cleanup",
+        "batch_processor",
+        "websocket_manager",
+        "dashboard_render",
+        "newshub",
+    },
+}
+_optional_startup_tasks: set[asyncio.Task] = set()
+
+
+def _skip_optional_startup_task(name: str) -> bool:
+    raw = os.environ.get(OPTIONAL_STARTUP_ENV, "")
+    skipped = {item.strip().lower() for item in raw.split(",") if item.strip()}
+    task_name = name.lower()
+    if "all" in skipped or task_name in skipped:
+        return True
+    return any(task_name in OPTIONAL_STARTUP_GROUPS.get(group, set()) for group in skipped)
+
+
+def _schedule_optional_startup_task(name: str, coro):
+    if _skip_optional_startup_task(name):
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
+        return None
+    task = asyncio.create_task(coro, name=f"startup:{name}")
+    _optional_startup_tasks.add(task)
+
+    def _consume_result(done_task: asyncio.Task):
+        _optional_startup_tasks.discard(done_task)
+        try:
+            done_task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            try:
+                from src.ai_write_x.utils import log
+                log.print_log(f"[Startup] optional task {name} failed: {exc}", "warning")
+            except Exception:
+                pass
+
+    task.add_done_callback(_consume_result)
+    return task
+
+
+def _schedule_optional_startup_sync_task(name: str, func, *args, **kwargs):
+    async def _runner():
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    return _schedule_optional_startup_task(name, _runner())
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,7 +141,7 @@ async def lifespan(app: FastAPI):
             except Exception as tool_err:
                 log.print_log(f"????????: {tool_err}", "error")
 
-        asyncio.create_task(warmup_global_tools())
+        _schedule_optional_startup_task("global_tools", warmup_global_tools())
 
         # 服务启动时清掉上次未跑完的生成任务登记（不自动续跑）
         try:
@@ -92,23 +153,26 @@ async def lifespan(app: FastAPI):
         # 启动宇宙清道夫 (V10.0 Cosmic Scavenger)
         from src.ai_write_x.core.scavenger import CosmicScavenger
         app_state.scavenger = CosmicScavenger()
-        asyncio.create_task(app_state.scavenger.start_daemon())
+        _schedule_optional_startup_task("scavenger", app_state.scavenger.start_daemon())
         
         # 启动定时任务调度服务 (V6 Scheduler)
         from src.ai_write_x.core.scheduler import scheduler_service
-        scheduler_service.start()
+        if not _skip_optional_startup_task("scheduler"):
+            _schedule_optional_startup_sync_task("scheduler", scheduler_service.start)
 
         # 使用统计：后台上报启动（IP 由统计服务端记录）
         try:
             from src.ai_write_x.core.usage_stats import schedule_usage_report
-            schedule_usage_report()
+            if not _skip_optional_startup_task("usage_stats"):
+                _schedule_optional_startup_sync_task("usage_stats", schedule_usage_report)
         except Exception as stats_err:
             log.print_log(f"[使用统计] 初始化跳过: {stats_err}", "warning")
 
         # 受限菜单白名单：启动时从 MySQL 拉取 menu_ip_whitelist 表
         try:
             from src.ai_write_x.core.menu_ip_access import refresh_menu_ip_access_on_startup
-            refresh_menu_ip_access_on_startup()
+            if not _skip_optional_startup_task("menu_ip_access"):
+                _schedule_optional_startup_sync_task("menu_ip_access", refresh_menu_ip_access_on_startup)
         except Exception as menu_ip_err:
             log.print_log(f"[菜单白名单] 初始化跳过: {menu_ip_err}", "warning")
         
@@ -132,11 +196,11 @@ async def lifespan(app: FastAPI):
                     except Exception as e:
                         log.print_log(f'[清理] 定期清理失败: {e}', 'warning')
             
-            asyncio.create_task(periodic_cleanup())
+            _schedule_optional_startup_task("periodic_cleanup", periodic_cleanup())
             
             # 启动批处理器
             batch_processor = get_batch_processor()
-            asyncio.create_task(batch_processor.start())
+            _schedule_optional_startup_task("batch_processor", batch_processor.start())
             log.print_log("[V15.0] [START] 智能批处理引擎已启动", "success")
             
             # 初始化语义缓存
@@ -145,7 +209,7 @@ async def lifespan(app: FastAPI):
             
             # 启动 WebSocket 管理器
             ws_manager = get_websocket_manager()
-            asyncio.create_task(ws_manager.start())
+            _schedule_optional_startup_task("websocket_manager", ws_manager.start())
             log.print_log("[V15.0] [WS] WebSocket 连接治理已启动", "success")
             
         except Exception as v15_err:
@@ -186,7 +250,7 @@ async def lifespan(app: FastAPI):
             except Exception as dash_err:
                 log.print_log(f"控制台看板后台渲染失败: {dash_err}", "warning")
 
-        asyncio.create_task(render_dashboard_background())
+        _schedule_optional_startup_task("dashboard_render", render_dashboard_background())
         
         # V13.0 Optimization: 后台预热新闻聚合管理器 (NewsHub)
         async def warmup_newshub():
@@ -198,7 +262,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 log.print_log(f"[NewsHub] 后台预热失败: {e}", "warning")
                 
-        asyncio.create_task(warmup_newshub())
+        _schedule_optional_startup_task("newshub", warmup_newshub())
 
     except Exception as e:
         log.print_log(f"Web服务启动失败: {str(e)}", "error")
@@ -207,6 +271,10 @@ async def lifespan(app: FastAPI):
 
     # 关闭时执行
     app_state.is_running = False
+    for task in list(_optional_startup_tasks):
+        task.cancel()
+    if _optional_startup_tasks:
+        await asyncio.gather(*list(_optional_startup_tasks), return_exceptions=True)
     
     if hasattr(app_state, 'scavenger') and app_state.scavenger:
         app_state.scavenger.stop_daemon()
@@ -217,10 +285,10 @@ async def lifespan(app: FastAPI):
         from src.ai_write_x.web.websocket_manager import get_websocket_manager
         
         batch_processor = get_batch_processor()
-        asyncio.create_task(batch_processor.stop())
+        await batch_processor.stop()
         
         ws_manager = get_websocket_manager()
-        asyncio.create_task(ws_manager.stop())
+        await ws_manager.stop()
         
         log.print_log("[V15.0] 量子优化组件已停止", "info")
     except Exception:
