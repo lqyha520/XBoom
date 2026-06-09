@@ -49,7 +49,7 @@ class UpdateChecker {
         const run = () => {
             if (this._startupCheckDone) return;
             this._startupCheckDone = true;
-            this.checkStartupPolicy();
+            Promise.resolve(this.checkStartupPolicy()).finally(() => this.startPeriodicPolicyCheck());
         };
         if (window.APP_CLIENT_TOKEN || this.getCookie('app_client_token')) {
             run();
@@ -57,6 +57,26 @@ class UpdateChecker {
         }
         document.addEventListener('pywebviewready', run, { once: true });
         setTimeout(run, 2500);
+    }
+
+    startPeriodicPolicyCheck() {
+        if (this._periodicCheckTimer) return;
+        const intervalMs = 60 * 60 * 1000; // 每小时检查一次新版本
+        this._periodicCheckTimer = setInterval(() => this.runPeriodicPolicyCheck(), intervalMs);
+    }
+
+    async runPeriodicPolicyCheck() {
+        // 已就绪、正在后台下载、更新面板开着或强制覆盖层可见时，本轮跳过
+        if (this.backgroundProgressTimer || this.progressTimer || this.autoRestartTriggered) return;
+        if (this.policy && this.policy.update_ready) return;
+        const modalOpen = this.elements.modal && this.elements.modal.style.display === 'flex';
+        const overlayOpen = this.elements.forceOverlay && this.elements.forceOverlay.style.display === 'flex';
+        if (modalOpen || overlayOpen) return;
+        try {
+            await this.checkStartupPolicy();
+        } catch (error) {
+            console.warn('Periodic update check failed:', error);
+        }
     }
 
     cacheElements() {

@@ -1099,7 +1099,8 @@ class VisualAssetsManager:
                     except Exception as test_e:
                         lg.print_log(f"  ❌ 无法连接到 ComfyUI 服务 ({comfy_base_url}): {test_e}", "error")
                         lg.print_log(f"  [提示] 请确认 ComfyUI 已启动并运行在 {comfy_base_url}", "warning")
-                        continue
+                        # 抛出以进入外层兑底（随机图），而不是直接跳过该图造成空缺
+                        raise Exception(f"无法连接到 ComfyUI 服务: {test_e}")
                     
                     from src.ai_write_x.utils import utils
                     comfy_workflow_path, workflow_filename, comfy_workflow_candidates = (
@@ -1256,7 +1257,8 @@ class VisualAssetsManager:
                         
                         lg.print_log(f"  🔗 正在连接 ComfyUI WebSocket...")
                         ws = ws_client.WebSocket()
-                        ws.settimeout(99999)  # 用户禁用超时限制
+                        # 连接成功后就让 ComfyUI 安心出图（哪怕慢），不对生图过程做超时限制
+                        ws.settimeout(99999)
                         ws.connect(f"{ws_url}/ws?clientId={client_id}", timeout=60)
                         lg.print_log(f"  ✅ WebSocket 连接已建立 (clientId: {client_id[:8]})")
                         
@@ -1410,7 +1412,20 @@ class VisualAssetsManager:
                     
             except Exception as e:
                 lg.print_log(f"  [失败] 图片 {idx+1} 生成异常: {e}", "error")
-            
+
+            # 生图失败时的随机图兑底：尽量原位填充，避免此槽位留空
+            if not img_path and allow_placeholder_fallback and img_api_type != "picsum":
+                try:
+                    w_h = size.split("*")
+                    download_url = f"https://picsum.photos/{w_h[0]}/{w_h[1]}?random={idx+1}"
+                    from src.ai_write_x.utils import utils as u
+                    img_path = u.download_and_save_image(download_url, str(image_dir))
+                    if img_path:
+                        task["fallback_notice"] = "当前图片为随机兑底图：原计划配图生成失败，已临时回退到 Picsum。"
+                        lg.print_log(f"  [兑底] 图片 {idx+1} 生成失败，已使用 Picsum 随机图原位填充", "warning")
+                except Exception as fb_e:
+                    lg.print_log(f"  [兑底] Picsum 随机图兑底也失败: {fb_e}", "warning")
+
             # 替换占位符
             if not img_path:
                 continue
@@ -1676,15 +1691,42 @@ class VisualAssetsManager:
         if first_p:
             insert_targets.append((first_p, True))
 
-        # 章节配图：放在该节首段文字之后（图在文下，不在标题下）
-        for h in headings[: max(min_count + 2, 4)]:
-            if len(insert_targets) >= min_count + 1:
-                break
-            section_p = h.find_next("p")
+        # 章节配图：在全文标题间均匀分布，避免图片全部挤在前面
+        # 需要的正文配图槽位数（总数减去已放入的封面）
+        body_needed = max(0, min_count + 1 - len(insert_targets))
+
+        def _section_anchor(heading):
+            section_p = heading.find_next("p")
             if section_p and len(section_p.get_text(strip=True)) >= 20:
-                insert_targets.append((section_p, False))
-            elif h.find_next_sibling(name="p"):
-                insert_targets.append((h.find_next_sibling(name="p"), False))
+                return section_p
+            sib = heading.find_next_sibling(name="p")
+            if sib:
+                return sib
+            return None
+
+        if body_needed > 0 and headings:
+            usable = [h for h in headings if _section_anchor(h) is not None]
+            if usable:
+                if body_needed >= len(usable):
+                    chosen = usable
+                else:
+                    # 均匀采样：把标题序列切成 body_needed 份，每份取中间一个
+                    step = len(usable) / float(body_needed)
+                    seen_idx = set()
+                    chosen = []
+                    for i in range(body_needed):
+                        pos = int((i + 0.5) * step)
+                        pos = min(pos, len(usable) - 1)
+                        while pos in seen_idx and pos < len(usable) - 1:
+                            pos += 1
+                        if pos in seen_idx:
+                            continue
+                        seen_idx.add(pos)
+                        chosen.append(usable[pos])
+                for h in chosen:
+                    anchor = _section_anchor(h)
+                    if anchor is not None:
+                        insert_targets.append((anchor, False))
 
         if not insert_targets and body.find("section"):
             sec_p = body.find("section").find("p")
@@ -1965,12 +2007,25 @@ class VisualAssetsManager:
 
             soup = BeautifulSoup(html, "html.parser")
             body = soup.body or soup.find("article") or soup.find("section") or soup
-            insert_after = body.find("p") or body.find(["h1", "h2"]) or None
             fallback_soup = BeautifulSoup("\n".join(fallback_html), "html.parser")
-            nodes = list(fallback_soup.contents)
-            if insert_after:
-                for node in reversed(nodes):
-                    insert_after.insert_after(node)
+            nodes = [n for n in fallback_soup.contents if getattr(n, "name", None)]
+
+            # 将兑底块均匀分布到全文标题处，避免全部堆在开头
+            headings = body.find_all(["h2", "h3"])
+            anchors = []
+            for h in headings:
+                sec_p = h.find_next("p")
+                anchors.append(sec_p if sec_p else h)
+            if not anchors:
+                first = body.find("p") or body.find(["h1", "h2"])
+                if first:
+                    anchors = [first]
+
+            if anchors:
+                n_anchors = len(anchors)
+                for i, node in enumerate(nodes):
+                    anchor = anchors[min(i, n_anchors - 1)]
+                    anchor.insert_after(node)
             else:
                 for node in nodes:
                     body.append(node)

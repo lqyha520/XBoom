@@ -2216,8 +2216,8 @@ class CreativeWorkshopManager {
 
     // 从 WebSocket 消息中截取 AI 输出内容并实时渲染
     updateLivePreview(message, type) {
-        // [新增] 处理 chunk 类型 (来自 Master Drafting 的内容块)
-        if (type === 'chunk' || type === 'status') {
+        // 仅 chunk 类型是 AI 正文内容块；status 是日志/进度，交由下方严格过滤通道，避免日志混入预览
+        if (type === 'chunk') {
             if (!this.isCapturingContent) {
                 this.isCapturingContent = true;
                 this.livePreviewContent = '';
@@ -2313,9 +2313,10 @@ class CreativeWorkshopManager {
         // 只在写作阶段捕获内容
         if (!this.isCapturingContent) return;
 
+        // 正文只会以 chunk 下发；log/status/internal/system 均为日志进度，一律不进预览
+        if (type === 'log' || type === 'status' || type === 'internal' || type === 'system') return;
         // 过滤掉非内容消息
-        if (message.includes('[PROGRESS:') || message.includes('[INTERNAL]') ||
-            type === 'internal' || type === 'system') return;
+        if (message.includes('[PROGRESS:') || message.includes('[INTERNAL]')) return;
 
         // 过滤时间戳前缀的系统消息
         let cleaned = message.trim();

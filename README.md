@@ -130,4 +130,4 @@ python -m compileall -q main.py src\ai_write_x
 
 ## 当前版本
 
-运行时版本以 `src/ai_write_x/version.py` 为准。当前包版本为 `1.2.20`。
+运行时版本以 `src/ai_write_x/version.py` 为准。当前包版本为 `1.2.23`。

@@ -855,7 +855,14 @@ def _clear_prepared_update_state() -> None:
 
 
 def has_prepared_update() -> bool:
-    return bool(_load_prepared_update_state())
+    state = _load_prepared_update_state()
+    if not state:
+        return False
+    # 安装包可能已在安装完成后被清理，文件不存在则视为无待装更新
+    if _coerce_installer_path(state.get("download_path")) is None:
+        _clear_prepared_update_state()
+        return False
+    return True
 
 
 def start_prepared_update(reason: str = "manual", restart_after_install: bool = False) -> bool:
@@ -991,6 +998,17 @@ try {{
 
 if ($installerExit -ne 0) {{
     Write-UpdateLog "安装程序返回非零退出码: $installerExit"
+}}
+
+if ($installerExit -eq 0) {{
+    try {{
+        if (Test-Path -LiteralPath $installerPath) {{
+            Remove-Item -LiteralPath $installerPath -Force -ErrorAction Stop
+            Write-UpdateLog "已删除本地安装包: $installerPath"
+        }}
+    }} catch {{
+        Write-UpdateLog "删除本地安装包失败: $($_.Exception.Message)"
+    }}
 }}
 
 if (-not $restartAfterInstall) {{

@@ -6,7 +6,7 @@ class PreviewPanelManager {
         this.overlay = null;
         this.panel = null;
         this.isVisible = false;
-        this.currentSize = 'mobile';
+        this.currentSize = 'tablet';
         this.isSourceView = false;
         this.currentHtml = '';
         this.sizePresets = {
@@ -179,7 +179,7 @@ class PreviewPanelManager {
             this.setContent(content);
         }
 
-        this.setSize('mobile');
+        this.setSize('tablet');
 
         this.overlay.classList.remove('active');
         this.overlay.style.display = 'flex';
@@ -527,8 +527,8 @@ class PreviewPanelManager {
             previewArea.innerHTML = '<p class="preview-placeholder">内容预览将在这里显示</p>';
         }
 
-        // 重置尺寸为默认(手机模式)
-        this.setSize('mobile');
+        // 重置尺寸为默认(平板模式)
+        this.setSize('tablet');
 
         // 清空文章信息  
         this.currentArticleInfo = null;
