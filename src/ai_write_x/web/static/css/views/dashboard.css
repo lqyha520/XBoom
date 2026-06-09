@@ -269,3 +269,148 @@
         height: auto;
     }
 }
+
+/* ========== XBoom 工作台科技概览刷新 ========== */
+#dashboard-view {
+    --dash-ink: #132033;
+    --dash-muted: #607185;
+    --dash-line: rgba(31, 56, 88, 0.12);
+    --dash-accent: #0d8fba;
+    --dash-accent-strong: #0b6f95;
+    --dash-cyan: #18b7b9;
+    --dash-green: #16a96f;
+    padding: 18px 22px 22px;
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.045) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.04) 1px, transparent 1px),
+        linear-gradient(135deg, #f8fbfd 0%, #f3f7fa 48%, #fbfcfd 100%);
+    background-size: 28px 28px, 28px 28px, auto;
+}
+
+#dashboard-view.active {
+    gap: 14px;
+}
+
+#dashboard-view .dashboard-header {
+    margin-bottom: 0;
+    padding: 16px 18px;
+    border: 1px solid var(--dash-line);
+    border-left: 4px solid var(--dash-accent);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#dashboard-view .dashboard-title h2 {
+    margin: 0 0 5px;
+    color: var(--dash-ink);
+    font-size: 24px;
+    font-weight: 750;
+}
+
+#dashboard-view .dashboard-title p {
+    margin: 0;
+    color: var(--dash-muted);
+}
+
+#dashboard-view .v7-badge {
+    border-radius: 6px;
+    background: rgba(13, 143, 186, 0.1);
+    color: var(--dash-accent-strong);
+    border: 1px solid rgba(13, 143, 186, 0.18);
+}
+
+#dashboard-view .glass-morphism,
+#dashboard-view .stat-card,
+#dashboard-view .topology-container,
+#dashboard-view .chart-card {
+    border: 1px solid var(--dash-line);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+#dashboard-view .stats-grid {
+    gap: 12px;
+}
+
+#dashboard-view .stat-card {
+    padding: 16px;
+}
+
+#dashboard-view .stat-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(13, 143, 186, 0.36);
+    box-shadow: 0 16px 28px rgba(16, 34, 54, 0.1);
+}
+
+#dashboard-view .stat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+}
+
+#dashboard-view .stat-icon.topic,
+#dashboard-view .stat-icon.article,
+#dashboard-view .stat-icon.quality,
+#dashboard-view .stat-icon.cost {
+    background: rgba(13, 143, 186, 0.09);
+    color: var(--dash-accent-strong);
+}
+
+#dashboard-view .stat-value {
+    color: var(--dash-ink);
+}
+
+#dashboard-view .stat-trend {
+    border-radius: 6px;
+}
+
+#dashboard-view .dashboard-main-area {
+    min-height: 440px;
+}
+
+#dashboard-view .topology-container,
+#dashboard-view .chart-card {
+    padding: 18px;
+}
+
+#dashboard-view .container-header h3 {
+    color: var(--dash-ink);
+    font-weight: 750;
+}
+
+#dashboard-view .chart-holder,
+#dashboard-view .chart-holder-small {
+    border: 1px solid rgba(31, 56, 88, 0.1);
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.04) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.035) 1px, transparent 1px),
+        #f4f8fb;
+    background-size: 24px 24px, 24px 24px, auto;
+}
+
+#dashboard-view .spinner {
+    border-color: rgba(13, 143, 186, 0.12);
+    border-top-color: var(--dash-accent);
+}
+
+[data-theme="dark"] #dashboard-view {
+    --dash-ink: rgba(244, 248, 252, 0.95);
+    --dash-muted: rgba(205, 216, 229, 0.72);
+    --dash-line: rgba(190, 218, 239, 0.16);
+    background:
+        linear-gradient(90deg, rgba(24, 183, 185, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(24, 183, 185, 0.045) 1px, transparent 1px),
+        linear-gradient(135deg, #101927, #121f2f 52%, #0f1722);
+}
+
+[data-theme="dark"] #dashboard-view .dashboard-header,
+[data-theme="dark"] #dashboard-view .glass-morphism,
+[data-theme="dark"] #dashboard-view .stat-card,
+[data-theme="dark"] #dashboard-view .topology-container,
+[data-theme="dark"] #dashboard-view .chart-card {
+    background: rgba(18, 28, 42, 0.94);
+}

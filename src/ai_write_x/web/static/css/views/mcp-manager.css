@@ -720,3 +720,187 @@
 [data-theme="dark"] .dep-item.dep-unavailable {
     border-color: #ef4444;
 }
+
+/* ========== XBoom 能力中心科技控制台 ========== */
+#mcp-manager-view {
+    --mcp-ink: #132033;
+    --mcp-muted: #607185;
+    --mcp-line: rgba(31, 56, 88, 0.12);
+    --mcp-accent: #0d8fba;
+    --mcp-accent-strong: #0b6f95;
+    --mcp-cyan: #18b7b9;
+    --mcp-green: #16a96f;
+    padding: 18px 22px 22px;
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.045) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.04) 1px, transparent 1px),
+        linear-gradient(135deg, #f8fbfd 0%, #f3f7fa 48%, #fbfcfd 100%);
+    background-size: 28px 28px, 28px 28px, auto;
+}
+
+#mcp-manager-view .view-header {
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    border: 1px solid var(--mcp-line);
+    border-left: 4px solid var(--mcp-accent);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#mcp-manager-view .view-header h1 {
+    margin: 0 0 6px;
+    font-size: 24px;
+    color: var(--mcp-ink);
+}
+
+#mcp-manager-view .view-description {
+    margin: 0;
+    color: var(--mcp-muted);
+}
+
+#mcp-manager-view .mcp-summary,
+#mcp-manager-view .mcp-toolbar,
+#mcp-manager-view .mcp-dependencies,
+#mcp-manager-view .mcp-help {
+    border: 1px solid var(--mcp-line);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#mcp-manager-view .mcp-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    padding: 14px;
+}
+
+#mcp-manager-view .mcp-summary .summary-item {
+    padding: 14px;
+    border: 1px solid rgba(31, 56, 88, 0.1);
+    background: #f7fbfd;
+}
+
+#mcp-manager-view .mcp-summary .summary-value {
+    color: var(--mcp-ink);
+}
+
+#mcp-manager-view .mcp-toolbar {
+    padding: 12px 14px;
+}
+
+#mcp-manager-view .toolbar-btn {
+    border-radius: 8px;
+    background: #fff;
+    border-color: rgba(31, 56, 88, 0.14);
+}
+
+#mcp-manager-view .toolbar-btn:hover {
+    border-color: rgba(13, 143, 186, 0.45);
+    color: var(--mcp-accent-strong);
+    background: rgba(13, 143, 186, 0.07);
+}
+
+#mcp-manager-view .toolbar-btn.primary {
+    background: linear-gradient(135deg, var(--mcp-accent-strong), var(--mcp-cyan));
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 10px 20px rgba(13, 143, 186, 0.18);
+}
+
+#mcp-manager-view .mcp-section .section-title {
+    margin: 0 0 12px;
+    padding: 0 2px;
+    color: var(--mcp-ink);
+    font-size: 15px;
+    font-weight: 750;
+}
+
+#mcp-manager-view .mcp-section .section-title svg {
+    color: var(--mcp-accent-strong);
+}
+
+#mcp-manager-view .dep-item,
+#mcp-manager-view .mcp-service-card {
+    border-radius: 10px;
+    border-color: var(--mcp-line);
+    background: #fff;
+}
+
+#mcp-manager-view .dep-item.dep-available {
+    background: rgba(22, 169, 111, 0.06);
+    border-color: rgba(22, 169, 111, 0.28);
+}
+
+#mcp-manager-view .dep-item.dep-unavailable {
+    background: rgba(239, 68, 68, 0.06);
+    border-color: rgba(239, 68, 68, 0.28);
+}
+
+#mcp-manager-view .mcp-service-card {
+    box-shadow: 0 8px 18px rgba(16, 34, 54, 0.045);
+}
+
+#mcp-manager-view .mcp-service-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(13, 143, 186, 0.4);
+    box-shadow: 0 16px 28px rgba(16, 34, 54, 0.1);
+}
+
+#mcp-manager-view .service-status {
+    border-radius: 7px;
+    letter-spacing: 0;
+}
+
+#mcp-manager-view .toggle-switch input:checked + .toggle-slider {
+    background: var(--mcp-accent);
+}
+
+#mcp-manager-view .action-btn {
+    border-radius: 8px;
+    background: #fff;
+}
+
+#mcp-manager-view .mcp-help {
+    margin-top: 4px;
+}
+
+#mcp-manager-view .mcp-help h3 {
+    font-size: 14px;
+    font-weight: 750;
+}
+
+[data-theme="dark"] #mcp-manager-view {
+    --mcp-ink: rgba(244, 248, 252, 0.95);
+    --mcp-muted: rgba(205, 216, 229, 0.72);
+    --mcp-line: rgba(190, 218, 239, 0.16);
+    background:
+        linear-gradient(90deg, rgba(24, 183, 185, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(24, 183, 185, 0.045) 1px, transparent 1px),
+        linear-gradient(135deg, #101927, #121f2f 52%, #0f1722);
+}
+
+[data-theme="dark"] #mcp-manager-view .view-header,
+[data-theme="dark"] #mcp-manager-view .mcp-summary,
+[data-theme="dark"] #mcp-manager-view .mcp-toolbar,
+[data-theme="dark"] #mcp-manager-view .mcp-dependencies,
+[data-theme="dark"] #mcp-manager-view .mcp-help,
+[data-theme="dark"] #mcp-manager-view .mcp-service-card,
+[data-theme="dark"] #mcp-manager-view .dep-item {
+    background: rgba(18, 28, 42, 0.94);
+}
+
+@media (max-width: 768px) {
+    #mcp-manager-view {
+        padding: 14px;
+    }
+
+    #mcp-manager-view .mcp-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #mcp-manager-view .mcp-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}

@@ -542,3 +542,206 @@
     max-height: 50vh;
     overflow-y: auto;
 }
+
+/* ========== XBoom 选题中心热点雷达 ========== */
+#newshub-view {
+    --nh-ink: #132033;
+    --nh-muted: #607185;
+    --nh-line: rgba(31, 56, 88, 0.12);
+    --nh-accent: #0d8fba;
+    --nh-accent-strong: #0b6f95;
+    --nh-cyan: #18b7b9;
+    --nh-green: #16a96f;
+    padding: 18px 22px 22px;
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.045) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.04) 1px, transparent 1px),
+        linear-gradient(135deg, #f8fbfd 0%, #f3f7fa 48%, #fbfcfd 100%);
+    background-size: 28px 28px, 28px 28px, auto;
+}
+
+#newshub-view .view-header {
+    padding: 16px 18px !important;
+    margin: 0 0 14px;
+    border: 1px solid var(--nh-line);
+    border-left: 4px solid var(--nh-accent);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#newshub-view .view-header h2 {
+    color: var(--nh-ink);
+    font-size: 24px;
+    font-weight: 750;
+}
+
+#newshub-view .header-subtitle {
+    color: var(--nh-muted) !important;
+}
+
+#newshub-view .newshub-toolbar,
+#newshub-view .newshub-section,
+#newshub-view .github-list,
+#newshub-view .nh-modal-content {
+    border: 1px solid var(--nh-line);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#newshub-view .newshub-toolbar {
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+
+#newshub-view .toolbar-select {
+    height: 36px;
+    border-radius: 8px;
+    border-color: rgba(31, 56, 88, 0.14);
+    background: #fff;
+}
+
+#newshub-view .toolbar-checkbox {
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(31, 56, 88, 0.1);
+    background: #f8fbfd;
+    color: var(--nh-muted);
+}
+
+#newshub-view .toolbar-btn {
+    border-radius: 8px;
+    background: #fff;
+    border-color: rgba(31, 56, 88, 0.14);
+}
+
+#newshub-view .toolbar-btn:hover {
+    border-color: rgba(13, 143, 186, 0.45);
+    color: var(--nh-accent-strong);
+    background: rgba(13, 143, 186, 0.07);
+}
+
+#newshub-view .toolbar-btn.primary {
+    background: linear-gradient(135deg, var(--nh-accent-strong), var(--nh-cyan));
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 10px 20px rgba(13, 143, 186, 0.18);
+}
+
+#newshub-view .newshub-stats {
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+#newshub-view .newshub-stats .stat-card {
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid var(--nh-line);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 8px 18px rgba(16, 34, 54, 0.045);
+}
+
+#newshub-view .newshub-stats .stat-value {
+    color: var(--nh-accent-strong);
+    font-size: 24px;
+}
+
+#newshub-view .newshub-section {
+    margin-bottom: 16px;
+    padding: 16px;
+    border-radius: 12px;
+}
+
+#newshub-view .section-title {
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--nh-line);
+    color: var(--nh-ink);
+    font-size: 16px;
+    font-weight: 750;
+}
+
+#newshub-view .section-title svg {
+    color: var(--nh-accent-strong);
+}
+
+#newshub-view .trend-item,
+#newshub-view .news-card,
+#newshub-view .github-list {
+    border-radius: 10px;
+    border-color: var(--nh-line);
+    background: #fff;
+}
+
+#newshub-view .trend-item {
+    padding: 8px 12px;
+}
+
+#newshub-view .trend-item:hover,
+#newshub-view .news-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(13, 143, 186, 0.4);
+    box-shadow: 0 14px 24px rgba(16, 34, 54, 0.1);
+}
+
+#newshub-view .trend-rank,
+#newshub-view .news-category {
+    background: linear-gradient(135deg, var(--nh-accent-strong), var(--nh-cyan));
+}
+
+#newshub-view .news-card {
+    min-height: 260px;
+    padding: 18px;
+    box-shadow: 0 8px 18px rgba(16, 34, 54, 0.045);
+}
+
+#newshub-view .news-title {
+    color: var(--nh-ink);
+    font-weight: 750;
+}
+
+#newshub-view .keyword-tag,
+#newshub-view .trend-growth {
+    background: #eef5f9;
+    color: var(--nh-muted);
+}
+
+#newshub-view .action-btn {
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--nh-accent-strong), var(--nh-cyan));
+}
+
+#newshub-view .github-item {
+    border-bottom-color: var(--nh-line);
+}
+
+#newshub-view .github-rank {
+    border-radius: 8px;
+    background: #132033;
+}
+
+#newshub-view .github-name {
+    color: var(--nh-accent-strong);
+}
+
+[data-theme="dark"] #newshub-view {
+    --nh-ink: rgba(244, 248, 252, 0.95);
+    --nh-muted: rgba(205, 216, 229, 0.72);
+    --nh-line: rgba(190, 218, 239, 0.16);
+    background:
+        linear-gradient(90deg, rgba(24, 183, 185, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(24, 183, 185, 0.045) 1px, transparent 1px),
+        linear-gradient(135deg, #101927, #121f2f 52%, #0f1722);
+}
+
+[data-theme="dark"] #newshub-view .view-header,
+[data-theme="dark"] #newshub-view .newshub-toolbar,
+[data-theme="dark"] #newshub-view .newshub-section,
+[data-theme="dark"] #newshub-view .newshub-stats .stat-card,
+[data-theme="dark"] #newshub-view .trend-item,
+[data-theme="dark"] #newshub-view .news-card,
+[data-theme="dark"] #newshub-view .github-list,
+[data-theme="dark"] #newshub-view .nh-modal-content {
+    background: rgba(18, 28, 42, 0.94);
+}

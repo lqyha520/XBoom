@@ -931,6 +931,12 @@ class UnifiedContentWorkflow:
                 )
                 yield {"type": "log", "message": "⚠️ 部分配图仍未生成，已保留可见兜底块，避免最终排版出现空洞"}
 
+            try:
+                from src.ai_write_x.core.article_polish import clean_article_visual_leaks
+                transform_content.content = clean_article_visual_leaks(transform_content.content)
+            except Exception as clean_err:
+                lg.print_log(f"预览前成稿清理跳过: {clean_err}", "warning")
+
             # --- Step 5 验证 (V19.5 强制 HTML 校验) ---
             trimmed_content = transform_content.content.strip()
             if not trimmed_content.startswith('<'):

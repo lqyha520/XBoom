@@ -213,6 +213,143 @@
     cursor: not-allowed;
 }
 
+/* ========== XBoom 设置页可信配置控制台 ========== */
+#config-manager-view {
+    --cfg-ink: #132033;
+    --cfg-muted: #607185;
+    --cfg-line: rgba(31, 56, 88, 0.12);
+    --cfg-accent: #0d8fba;
+    --cfg-accent-strong: #0b6f95;
+    --cfg-cyan: #18b7b9;
+    --cfg-green: #16a96f;
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.045) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.04) 1px, transparent 1px),
+        linear-gradient(135deg, #f8fbfd 0%, #f3f7fa 48%, #fbfcfd 100%);
+    background-size: 28px 28px, 28px 28px, auto;
+}
+
+#config-manager-view .config-content {
+    padding: 18px 22px 22px;
+}
+
+#config-manager-view .config-panel {
+    padding: 0 0 var(--content-bottom-padding) 0;
+}
+
+#config-manager-view .config-header {
+    margin-bottom: 14px;
+    padding: 16px 18px;
+    border: 1px solid var(--cfg-line);
+    border-left: 4px solid var(--cfg-accent);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#config-manager-view .config-header h2 {
+    margin: 0 0 6px;
+    color: var(--cfg-ink);
+    font-size: 24px;
+    font-weight: 750;
+}
+
+#config-manager-view .config-description {
+    color: var(--cfg-muted);
+}
+
+#config-manager-view .config-section {
+    border-radius: 12px;
+    border: 1px solid var(--cfg-line);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#config-manager-view .section-title {
+    color: var(--cfg-ink);
+    font-size: 16px;
+    font-weight: 750;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--cfg-line);
+}
+
+#config-manager-view .form-group label {
+    color: var(--cfg-ink);
+    font-weight: 650;
+}
+
+#config-manager-view input[type="text"],
+#config-manager-view input[type="password"],
+#config-manager-view input[type="number"],
+#config-manager-view input[type="url"],
+#config-manager-view textarea,
+#config-manager-view select,
+#config-manager-view .form-control {
+    border-radius: 8px;
+    border: 1px solid rgba(31, 56, 88, 0.14);
+    background: #f9fbfd;
+    color: var(--cfg-ink);
+}
+
+#config-manager-view input:focus,
+#config-manager-view textarea:focus,
+#config-manager-view select:focus,
+#config-manager-view .form-control:focus {
+    border-color: rgba(13, 143, 186, 0.58);
+    box-shadow: 0 0 0 3px rgba(13, 143, 186, 0.1);
+}
+
+#config-manager-view .config-actions,
+#config-manager-view .header-actions {
+    gap: 10px;
+}
+
+#config-manager-view .btn,
+#config-manager-view button {
+    border-radius: 8px;
+}
+
+#config-manager-view .btn-primary {
+    background: linear-gradient(135deg, var(--cfg-accent-strong), var(--cfg-cyan));
+    border-color: transparent;
+    box-shadow: 0 10px 20px rgba(13, 143, 186, 0.18);
+}
+
+#config-manager-view .checkbox-custom {
+    border-radius: 5px;
+}
+
+#config-manager-view .checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
+    background: var(--cfg-accent);
+    border-color: var(--cfg-accent);
+}
+
+[data-theme="dark"] #config-manager-view {
+    --cfg-ink: rgba(244, 248, 252, 0.95);
+    --cfg-muted: rgba(205, 216, 229, 0.72);
+    --cfg-line: rgba(190, 218, 239, 0.16);
+    background:
+        linear-gradient(90deg, rgba(24, 183, 185, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(24, 183, 185, 0.045) 1px, transparent 1px),
+        linear-gradient(135deg, #101927, #121f2f 52%, #0f1722);
+}
+
+[data-theme="dark"] #config-manager-view .config-header,
+[data-theme="dark"] #config-manager-view .config-section {
+    background: rgba(18, 28, 42, 0.94);
+}
+
+[data-theme="dark"] #config-manager-view input[type="text"],
+[data-theme="dark"] #config-manager-view input[type="password"],
+[data-theme="dark"] #config-manager-view input[type="number"],
+[data-theme="dark"] #config-manager-view input[type="url"],
+[data-theme="dark"] #config-manager-view textarea,
+[data-theme="dark"] #config-manager-view select,
+[data-theme="dark"] #config-manager-view .form-control {
+    background: rgba(18, 28, 42, 0.96);
+    color: var(--cfg-ink);
+}
+
 .config-actions {
     display: flex;
     gap: 12px;
@@ -2815,4 +2952,39 @@ select.form-control {
     display: flex;
     flex-direction: column;
     gap: 12px;
+}
+
+/* XBoom 设置页最终覆盖：保证后续专项样式也统一 */
+#config-manager-view .custom-api-card,
+#config-manager-view .platform-card,
+#config-manager-view .model-card,
+#config-manager-view .api-card {
+    border-radius: 12px;
+    border-color: rgba(31, 56, 88, 0.12);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 8px 18px rgba(16, 34, 54, 0.045);
+}
+
+#config-manager-view .custom-api-card:hover,
+#config-manager-view .platform-card:hover,
+#config-manager-view .model-card:hover,
+#config-manager-view .api-card:hover {
+    border-color: rgba(13, 143, 186, 0.4);
+    box-shadow: 0 16px 28px rgba(16, 34, 54, 0.1);
+}
+
+#config-manager-view .custom-api-card-title {
+    color: var(--cfg-ink, #132033);
+    font-weight: 750;
+}
+
+#config-manager-view .custom-api-card-actions button {
+    border-radius: 8px;
+}
+
+[data-theme="dark"] #config-manager-view .custom-api-card,
+[data-theme="dark"] #config-manager-view .platform-card,
+[data-theme="dark"] #config-manager-view .model-card,
+[data-theme="dark"] #config-manager-view .api-card {
+    background: rgba(18, 28, 42, 0.94);
 }

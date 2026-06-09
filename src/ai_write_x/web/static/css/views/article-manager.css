@@ -947,3 +947,87 @@
         transform: rotate(360deg);
     }
 }
+
+/* ========== XBoom 文章库科技资产细节 ========== */
+#article-manager-view .sidebar-gallery-btn {
+    min-height: 40px;
+    border: 1px solid rgba(13, 143, 186, 0.16) !important;
+    background: rgba(13, 143, 186, 0.06) !important;
+    color: #0b6f95 !important;
+    font-weight: 650;
+}
+
+#article-manager-view .sidebar-gallery-btn:hover {
+    background: rgba(13, 143, 186, 0.1) !important;
+    transform: translateY(-1px);
+}
+
+#article-manager-view #image-count-badge {
+    background: linear-gradient(135deg, #0b6f95, #18b7b9) !important;
+}
+
+#article-manager-view #smart-clean-btn {
+    border-radius: 8px;
+    border-color: rgba(13, 143, 186, 0.34) !important;
+    background: rgba(13, 143, 186, 0.05);
+    color: #0b6f95;
+}
+
+#article-manager-view .batch-actions-group .btn,
+#article-manager-view .toolbar-actions > .btn {
+    border-radius: 8px;
+}
+
+#article-manager-view .batch-sub-actions {
+    padding: 4px;
+    border: 1px solid rgba(31, 56, 88, 0.12);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 8px 18px rgba(16, 34, 54, 0.06);
+}
+
+#article-manager-view .format-badge,
+#article-manager-view .status-badge {
+    border-radius: 6px;
+    font-weight: 700;
+}
+
+#article-manager-view .format-badge {
+    background: rgba(13, 143, 186, 0.1);
+    color: #0b6f95;
+    border: 1px solid rgba(13, 143, 186, 0.18);
+}
+
+#article-manager-view .status-badge.published {
+    background: rgba(22, 169, 111, 0.12);
+    color: #12845a;
+    border: 1px solid rgba(22, 169, 111, 0.22);
+}
+
+#article-manager-view .status-badge.failed {
+    background: rgba(239, 68, 68, 0.12);
+    color: #dc2626;
+    border: 1px solid rgba(239, 68, 68, 0.22);
+}
+
+#article-manager-view .status-badge.unpublished {
+    background: #eef4f8;
+    color: #607185;
+    border: 1px solid rgba(31, 56, 88, 0.12);
+}
+
+#article-manager-view .image-gallery-container {
+    padding: 18px;
+}
+
+#article-manager-view .gallery-header {
+    padding: 14px 16px;
+    border: 1px solid rgba(31, 56, 88, 0.12);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 8px 18px rgba(16, 34, 54, 0.045);
+}
+
+#article-manager-view .image-gallery-grid > * {
+    border-radius: 10px;
+}

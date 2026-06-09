@@ -391,11 +391,11 @@ template: ''
 img_api:
   ali:
     api_key: ''
-    model: ''
+    model: wanx2.0-t2i-turbo
     api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
   modelscope:
     api_key: ''
-    model: ''
+    model: Tongyi-MAI/Z-Image-Turbo
     api_base: https://api-inference.modelscope.cn/v1
   comfyui:
     api_key: ''
@@ -407,17 +407,17 @@ img_api:
     article_image_count: 5
     fast_mode_prompt_count: 5
     fast_mode_prompt_excerpt_length: 120
-    allow_placeholder_fallback: false
+    allow_placeholder_fallback: true
   custom: []
   custom_index: 0
-  api_type: comfyui
+  api_type: agnes
   picsum:
     api_key: ''
     model: ''
     api_base: ''
   agnes:
     api_key: ''
-    api_base: ''
+    api_base: https://apihub.agnes-ai.com/v1
     model: agnes-image-2.1-flash
 strict_freshness: true
 aiforge_search_max_results: 20

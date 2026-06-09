@@ -748,7 +748,7 @@ class VisualAssetsManager:
         elif not isinstance(img_type_cfg, dict):
             img_type_cfg = {}
             
-        api_base = img_type_cfg.get("api_base", api_bases.get(img_api_type, ""))
+        api_base = img_type_cfg.get("api_base") or api_bases.get(img_api_type, "")
         # 兼容性补充：如果全局 config 没拿到 key/model，尝试从局部提取
         if img_api_type == "custom":
             extracted_key = img_type_cfg.get("api_key")
@@ -761,7 +761,7 @@ class VisualAssetsManager:
         # 统一提取 api_base (供所有分支使用)
         actual_api_base = api_base
         if img_api_type == "agnes":
-            actual_api_base = img_type_cfg.get("api_base", api_bases.get("agnes", ""))
+            actual_api_base = img_type_cfg.get("api_base") or api_bases.get("agnes", "")
             agnes_key = img_type_cfg.get("api_key", "")
             if agnes_key:
                 img_api_key = agnes_key
@@ -2149,7 +2149,7 @@ class VisualAssetsManager:
                     img_type_cfg = img_type_cfg[0] if img_type_cfg else {}
             elif not isinstance(img_type_cfg, dict):
                 img_type_cfg = {}
-            api_base = img_type_cfg.get("api_base", api_bases.get(img_api_type, ""))
+            api_base = img_type_cfg.get("api_base") or api_bases.get(img_api_type, "")
             
             # 同步更新当前使用的 key/model
             if img_api_type == "custom":

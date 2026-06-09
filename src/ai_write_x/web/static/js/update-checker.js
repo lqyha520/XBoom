@@ -79,40 +79,27 @@ class UpdateChecker {
 
     ensureReadyButton() {
         if (this.readyButton) return this.readyButton;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.id = 'update-ready-button';
-        button.textContent = '立即更新并重启';
-        button.style.cssText = [
-            'position:fixed',
-            'right:22px',
-            'bottom:22px',
-            'z-index:12000',
-            'display:none',
-            'border:0',
-            'border-radius:999px',
-            'padding:11px 18px',
-            'font-size:14px',
-            'font-weight:700',
-            'color:#fff',
-            'background:linear-gradient(135deg,#7c3aed,#ec4899)',
-            'box-shadow:0 12px 28px rgba(124,58,237,.28)',
-            'cursor:pointer'
-        ].join(';');
-        button.addEventListener('click', () => this.showReadyToInstallPrompt(true));
-        document.body.appendChild(button);
+        const button = document.getElementById('xb-titlebar-update');
+        if (!button) return null;
+        if (!button.dataset.bound) {
+            button.dataset.bound = '1';
+            button.addEventListener('click', () => this.showReadyToInstallPrompt(true));
+        }
         this.readyButton = button;
         return button;
     }
 
     showReadyButton() {
         const button = this.ensureReadyButton();
-        button.style.display = 'inline-flex';
+        if (button) {
+            button.classList.add('is-visible');
+        }
     }
 
     hideReadyButton() {
-        if (this.readyButton) {
-            this.readyButton.style.display = 'none';
+        const button = this.readyButton || document.getElementById('xb-titlebar-update');
+        if (button) {
+            button.classList.remove('is-visible');
         }
     }
 
@@ -324,8 +311,8 @@ class UpdateChecker {
                 this.showReadyButton();
                 if (window.footerMarquee?.addMessage) {
                     window.footerMarquee.addMessage(
-                        `新版 v${policy.latest_version || ''} 已下载，点击右下角“立即更新并重启”完成更新`,
-                        'success', true, null
+                        `新版 v${policy.latest_version || ''} 已就绪，点击标题栏“立即更新”即可重启更新`,
+                        'success', false, 1
                     );
                 }
                 return;
@@ -411,13 +398,13 @@ class UpdateChecker {
                     clearInterval(this.backgroundProgressTimer);
                     this.backgroundProgressTimer = null;
                 }
+                this.showReadyButton();
                 if (window.footerMarquee?.addMessage) {
                     window.footerMarquee.addMessage(
-                        `新版 v${this.policy?.latest_version || ''} 已下载，点击“立即更新并重启”可马上完成更新`,
-                        'success', false, 0
+                        `新版 v${this.policy?.latest_version || ''} 已就绪，点击标题栏“立即更新”即可重启更新`,
+                        'success', false, 1
                     );
                 }
-                this.showReadyToInstallPrompt(true);
             } else if (data.status === 'error') {
                 if (this.backgroundProgressTimer) {
                     clearInterval(this.backgroundProgressTimer);

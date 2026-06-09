@@ -36,6 +36,14 @@ SECRET_FIELD_NAMES = {
 }
 
 
+def _looks_like_masked_secret(value: Any) -> bool:
+    if isinstance(value, str):
+        return "***" in value
+    if isinstance(value, list):
+        return any(_looks_like_masked_secret(item) for item in value)
+    return False
+
+
 def _mask_secret_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_mask_secret_value(item) for item in value]
@@ -72,10 +80,10 @@ async def get_config():
         config_data = {
             "platforms": config_dict.get("platforms", []),
             "publish_platform": config_dict.get("publish_platform", "wechat"),
-            "api": _sanitize_config_for_client(config_dict.get("api", {})),
-            "img_api": _sanitize_config_for_client(config_dict.get("img_api", {})),
+            "api": config_dict.get("api", {}),
+            "img_api": config_dict.get("img_api", {}),
             "update": config_dict.get("update", {}),
-            "wechat": _sanitize_config_for_client(config_dict.get("wechat", {})),
+            "wechat": config_dict.get("wechat", {}),
             "use_template": config_dict.get("use_template", True),
             "template_category": config_dict.get("template_category", ""),
             "template": config_dict.get("template", ""),
@@ -87,7 +95,7 @@ async def get_config():
             "format_publish": config_dict.get("format_publish", True),
             "dimensional_creative": config_dict.get("dimensional_creative", {}),
             "strict_freshness": config_dict.get("strict_freshness", True),
-            "aiforge_config": _sanitize_config_for_client(config.aiforge_config),
+            "aiforge_config": config.aiforge_config,
             "page_design": config_dict.get("page_design"),
         }
 
@@ -109,6 +117,8 @@ async def update_config_memory(request: ConfigUpdateRequest):
         def deep_merge(target, source):
             """递归合并字典，防止顶层覆盖丢失字段"""
             for key, value in source.items():
+                if key.lower() in SECRET_FIELD_NAMES and _looks_like_masked_secret(value):
+                    continue
                 if key in target and isinstance(target[key], dict) and isinstance(value, dict):
                     deep_merge(target[key], value)
                 else:
@@ -828,9 +838,10 @@ _ip_cache = {"ip": None, "source": None, "timestamp": 0, "ttl": 300}
 
 @router.get("/wechat/server-ip")
 async def get_server_ip():
-    """获取当前服务器的出口IP (v2: 并发竞速+缓存)"""
+    """获取当前服务器的出口IP (v3: 并发竞速取第一个成功结果+缓存)"""
     import aiohttp
     import asyncio
+    import ipaddress
     
     # v2: 检查缓存是否有效
     now = time.time()
@@ -848,51 +859,60 @@ async def get_server_ip():
     log.print_log(f"[出口IP] 正在并发获取服务器出口IP...", "info")
     
     try:
-        # 优先国内服务（与微信走同样的国内线路，确保IP一致）
+        # 多源查询：任一服务成功即可。微信实际检测到的 IP 仍以微信接口报错为准。
         ip_services = [
             "https://myip.ipip.net/json",
             "https://api.ipify.org?format=json",
-            "https://ipinfo.io/json"
+            "https://ipinfo.io/json",
+            "https://ifconfig.me/all.json",
+            "https://4.ipw.cn/api/ip/myip",
         ]
         
-        # v2: 并发竞速 - 同时请求所有服务，取最快成功的结果
         async def fetch_ip(session, service):
             """单个服务的IP获取，返回(ip, service)或抛异常"""
             async with session.get(service, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                if response.status == 200:
-                    data = await response.json(content_type=None)
-                    # 兼容不同服务的响应格式
-                    ip = data.get("ip") or data.get("IP")
-                    if not ip and "data" in data:
-                        ip = data["data"].get("ip") if isinstance(data.get("data"), dict) else None
-                    if ip:
-                        return ip, service
-            raise ValueError(f"{service} 返回无效响应")
+                body = await response.text()
+                if response.status != 200:
+                    raise ValueError(f"HTTP {response.status}: {body[:120]}")
+
+                ip = None
+                try:
+                    data = json.loads(body)
+                    if isinstance(data, dict):
+                        ip = (
+                            data.get("ip")
+                            or data.get("IP")
+                            or data.get("ip_addr")
+                            or data.get("remote_addr")
+                        )
+                        if not ip and isinstance(data.get("data"), dict):
+                            ip = data["data"].get("ip") or data["data"].get("IP")
+                except Exception:
+                    ip = body.strip()
+
+                if ip:
+                    ip = str(ip).strip()
+                    ipaddress.ip_address(ip)
+                    return ip, service
+            raise ValueError(f"返回无有效公网 IP: {body[:120]}")
         
         async with aiohttp.ClientSession() as session:
-            # 创建并发任务
-            tasks = [fetch_ip(session, svc) for svc in ip_services]
-            
-            # 竞速模式: 第一个成功的立即返回，取消其余
-            done, pending = await asyncio.wait(
-                [asyncio.create_task(t) for t in tasks],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            
-            # 取消尚未完成的任务
-            for task in pending:
-                task.cancel()
-            
-            # 从已完成的任务中找第一个成功的
-            for task in done:
+            task_map = {
+                asyncio.create_task(fetch_ip(session, svc)): svc
+                for svc in ip_services
+            }
+            errors = []
+            for completed in asyncio.as_completed(task_map):
                 try:
-                    ip, source = task.result()
-                    # v2: 更新缓存
+                    ip, source = await completed
                     _ip_cache["ip"] = ip
                     _ip_cache["source"] = source
                     _ip_cache["timestamp"] = time.time()
+                    for pending in task_map:
+                        if not pending.done():
+                            pending.cancel()
                     
-                    log.print_log(f"[出口IP] ✅ 获取成功: {ip} (来源: {source})", "success")
+                    log.print_log(f"[出口IP] 获取成功: {ip} (来源: {source})", "success")
                     return {
                         "status": "success",
                         "ip": ip,
@@ -900,11 +920,19 @@ async def get_server_ip():
                         "cached": False,
                         "message": f"请将此IP添加到微信公众号后台的IP白名单中"
                     }
-                except Exception:
+                except asyncio.CancelledError:
+                    errors.append("请求被取消")
                     continue
+                except Exception as task_err:
+                    errors.append(str(task_err))
         
-        log.print_log(f"[出口IP] ❌ 所有服务均获取失败", "error")
-        return {"status": "error", "message": "无法获取服务器IP，请手动查询"}
+        detail = "；".join(errors[:3])
+        log.print_log(f"[出口IP] 所有服务均获取失败: {detail}", "error")
+        return {
+            "status": "error",
+            "message": "无法获取服务器IP，请检查网络/代理，或点击测试微信公众号凭据让微信返回真实出口IP",
+            "details": errors,
+        }
     except Exception as e:
-        log.print_log(f"[出口IP] ❌ 获取IP异常: {str(e)}", "error")
+        log.print_log(f"[出口IP] 获取IP异常: {str(e)}", "error")
         return {"status": "error", "message": f"获取IP失败: {str(e)}"}

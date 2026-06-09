@@ -32,21 +32,46 @@
     <link rel="stylesheet" href="/static/lib/grapesjs/css/grapesjs-preset-webpage.min.css">
 
     <!-- 视图样式文件  -->
-    <link rel="stylesheet" href="/static/css/views/shared-manager.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/views/creative-workshop.css?v=20260524f">
-    <link rel="stylesheet" href="/static/css/views/article-manager.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/views/template-manager.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/views/config-manager.css?v=20260525e">
-    <link rel="stylesheet" href="/static/css/views/mcp-manager.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/views/newshub.css?v=20260304a">
-    <link rel="stylesheet" href="/static/css/views/dashboard.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/views/shared-manager.css?v=20260609a">
+    <link rel="stylesheet" href="/static/css/views/creative-workshop.css?v=20260609a">
+    <link rel="stylesheet" href="/static/css/views/article-manager.css?v=20260609a">
+    <link rel="stylesheet" href="/static/css/views/template-manager.css?v=20260609a">
+    <link rel="stylesheet" href="/static/css/views/config-manager.css?v=20260609a">
+    <link rel="stylesheet" href="/static/css/views/mcp-manager.css?v=20260609a">
+    <link rel="stylesheet" href="/static/css/views/newshub.css?v=20260609a">
+    <link rel="stylesheet" href="/static/css/views/dashboard.css?v=20260609a">
     <link rel="stylesheet" href="/static/css/swarm-monitor.css?v=20260307">
     <link rel="stylesheet" href="/static/css/views/menu-ip-whitelist.css?v=20260528">
+    <link rel="stylesheet" href="/static/css/views/xboom-unified-theme.css?v=20260610a">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
 </head>
 
 <body class="window-mode-standard" data-window-mode="standard">
     <div class="app-container animate-enter">
+        <div class="xb-titlebar" id="xb-titlebar" aria-hidden="true">
+            <div class="xb-titlebar-brand pywebview-drag-region">
+                <img class="xb-titlebar-logo" src="/static/images/app-logo.png?v=20260523" alt="XBoom" />
+                <span class="xb-titlebar-name">小爆来咯</span>
+                <span class="xb-titlebar-sub">智能内容创作平台</span>
+            </div>
+            <button type="button" class="xb-titlebar-update" id="xb-titlebar-update" title="新版本已就绪，点击更新并重启">
+                <span class="xb-titlebar-update-dot" aria-hidden="true"></span>
+                <span class="xb-titlebar-update-label">立即更新</span>
+            </button>
+            <div class="xb-titlebar-drag pywebview-drag-region" id="xb-titlebar-drag"></div>
+            <div class="xb-window-controls">
+                <button type="button" class="xb-winbtn" id="xb-win-min" title="最小化" aria-label="最小化">
+                    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><line x1="2.5" y1="6" x2="9.5" y2="6"></line></svg>
+                </button>
+                <button type="button" class="xb-winbtn" id="xb-win-max" title="最大化" aria-label="最大化">
+                    <svg class="xb-ic-max" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx="1"></rect></svg>
+                    <svg class="xb-ic-restore" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><rect x="2.5" y="3.5" width="6" height="6" rx="1"></rect><path d="M4.5 3.5V2.5h6v6h-1"></path></svg>
+                </button>
+                <button type="button" class="xb-winbtn xb-winbtn-close" id="xb-win-close" title="关闭" aria-label="关闭">
+                    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><line x1="3" y1="3" x2="9" y2="9"></line><line x1="9" y1="3" x2="3" y2="9"></line></svg>
+                </button>
+            </div>
+        </div>
         <!-- 组件化的头部 -->
         {% include 'components/header.html' %}
 
@@ -451,7 +476,7 @@
     <script src="/static/lib/monaco/vs/loader.js"></script>
     <script src="/static/js/dialog.js?v=20260301c"></script>
     <script src="/static/js/preview-panel.js?v=20260524g"></script>
-    <script src="/static/js/update-checker.js?v=20260524c"></script>
+    <script src="/static/js/update-checker.js?v=20260610a"></script>
     <script src="/static/js/footer-marquee.js?v=20260301c"></script>
     <script src="/static/js/task-queue.js?v=20260303a"></script>
     <script src="/static/js/main.js"></script>
@@ -474,6 +499,7 @@
     <script src="/static/js/aesthetic-voting.js?v=20260307"></script>
     <script src="/static/js/preview-gallery.js?v=20260308"></script>
     <script src="/static/js/menu-ip-whitelist-manager.js?v=20260528"></script>
+    <script src="/static/js/desktop-titlebar.js?v=20260609a"></script>
 </body>
 
 </html>

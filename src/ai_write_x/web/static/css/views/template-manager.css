@@ -75,3 +75,56 @@
 .template-card[draggable="true"]:active {  
     cursor: grabbing;  
 }
+
+/* ========== XBoom 模板库画廊细节 ========== */
+#template-manager-view .sidebar-header .btn-icon {
+    border-radius: 8px;
+    border-color: rgba(13, 143, 186, 0.18);
+    color: #0b6f95;
+    background: rgba(13, 143, 186, 0.06);
+}
+
+#template-manager-view .sidebar-header .btn-icon:hover {
+    background: #0d8fba;
+    border-color: #0d8fba;
+    color: #fff;
+}
+
+#template-manager-view #add-template {
+    border-radius: 8px;
+    background: linear-gradient(135deg, #0b6f95, #18b7b9);
+    border-color: transparent;
+    box-shadow: 0 10px 20px rgba(13, 143, 186, 0.18);
+}
+
+#template-manager-view .category-context-menu {
+    border-radius: 10px;
+    border-color: rgba(31, 56, 88, 0.12);
+    box-shadow: 0 16px 34px rgba(16, 34, 54, 0.14);
+}
+
+#template-manager-view .category-context-menu .context-menu-item {
+    font-size: 13px;
+}
+
+#template-manager-view .category-context-menu .context-menu-item:hover {
+    background: rgba(13, 143, 186, 0.08);
+    color: #0b6f95;
+}
+
+#template-manager-view .category-badge {
+    border-radius: 6px;
+    font-weight: 700;
+}
+
+#template-manager-view .template-card.dragging,
+#template-manager-view .template-card[draggable="true"]:active {
+    opacity: 0.78;
+    box-shadow: 0 18px 32px rgba(16, 34, 54, 0.16);
+}
+
+#template-manager-view .tree-item.drag-over {
+    background: linear-gradient(135deg, #0b6f95, #18b7b9);
+    border-left: none;
+    color: #fff;
+}

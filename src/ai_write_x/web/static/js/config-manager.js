@@ -1257,7 +1257,10 @@ class AIWriteXConfigManager {
             } else {
                 ipDisplay.textContent = '获取失败';
                 ipDisplay.style.color = '#ef4444';
-                ipDisplay.title = result.message || '无法获取IP';
+                const detail = Array.isArray(result.details)
+                    ? `\n${result.details.slice(0, 3).join('\n')}`
+                    : '';
+                ipDisplay.title = `${result.message || '无法获取IP'}${detail}`;
             }
         } catch (error) {
             ipDisplay.textContent = '网络错误';
@@ -4711,7 +4714,7 @@ class AIWriteXConfigManager {
             ...existing,
             api_key: keyEl ? keyEl.value : (existing.api_key || ''),
             model: modelInput?.value || modelSelect?.value || existing.model || '',
-            api_base: baseEl ? baseEl.value : (existing.api_base || ''),
+            api_base: baseEl ? baseEl.value : (existing.api_base || defaults.api_base || ''),
         };
     }
 
@@ -4815,6 +4818,16 @@ class AIWriteXConfigManager {
             'comfyui': { api_key: '', model: '', api_base: '' },
             'picsum': { api_key: '', model: '' },
         };
+        if (providerData && builtinDefaults[selected.key]) {
+            providerData = {
+                ...builtinDefaults[selected.key],
+                ...providerData,
+                model: providerData.model || builtinDefaults[selected.key].model || '',
+                api_base: providerData.api_base || builtinDefaults[selected.key].api_base || '',
+            };
+            if (!this.config.img_api) this.config.img_api = {};
+            this.config.img_api[selected.key] = providerData;
+        }
         if (!providerData && builtinDefaults[selected.key]) {
             providerData = builtinDefaults[selected.key];
             if (!this.config.img_api) this.config.img_api = {};

@@ -120,12 +120,25 @@ _META_LABEL_ONLY_RE = re.compile(
     re.I,
 )
 
+_MARKDOWN_META_ENDING_LABEL_RE = re.compile(
+    r"^\s*(?:>\s*)?(?:#{1,6}\s*)?(?:[-*+]\s*)?"
+    r"(?:\*\*|__|《|「|『|“|\"|')?\s*"
+    r"(?:第?[一二三四五六七八九十百\d]+(?:部分|节)?[、.．:：]\s*)?"
+    r"(?:结尾|结语|总结|写在最后|最后的话|结论|收尾|尾声|后记|内容创作)"
+    r"\s*(?:\*\*|__|》|」|』|”|\"|')?"
+    r"\s*(?:[：:\-—|]\s*)?",
+    re.I,
+)
+
 
 def _strip_meta_heading_prefix(text: str) -> tuple[str, bool]:
     stripped = (text or "").strip()
     if not stripped:
         return text, False
-    cleaned = _META_ENDING_LABEL_RE.sub("", stripped, count=1).strip()
+    cleaned = _MARKDOWN_META_ENDING_LABEL_RE.sub("", stripped, count=1).strip()
+    if cleaned == stripped:
+        cleaned = _META_ENDING_LABEL_RE.sub("", stripped, count=1).strip()
+    cleaned = re.sub(r"(\*\*|__)\s*$", "", cleaned).strip()
     return cleaned, cleaned != stripped
 
 

@@ -107,7 +107,11 @@ class SpiderRunner:
         
         # V18 Fix: 支持同步加载，避免后台线程加载延迟问题
         if sync_load:
-            self._load_spiders(silent=False)
+            # 同步加载完成后必须置位事件，否则 wait_for_loading 会一直等到超时
+            try:
+                self._load_spiders(silent=False)
+            finally:
+                self._loading_done.set()
         else:
             # V13.0 Optimization: 将爬虫模块加载移至后台线程，防止阻塞 Web 服务器启动
             threading.Thread(target=self._load_spiders_with_event, daemon=True).start()

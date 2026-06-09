@@ -1839,8 +1839,13 @@ class Config:
             elif isinstance(provider_config, list) and len(provider_config) > 0:
                 first = provider_config[0]
                 raw_key = first.get("api_key", "") if isinstance(first, dict) else str(first)
-            
-            return self._parse_first_key(raw_key)
+
+            parsed_key = self._parse_first_key(raw_key)
+            if not parsed_key and api_type == "agnes":
+                parsed_key = self._parse_first_key(
+                    self.config.get("api", {}).get("agnes", {}).get("api_key", "")
+                )
+            return parsed_key
 
     def get_img_api_keys(self, provider_type: str = None) -> list:
         """获取图片生成 API 的所有 Keys 列表"""
@@ -1857,7 +1862,10 @@ class Config:
                     raw_key = target.get("api_key", "") if isinstance(target, dict) else str(target)
             elif isinstance(provider_config, dict):
                 raw_key = provider_config.get("api_key", "")
-            
+
+            if not raw_key and target_type == "agnes":
+                raw_key = self.config.get("api", {}).get("agnes", {}).get("api_key", "")
+
             if isinstance(raw_key, list):
                 return [str(k) for k in raw_key if str(k).strip()]
             if isinstance(raw_key, str):
@@ -1898,7 +1906,10 @@ class Config:
                 return ""
 
             if isinstance(provider_config, dict):
-                return provider_config.get("model", "")
+                model = provider_config.get("model", "")
+                if not model and api_type == "agnes":
+                    return "agnes-image-2.1-flash"
+                return model
             elif isinstance(provider_config, list) and len(provider_config) > 0:
                 first = provider_config[0]
                 return first.get("model", "") if isinstance(first, dict) else str(first)
@@ -2222,6 +2233,7 @@ class Config:
             # Image API Keys
             "ALI_API_KEY": ("img_api", "ali", "api_key"),
             "MODELSCOPE_API_KEY": ("img_api", "modelscope", "api_key"),
+            "AGNES_IMAGE_API_KEY": ("img_api", "agnes", "api_key"),
             # WeChat
             "WECHAT_APPID": ("wechat", "credentials", 0, "appid"),
             "WECHAT_APPSECRET": ("wechat", "credentials", 0, "appsecret"),
@@ -2253,7 +2265,7 @@ class Config:
                     pass
         
         if loaded:
-            log.print_log(f"[Config] 🔐 从环境变量加载了 {len(loaded)} 个密钥: {', '.join(loaded)}", "info")
+            log.print_log(f"[Config] 从环境变量加载了 {len(loaded)} 个密钥: {', '.join(loaded)}", "info")
 
     def _load_secrets(self):
         """从 secrets/api_keys.yaml 读取密钥并合并到运行时配置（不修改 config.yaml 原文件）"""
@@ -2325,7 +2337,7 @@ class Config:
                                 for k, v in provider_secrets.items():
                                     if v: self.config["img_api"][provider][k] = v
 
-            log.print_log("[Config] 🔐 已从 secrets/api_keys.yaml 加载密钥覆盖", "info")
+            log.print_log("[Config] 已从 secrets/api_keys.yaml 加载密钥覆盖", "info")
         except Exception as e:
             log.print_log(f"[Config] secrets 加载失败(非致命): {e}", "warning")
 
@@ -2410,6 +2422,13 @@ class Config:
                     existing_secrets = yaml.safe_load(f) or {}
             except Exception:
                 pass
+
+        def _has_real_secret(value: Any) -> bool:
+            if isinstance(value, list):
+                return any(_has_real_secret(item) for item in value)
+            if isinstance(value, str):
+                return bool(value.strip()) and "***" not in value
+            return bool(value)
         
         # 构建新的 secrets 结构
         new_secrets = {}
@@ -2432,7 +2451,7 @@ class Config:
             for provider, provider_config in api_block.items():
                 if provider in reserved:
                     continue
-                if isinstance(provider_config, dict) and provider_config.get("api_key"):
+                if isinstance(provider_config, dict) and _has_real_secret(provider_config.get("api_key")):
                     new_secrets["api"][provider] = {"api_key": provider_config["api_key"]}
 
             custom_list = api_block.get("custom")
@@ -2442,7 +2461,7 @@ class Config:
                     if not isinstance(item, dict):
                         continue
                     keys = item.get("api_key")
-                    if not keys or (isinstance(keys, list) and not any(keys)):
+                    if not _has_real_secret(keys):
                         continue
                     sec_item = {"api_key": keys}
                     if item.get("provider_key"):
@@ -2458,14 +2477,13 @@ class Config:
             new_secrets["img_api"] = {}
             for provider, provider_config in config["img_api"].items():
                 if isinstance(provider_config, dict):
-                    if provider in ("ali", "modelscope") and provider_config.get("api_key"):
-                        if provider_config["api_key"]:
-                            new_secrets["img_api"][provider] = {"api_key": provider_config["api_key"]}
+                    if provider in ("ali", "modelscope", "agnes", "comfyui") and _has_real_secret(provider_config.get("api_key")):
+                        new_secrets["img_api"][provider] = {"api_key": provider_config["api_key"]}
                     elif provider == "custom" and isinstance(provider_config, list):
                         # custom 是列表
                         custom_with_keys = []
                         for item in provider_config:
-                            if isinstance(item, dict) and item.get("api_key"):
+                            if isinstance(item, dict) and _has_real_secret(item.get("api_key")):
                                 custom_with_keys.append({"api_key": item["api_key"]})
                         if custom_with_keys:
                             new_secrets["img_api"]["custom"] = custom_with_keys
@@ -2506,10 +2524,10 @@ class Config:
             with open(secrets_path, "w", encoding="utf-8") as f:
                 f.write(header)
                 yaml.dump(new_secrets, f, Dumper=IndentedDumper, allow_unicode=True, sort_keys=False, default_flow_style=False, indent=2)
-            log.print_log("[Config] 🔐 敏感信息已保存到 secrets/api_keys.yaml", "info")
+            log.print_log("[Config] 敏感信息已保存到 secrets/api_keys.yaml", "info")
             return True
         except Exception as e:
-            log.print_log(f"[Config] 🔐 保存 secrets 失败: {e}", "warning")
+            log.print_log(f"[Config] 保存 secrets 失败: {e}", "warning")
             return False
 
     def save_config(self, config, aiforge_config=None):

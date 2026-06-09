@@ -24,6 +24,32 @@ from src.ai_write_x.utils.icon_manager import WindowIconManager
 
 
 class WebViewGUI:
+    class DesktopWindowApi:
+        def __init__(self, manager):
+            self._manager = manager
+
+        def minimize_window(self):
+            window = self._manager.window
+            if window:
+                window.minimize()
+            return True
+
+        def toggle_maximize_window(self):
+            window = self._manager.window
+            if not window:
+                return {"maximized": False}
+            if self._manager._custom_titlebar_maximized:
+                window.restore()
+                self._manager._custom_titlebar_maximized = False
+            else:
+                window.maximize()
+                self._manager._custom_titlebar_maximized = True
+            return {"maximized": self._manager._custom_titlebar_maximized}
+
+        def close_window(self):
+            self._manager.quit_application()
+            return True
+
     # 类级别单实例互斥锁
     _single_instance_mutex = None
 
@@ -57,6 +83,8 @@ class WebViewGUI:
         self.is_shutting_down = False
         self._browser_gui_opened = False
         self._desktop_ui_ready = False
+        self._custom_titlebar_maximized = False
+        self._desktop_window_api = self.DesktopWindowApi(self)
 
         # 【新增】生成客户端安全令牌
         self.client_token = secrets.token_hex(16)
@@ -201,6 +229,7 @@ class WebViewGUI:
         if not self.window or not self.main_ui_loaded:
             return
         try:
+            self.window.evaluate_js("document.body.classList.add('desktop-frameless');")
             self.window.evaluate_js(f"window.APP_CLIENT_TOKEN = '{self.client_token}';")
             self.window.evaluate_js("document.dispatchEvent(new Event('pywebviewready'))")
             self.window.evaluate_js(
@@ -455,45 +484,81 @@ class WebViewGUI:
   <meta charset="utf-8">
   <title>小爆来咯</title>
   <style>
+    :root {
+      --xb-bg-base: #fbf7e8;
+      --xb-ink: #2f3528;
+      --xb-muted: #7c7a63;
+      --xb-line: #e3dcc0;
+      --xb-accent: #3d6f8d;
+    }
     html, body {
       margin: 0;
       height: 100%;
-      font-family: "Segoe UI", Arial, sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      background-color: var(--xb-bg-base);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M24 0H0v24' fill='none' stroke='%23d8cfaa' stroke-opacity='.42' stroke-width='1'/%3E%3C/svg%3E");
+      background-size: 24px 24px;
+      color: var(--xb-ink);
     }
     body {
       display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .wrap {
-      width: 100%;
-      max-width: 420px;
-      padding: 32px;
-      text-align: center;
-    }
-    .title {
-      font-size: 28px;
-      font-weight: 600;
-      margin-bottom: 12px;
-    }
-    .sub {
-      font-size: 14px;
-      color: #94a3b8;
-      margin-bottom: 24px;
-    }
-    .bar {
-      height: 4px;
-      border-radius: 999px;
+      flex-direction: column;
       overflow: hidden;
-      background: rgba(148, 163, 184, 0.18);
+    }
+    .ld-titlebar {
+      display: flex;
+      align-items: center;
+      height: 40px;
+      flex-shrink: 0;
+      padding: 0 8px 0 14px;
+      border-bottom: 1px solid var(--xb-line);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .ld-brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      height: 100%;
+    }
+    .ld-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--xb-ink);
+    }
+    .ld-sub {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--xb-muted);
+      padding-left: 10px;
+      margin-left: 4px;
+      border-left: 1px solid var(--xb-line);
+    }
+    .ld-drag { flex: 1; align-self: stretch; min-width: 24px; }
+    .ld-controls { display: flex; align-items: center; gap: 4px; }
+    .ld-winbtn {
+      width: 38px; height: 28px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: none; border-radius: 7px;
+      background-color: transparent; color: var(--xb-muted);
+      cursor: pointer; padding: 0;
+      transition: background-color 0.16s ease, color 0.16s ease;
+    }
+    .ld-winbtn svg { stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .ld-winbtn:hover { background-color: #efe6c4; color: var(--xb-ink); }
+    .ld-winbtn-close:hover { background-color: #d4584f; color: #fff; }
+    .ld-body { flex: 1; display: flex; align-items: center; justify-content: center; }
+    .wrap { width: 100%; max-width: 420px; padding: 32px; text-align: center; }
+    .title { font-size: 26px; font-weight: 700; margin-bottom: 10px; color: var(--xb-ink); }
+    .sub { font-size: 14px; color: var(--xb-muted); margin-bottom: 26px; }
+    .bar {
+      height: 5px; border-radius: 999px; overflow: hidden;
+      background: rgba(180, 170, 130, 0.22);
     }
     .bar > div {
-      width: 35%;
-      height: 100%;
-      background: linear-gradient(90deg, #38bdf8, #818cf8);
-      animation: slide 1.1s ease-in-out infinite;
+      width: 32%; height: 100%; border-radius: 999px;
+      background-color: var(--xb-accent);
+      animation: slide 1.15s ease-in-out infinite;
     }
     @keyframes slide {
       0% { transform: translateX(-130%); }
@@ -502,11 +567,40 @@ class WebViewGUI:
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="title">小爆来咯</div>
-    <div class="sub">正在启动桌面工作台...</div>
-    <div class="bar"><div></div></div>
+  <div class="ld-titlebar">
+    <div class="ld-brand">
+      <span class="ld-name">小爆来咯</span>
+      <span class="ld-sub">智能内容创作平台</span>
+    </div>
+    <div class="ld-drag pywebview-drag-region"></div>
+    <div class="ld-controls">
+      <button type="button" class="ld-winbtn" id="ld-min" title="最小化">
+        <svg viewBox="0 0 12 12" width="12" height="12"><line x1="2.5" y1="6" x2="9.5" y2="6"></line></svg>
+      </button>
+      <button type="button" class="ld-winbtn ld-winbtn-close" id="ld-close" title="关闭">
+        <svg viewBox="0 0 12 12" width="12" height="12"><line x1="3" y1="3" x2="9" y2="9"></line><line x1="9" y1="3" x2="3" y2="9"></line></svg>
+      </button>
+    </div>
   </div>
+  <div class="ld-body">
+    <div class="wrap">
+      <div class="title">小爆来咯</div>
+      <div class="sub">正在启动桌面工作台...</div>
+      <div class="bar"><div></div></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      function api() { return (window.pywebview && window.pywebview.api) ? window.pywebview.api : null; }
+      function bind() {
+        var minBtn = document.getElementById("ld-min");
+        var closeBtn = document.getElementById("ld-close");
+        if (minBtn) minBtn.addEventListener("click", function () { var a = api(); if (a && a.minimize_window) a.minimize_window(); });
+        if (closeBtn) closeBtn.addEventListener("click", function () { var a = api(); if (a && a.close_window) a.close_window(); });
+      }
+      if (document.readyState !== "loading") { bind(); } else { document.addEventListener("DOMContentLoaded", bind); }
+    })();
+  </script>
 </body>
 </html>
 """
@@ -638,16 +732,21 @@ class WebViewGUI:
 
             # 读取窗口模式设置（首次启动时使用默认值）
             window_config = self.get_window_config()
+            self._custom_titlebar_maximized = bool(window_config["maximized"])
 
             # 先显示轻量加载页，等本地服务就绪后再切换到主界面
             window_kwargs = {
                 "title": "小爆来咯",
                 "html": self.build_loading_html(),
+                "js_api": self._desktop_window_api,
                 "width": window_config["width"],
                 "height": window_config["height"],
                 "min_size": (1000, 700),
                 "resizable": True,
                 "maximized": window_config["maximized"],
+                "frameless": True,
+                "easy_drag": False,
+                "background_color": "#fbf7e8",
                 "fullscreen": False,  # 可选：如果需要真正全屏
             }
 

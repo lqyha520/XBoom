@@ -1140,3 +1140,323 @@
         background: rgba(var(--primary-rgb, 59, 130, 246), 0.12);
     }
 }
+
+/* ========== XBoom 科技工作台统一刷新：文章库 / 模板库 / 定时任务 ========== */
+#article-manager-view,
+#template-manager-view,
+#scheduler-view {
+    --xb-ink: #132033;
+    --xb-muted: #607185;
+    --xb-line: rgba(31, 56, 88, 0.12);
+    --xb-soft-line: rgba(31, 56, 88, 0.08);
+    --xb-accent: #0d8fba;
+    --xb-accent-strong: #0b6f95;
+    --xb-cyan: #18b7b9;
+    --xb-green: #16a96f;
+    --xb-surface: rgba(255, 255, 255, 0.94);
+    --xb-surface-soft: #f6f9fc;
+    --xb-shadow: 0 10px 24px rgba(16, 34, 54, 0.06);
+}
+
+#article-manager-view.active,
+#template-manager-view.active,
+#scheduler-view.active {
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.045) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.04) 1px, transparent 1px),
+        linear-gradient(135deg, #f8fbfd 0%, #f3f7fa 48%, #fbfcfd 100%);
+    background-size: 28px 28px, 28px 28px, auto;
+}
+
+#article-manager-view .manager-layout,
+#template-manager-view .manager-layout,
+#scheduler-view .manager-layout {
+    gap: 14px;
+    padding: 18px 22px 22px;
+    box-sizing: border-box;
+}
+
+#article-manager-view .manager-sidebar,
+#template-manager-view .manager-sidebar,
+#scheduler-view .manager-sidebar {
+    width: 218px;
+    flex-basis: 218px;
+    height: 100%;
+    padding: 16px;
+    border: 1px solid var(--xb-line);
+    border-radius: 12px;
+    background: var(--xb-surface);
+    box-shadow: var(--xb-shadow);
+}
+
+#article-manager-view .main-wrapper,
+#template-manager-view .main-wrapper,
+#scheduler-view .main-wrapper {
+    border: 1px solid var(--xb-line);
+    border-radius: 12px;
+    background: var(--xb-surface);
+    box-shadow: var(--xb-shadow);
+    overflow: hidden;
+}
+
+#article-manager-view .sidebar-header,
+#template-manager-view .sidebar-header,
+#scheduler-view .sidebar-header {
+    align-items: flex-start;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--xb-line);
+}
+
+#article-manager-view .sidebar-header h3,
+#template-manager-view .sidebar-header h3,
+#scheduler-view .sidebar-header h3 {
+    color: var(--xb-ink);
+    font-weight: 750;
+}
+
+#article-manager-view .tree-item,
+#template-manager-view .tree-item,
+#scheduler-view .scheduler-sidebar-task-item {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--xb-muted);
+}
+
+#article-manager-view .tree-item:hover,
+#template-manager-view .tree-item:hover,
+#scheduler-view .scheduler-sidebar-task-item:hover {
+    background: rgba(13, 143, 186, 0.07);
+    border-color: rgba(13, 143, 186, 0.16);
+    color: var(--xb-ink);
+}
+
+#article-manager-view .tree-item.active,
+#template-manager-view .tree-item.active {
+    background: linear-gradient(135deg, var(--xb-accent-strong), var(--xb-cyan));
+    color: #fff;
+    box-shadow: 0 10px 18px rgba(13, 143, 186, 0.18);
+}
+
+#article-manager-view .manager-toolbar,
+#template-manager-view .manager-toolbar,
+#scheduler-view .manager-toolbar {
+    margin: 0;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--xb-line);
+    background:
+        linear-gradient(180deg, rgba(248, 251, 253, 0.96), rgba(242, 247, 250, 0.96));
+    gap: 12px;
+}
+
+#article-manager-view .search-box,
+#template-manager-view .search-box {
+    max-width: 460px;
+}
+
+#article-manager-view .search-box input,
+#template-manager-view .search-box input {
+    height: 38px;
+    border-radius: 8px;
+    border: 1px solid rgba(31, 56, 88, 0.14);
+    background: #fff;
+    color: var(--xb-ink);
+}
+
+#article-manager-view .search-box input:focus,
+#template-manager-view .search-box input:focus {
+    border-color: rgba(13, 143, 186, 0.58);
+    box-shadow: 0 0 0 3px rgba(13, 143, 186, 0.11);
+}
+
+#article-manager-view .view-toggle,
+#template-manager-view .view-toggle {
+    border-radius: 8px;
+    border-color: rgba(31, 56, 88, 0.12);
+    background: #eaf2f7;
+}
+
+#article-manager-view .view-btn,
+#template-manager-view .view-btn {
+    border-radius: 7px;
+}
+
+#article-manager-view .view-btn.active,
+#template-manager-view .view-btn.active {
+    background: #fff;
+    color: var(--xb-accent-strong);
+    box-shadow: 0 6px 14px rgba(16, 34, 54, 0.08);
+}
+
+#article-manager-view .manager-main,
+#template-manager-view .manager-main,
+#scheduler-view .scheduler-panels {
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.035) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.03) 1px, transparent 1px),
+        rgba(247, 251, 253, 0.82);
+    background-size: 24px 24px, 24px 24px, auto;
+}
+
+#article-manager-view .content-grid,
+#template-manager-view .content-grid {
+    padding: 16px 18px var(--content-bottom-padding) 18px;
+    gap: 16px;
+}
+
+#article-manager-view .content-card,
+#template-manager-view .content-card {
+    border-radius: 10px;
+    border-color: var(--xb-line);
+    background: #fff;
+    box-shadow: 0 8px 18px rgba(16, 34, 54, 0.045);
+}
+
+#article-manager-view .content-card:hover,
+#template-manager-view .content-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(13, 143, 186, 0.4);
+    box-shadow: 0 16px 28px rgba(16, 34, 54, 0.1);
+}
+
+#article-manager-view .card-preview,
+#template-manager-view .card-preview {
+    background:
+        linear-gradient(90deg, rgba(13, 143, 186, 0.07) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(13, 143, 186, 0.06) 1px, transparent 1px),
+        #eef5f9;
+    background-size: 18px 18px, 18px 18px, auto;
+}
+
+#article-manager-view .card-content,
+#template-manager-view .card-content {
+    background: #fff;
+    border-top-color: var(--xb-line);
+}
+
+#article-manager-view .card-title,
+#template-manager-view .card-title {
+    color: var(--xb-ink);
+    font-weight: 700;
+}
+
+#article-manager-view .card-actions,
+#template-manager-view .card-actions {
+    border-top-color: var(--xb-line);
+    background: #f8fbfd;
+}
+
+#article-manager-view .meta-badge,
+#template-manager-view .meta-badge,
+#template-manager-view .category-badge {
+    background: rgba(13, 143, 186, 0.1);
+    color: var(--xb-accent-strong);
+    border: 1px solid rgba(13, 143, 186, 0.18);
+}
+
+#scheduler-view .scheduler-layout {
+    background: transparent;
+}
+
+#scheduler-view .scheduler-side-stats {
+    gap: 8px;
+}
+
+#scheduler-view .scheduler-sidebar .sidebar-header {
+    flex-direction: column;
+    gap: 6px;
+}
+
+#scheduler-view .scheduler-sidebar .sidebar-header h3,
+#scheduler-view .scheduler-sidebar .sidebar-header p {
+    width: 100%;
+}
+
+#scheduler-view .scheduler-stat-item {
+    border-radius: 9px;
+    border: 1px solid rgba(13, 143, 186, 0.16);
+    background: rgba(13, 143, 186, 0.07);
+}
+
+#scheduler-view .scheduler-stat-item strong {
+    color: var(--xb-accent-strong);
+}
+
+#scheduler-view .scheduler-toolbar {
+    border-radius: 0;
+}
+
+#scheduler-view .scheduler-panel {
+    border-radius: 12px;
+    border: 1px solid var(--xb-line);
+    background: #fff;
+    box-shadow: var(--xb-shadow);
+}
+
+#scheduler-view .table-container {
+    border-radius: 10px;
+    border: 1px solid var(--xb-line);
+    overflow: auto;
+    background: #fff;
+}
+
+#scheduler-view .data-table thead th {
+    background: #eef5f9;
+    color: var(--xb-ink);
+    font-size: 13px;
+    line-height: 1.35;
+    padding: 8px 10px;
+}
+
+#scheduler-view .data-table td {
+    font-size: 13px;
+    line-height: 1.45;
+    padding: 8px 10px;
+}
+
+[data-theme="dark"] #article-manager-view,
+[data-theme="dark"] #template-manager-view,
+[data-theme="dark"] #scheduler-view {
+    --xb-ink: rgba(244, 248, 252, 0.95);
+    --xb-muted: rgba(205, 216, 229, 0.72);
+    --xb-line: rgba(190, 218, 239, 0.16);
+    --xb-surface: rgba(18, 28, 42, 0.94);
+    --xb-surface-soft: rgba(23, 36, 52, 0.95);
+}
+
+[data-theme="dark"] #article-manager-view.active,
+[data-theme="dark"] #template-manager-view.active,
+[data-theme="dark"] #scheduler-view.active {
+    background:
+        linear-gradient(90deg, rgba(24, 183, 185, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(24, 183, 185, 0.045) 1px, transparent 1px),
+        linear-gradient(135deg, #101927, #121f2f 52%, #0f1722);
+}
+
+[data-theme="dark"] #article-manager-view .main-wrapper,
+[data-theme="dark"] #template-manager-view .main-wrapper,
+[data-theme="dark"] #scheduler-view .main-wrapper,
+[data-theme="dark"] #article-manager-view .manager-sidebar,
+[data-theme="dark"] #template-manager-view .manager-sidebar,
+[data-theme="dark"] #scheduler-view .manager-sidebar,
+[data-theme="dark"] #article-manager-view .content-card,
+[data-theme="dark"] #template-manager-view .content-card,
+[data-theme="dark"] #scheduler-view .scheduler-panel {
+    background: var(--xb-surface);
+}
+
+@media (max-width: 800px) {
+    #article-manager-view .manager-layout,
+    #template-manager-view .manager-layout,
+    #scheduler-view .manager-layout {
+        padding: 14px;
+    }
+
+    #article-manager-view .manager-sidebar,
+    #template-manager-view .manager-sidebar,
+    #scheduler-view .manager-sidebar {
+        width: 100%;
+        flex-basis: auto;
+        height: auto;
+    }
+}
