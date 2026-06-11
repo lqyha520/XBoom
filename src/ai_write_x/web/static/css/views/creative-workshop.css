@@ -1,4 +1,4 @@
-/* ========== 内容生成 — 科技写作控制台 ========== */
+﻿/* ========== 内容生成 — 科技写作控制台 ========== */
 #creative-workshop-view.active {
     display: flex !important;
     flex-direction: column;
@@ -959,14 +959,14 @@
 /* ---------- 日志 ---------- */
 #generation-progress .panel-content {
     padding: 0 8px 12px 12px;
-    background: #0f1a27;
+    background: #ffffff;
 }
 
 #generation-progress .logs-output {
     font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
     font-size: 12px;
     line-height: 1.68;
-    color: #b9c8d8;
+    color: #000000;
     min-height: 120px;
     height: 100%;
     overflow-y: auto;
@@ -984,7 +984,7 @@
 }
 
 #generation-progress .logs-output .log-entry.info {
-    color: #e5edf5;
+    color: #000000;
 }
 
 #generation-progress .logs-output .log-entry.success {
@@ -1070,7 +1070,7 @@
     padding: 30px 34px;
     font-size: 15px;
     line-height: 1.88;
-    color: var(--cw-ink);
+    color: #000000;
     background: #ffffff;
     border: 1px solid rgba(31, 56, 88, 0.12);
     border-radius: 10px;
@@ -1082,7 +1082,7 @@
 .live-preview-content h1,
 .live-preview-content h2,
 .live-preview-content h3 {
-    color: var(--cw-ink);
+    color: #000000;
     margin: 1.2em 0 0.6em;
     line-height: 1.35;
 }
@@ -1168,7 +1168,7 @@
 
 /* ---------- 深色主题兼容 ---------- */
 [data-theme="dark"] #creative-workshop-view {
-    --cw-ink: rgba(244, 248, 252, 0.95);
+    --cw-ink: rgba(255, 255, 255, 0.95);
     --cw-muted: rgba(205, 216, 229, 0.72);
     --cw-line: rgba(190, 218, 239, 0.16);
     --cw-soft-line: rgba(190, 218, 239, 0.1);
@@ -1210,12 +1210,12 @@
 [data-theme="dark"] #creative-workshop-view .wf-step-chip,
 [data-theme="dark"] .output-tab.is-active,
 [data-theme="dark"] .live-preview-content {
-    background: rgba(18, 28, 42, 0.96);
-    color: var(--cw-ink);
+    background: #ffffff;
+    color: #000000;
 }
 
 [data-theme="dark"] .topic-input {
-    color: var(--cw-ink);
+    color: #000000;
 }
 
 [data-theme="dark"] .live-preview-body {

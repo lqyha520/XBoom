@@ -37,10 +37,17 @@ wechat:
   credentials:
     - appid: ''
       appsecret: ''
-      author: 微笑
-      draft_only: false
+      author: 布草芯
+      draft_only: true
       call_sendall: false
       sendall: false
+      tag_id: 0
+    - appid: ''
+      appsecret: ''
+      author: 香蕉巴拿拿
+      draft_only: true
+      call_sendall: false
+      sendall: true
       tag_id: 0
 api:
   api_type: agnes

@@ -1,4 +1,4 @@
-// 文章库管理器类
+﻿// 文章库管理器类
 class ArticleManager {
     // 查看文章原始热点内容
     async showArticleSource(article) {
@@ -993,69 +993,33 @@ class ArticleManager {
             const borderColor = isDark ? '#333333' : '#eeeeee';
             const preBg = isDark ? '#2d2d2d' : '#f5f5f5';
 
-            const styledHtml = `
+            // 提取第一张图片作为封面
+            const imgMatch = htmlContent.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
+            const coverSrc = imgMatch ? imgMatch[1] : null;
+            
+            const styledHtml = coverSrc ? `
+                <base href="/">
                 <style>
-                    body {
-                        margin: 0;
-                        padding: 0; /* 移除默认 padding，让全宽模板可以正常撑满 */
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        font-size: 11px;
-                        line-height: 1.6;
-                        color: ${textColor};
-                        background: ${bgColor};
-                        overflow-x: hidden;
-                    }
-                    /* 给普通内容添加基础内间距容器，防止贴边 */
-                    .article-container {
-                        padding: 16px;
-                    }
-                    /* 如果是自定义 HTML 模板内容，不加容器 */
-                    /* 标题样式 */
-                    h1, h2, h3, h4, h5, h6 { margin: 8px 0 4px 0; font-weight: 600; color: ${isDark ? '#fff' : '#000'}; }
-                    h1 { font-size: 1.4em; }
-                    h2 { font-size: 1.25em; }
-                    h3 { font-size: 1.1em; }
-                    /* 段落样式 */
-                    p { margin: 0 0 6px 0; }
-                    /* 引用块样式 */
-                    blockquote {
-                        margin: 4px 0;
-                        padding: 2px 8px;
-                        border-left: 3px solid #3a7bd5;
-                        background: ${isDark ? '#252525' : '#f0f7ff'};
-                        font-style: italic;
-                    }
-                    /* 代码样式 */
-                    code { background: ${preBg}; padding: 1px 3px; border-radius: 3px; font-family: monospace; }
-                    pre { background: ${preBg}; padding: 6px; border-radius: 4px; overflow: hidden; margin: 6px 0; }
-                    pre code { background: none; padding: 0; }
-                    /* 列表样式 */
-                    ul, ol { margin: 4px 0; padding-left: 16px; }
-                    li { margin-bottom: 2px; }
-                    /* 图片样式 */
-                    img { max-width: 100%; height: auto; border-radius: 4px; }
-                    /* 隐藏滚动条 */
-                    ::-webkit-scrollbar { display: none !important; }
-                    * { scrollbar-width: none !important; }
-                    ul, ol {
-                        margin: 2px 0;
-                        padding-left: 16px;
-                    }
-
-                    li {
-                        margin: 1px 0;
-                    }
-
-                    /* 分割线样式 */
-                    hr {
-                        height: 1px;
-                        background: #ddd;
-                        border: 0;
-                        margin: 4px 0;
-                    }
-
+                    body { margin: 0; padding: 0; overflow: hidden; background: ${bgColor}; }
+                    img { width: 100%; height: 100%; object-fit: cover; display: block; }
                 </style>
-                ${htmlContent}
+                <img src="${coverSrc}" alt="封面">
+            ` : `
+                <base href="/">
+                <style>
+                    body { 
+                        margin: 0; 
+                        padding: 0; 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        height: 100%; 
+                        background: ${isDark ? '#2a2a2a' : '#f5f5f5'}; 
+                        color: ${isDark ? '#666' : '#999'};
+                        font-size: 12px;
+                    }
+                </style>
+                <div>暂无封面图</div>
             `;
 
             iframe.srcdoc = styledHtml;
@@ -1798,8 +1762,16 @@ class ArticleManager {
         const resultType = result.fail_count === 0 ? 'success' : (result.success_count > 0 ? 'warning' : 'error');
 
         // 合并所有详情信息
+
         const allDetails = [];
 
+
+        // 添加成功信息(绿色竖线)
+        if (result.success_details && result.success_details.length > 0) {
+            result.success_details.forEach(detail => {
+                allDetails.push({ text: detail, type: 'success' });
+            });
+        }
         // 添加警告信息(橙色竖线)
         if (hasWarnings) {
             result.warning_details.forEach(detail => {
@@ -1825,7 +1797,7 @@ class ArticleManager {
                     <h5 style="color: ${result.fail_count > 0 && result.success_count === 0 ? '#ef4444' : '#f59e0b'};">结果详情</h5>
                     <div class="error-list">
                         ${allDetails.map(item => `
-                            <div class="${item.type === 'warning' ? 'warning-item' : 'error-item'}">${this.escapeHtml(item.text)}</div>
+                            <div class="${item.type === 'success' ? 'success-item' : (item.type === 'warning' ? 'warning-item' : 'error-item')}">${this.escapeHtml(item.text)}</div>
                         `).join('')}
                     </div>
                 </div>

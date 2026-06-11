@@ -1654,8 +1654,15 @@ class VisualAssetsManager:
                 "absolutely no text no words no letters no Chinese characters"
             )
         else:
+            import random
+            # 为正文图添加随机视角，避免相同topic导致重复构图
+            variations = [
+                ", close-up detail", ", wide establishing shot", ", unique angle",
+                ", mid-range framing", ", intimate perspective", ", environmental context"
+            ]
+            varied_suffix = random.choice(variations)
             pos = (
-                f"photo realistic scene, {subject_en}, inspired by {context_en}, "
+                f"photo realistic scene, {subject_en}, inspired by {context_en}{varied_suffix}, "
                 "editorial photography, coherent perspective, "
                 "absolutely no text no words no letters no Chinese characters no watermark"
             )

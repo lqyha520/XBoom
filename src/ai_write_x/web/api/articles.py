@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+﻿from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, File, UploadFile
@@ -444,6 +444,7 @@ async def publish_articles(request: PublishRequest):
         success_count = 0
         fail_count = 0
         error_details = []
+        success_details = []
         warning_details = []
         format_publish = config.format_publish
         
@@ -524,6 +525,7 @@ async def publish_articles(request: PublishRequest):
                     if success:
                         success_count += 1
                         published_article_paths.add(article_path)
+                        success_details.append(f"《{title}》→ {cred.get('author', '未命名')}: {message or '发布成功'}")
                         if message and "草稿箱" in message:
                             warning_details.append(f"{cred.get('author', '未命名')}: {message}")
 
@@ -595,6 +597,7 @@ async def publish_articles(request: PublishRequest):
             "status": "success" if success_count > 0 else "error",
             "success_count": success_count,
             "fail_count": fail_count,
+            "success_details": success_details,
             "warning_details": warning_details,
             "error_details": error_details,
             "deleted_articles": deleted_articles,
