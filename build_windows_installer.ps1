@@ -38,8 +38,22 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+Write-Host 'Validating PyInstaller spec syntax...' -ForegroundColor Cyan
+& $python -m py_compile '.\aiwritex_windows.spec'
+if ($LASTEXITCODE -ne 0) {
+    Write-Host '[ERROR] aiwritex_windows.spec has a syntax/encoding error. Fix it before building.' -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
 & $python -m PyInstaller '.\aiwritex_windows.spec' --noconfirm
 if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+# Self-heal: normalize a possibly mojibake-named PyInstaller onedir to the expected name.
+& $python '.\scripts\normalize_dist_dir.py'
+if ($LASTEXITCODE -ne 0) {
+    Write-Host '[ERROR] Failed to normalize dist output directory name.' -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
@@ -85,8 +99,21 @@ if (-not (Test-Path $webview2Path)) {
 $isccCandidates = @(
     'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
     'C:\Program Files\Inno Setup 6\ISCC.exe',
-    (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+    (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
+    (Join-Path $env:ProgramData 'chocolatey\bin\ISCC.exe')
 )
+
+# Inno Setup records its install dir in the registry; use it as an extra candidate.
+foreach ($regPath in @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1'
+)) {
+    try {
+        $loc = (Get-ItemProperty -Path $regPath -ErrorAction Stop).InstallLocation
+        if ($loc) { $isccCandidates += (Join-Path $loc 'ISCC.exe') }
+    } catch {}
+}
 
 $iscc = $isccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $iscc) {
@@ -132,5 +159,7 @@ if ($iscc) {
         exit 1
     }
 } else {
-    Write-Host 'Inno Setup not found. onedir build completed. Install Inno Setup 6 and rerun this script for Setup.exe.'
+    Write-Host 'Inno Setup not found. onedir build completed. Install Inno Setup 6 and rerun this script for Setup.exe.' -ForegroundColor Yellow
+    Write-Host 'Searched the following ISCC.exe locations:' -ForegroundColor Yellow
+    $isccCandidates | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
 }
