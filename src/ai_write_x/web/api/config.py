@@ -70,7 +70,7 @@ def _sanitize_config_for_client(data: Any) -> Any:
     return sanitized
 
 
-@router.get("/")
+@router.get("")
 async def get_config():
     """获取当前配置"""
     try:
@@ -106,7 +106,7 @@ async def get_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/")
+@router.patch("")
 async def update_config_memory(request: ConfigUpdateRequest):
     """仅更新内存中的配置,不保存到文件"""
     try:
@@ -150,7 +150,7 @@ async def update_config_memory(request: ConfigUpdateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/")
+@router.post("")
 async def save_config_to_file():
     """保存当前内存配置到物理文件"""
     try:

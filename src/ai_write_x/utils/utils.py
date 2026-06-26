@@ -200,8 +200,9 @@ def download_and_save_image(image_url, local_image_folder):
         response = requests.get(image_url, stream=True, allow_redirects=True, proxies=proxies, timeout=30)
         response.raise_for_status()
 
-        timestamp = str(int(time.time()))
-        local_filename = os.path.join(local_image_folder, f"{timestamp}.jpg")
+        timestamp = str(int(time.time() * 1000))
+        suffix = os.urandom(3).hex()
+        local_filename = os.path.join(local_image_folder, f"{timestamp}_{suffix}.jpg")
         with open(local_filename, "wb") as file:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)

@@ -1,4 +1,4 @@
-import re
+﻿import re
 from typing import Optional, Tuple
 from src.ai_write_x.core.llm_client import LLMClient
 from src.ai_write_x.core.prompt_loader import prompt_loader
@@ -1452,13 +1452,13 @@ class VisualAssetsManager:
                 f'{extra_attrs} style="max-width:100%;border-radius:12px;margin:16px 0;'
                 f'box-shadow:0 10px 30px rgba(0,0,0,0.1);display:block;">'
             )
-            fallback_notice = task.get("fallback_notice", "")
-            if fallback_notice:
-                img_tag = (
-                    '<div style="margin:16px 0;padding:10px 12px;border-radius:10px;'
-                    'background:#fff7e6;border:1px solid #ffd591;color:#ad6800;font-size:13px;line-height:1.6;">'
-                    f'{fallback_notice}</div>{img_tag}'
-                )
+            # # fallback_notice = task.get("fallback_notice", "")
+            # if fallback_notice:
+            # img_tag = (
+            # '<div style="margin:16px 0;padding:10px 12px;border-radius:10px;'
+            # 'background:#fff7e6;border:1px solid #ffd591;color:#ad6800;font-size:13px;line-height:1.6;">'
+            # f'{fallback_notice}</div>{img_tag}'
+            # )  # 不显示降级提示
             
             if "original_element" in task and task["original_element"]:
                 # HTML 模式：使用 BeautifulSoup 对象直接替换
@@ -1700,8 +1700,8 @@ class VisualAssetsManager:
 
         # 章节配图：在全文标题间均匀分布，避免图片全部挤在前面
         # 需要的正文配图槽位数（总数减去已放入的封面）
-        body_needed = max(0, min_count + 1 - len(insert_targets))
-
+        body_needed_raw = max(0, min_count + 1 - len(insert_targets))
+        
         def _section_anchor(heading):
             section_p = heading.find_next("p")
             if section_p and len(section_p.get_text(strip=True)) >= 20:
@@ -1711,6 +1711,10 @@ class VisualAssetsManager:
                 return sib
             return None
 
+        # 限制每个标题最多一张图：统计可用标题，取较小值
+        temp_usable = [h for h in headings if _section_anchor(h) is not None]
+        body_needed = min(body_needed_raw, len(temp_usable))
+        
         if body_needed > 0 and headings:
             usable = [h for h in headings if _section_anchor(h) is not None]
             if usable:

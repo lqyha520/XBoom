@@ -144,7 +144,7 @@ Settings -> API Keys -> Create API Key
 - 发到微信群。
 - 放进公开文档。
 - 截图发给别人。
-- 写进会上传到 GitHub/Gitee 的代码文件。
+- 写进会上传到 GitHub 的代码文件。
 
 如果怀疑 Key 泄露，请回 Agnes AI 平台删除旧 Key，再重新创建一个。
 

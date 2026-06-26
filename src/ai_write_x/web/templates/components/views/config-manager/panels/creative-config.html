@@ -3,7 +3,7 @@
         <div class="header-content">
             <div>
                 <h2>维度化创意</h2>
-                <p class="config-description">在成稿前按多维度改写表达方式；极速模式会跳过本步骤</p>
+                <p class="config-description">让文章更有个性和表现力</p>
             </div>
         </div>
         <div class="header-actions">
@@ -13,116 +13,204 @@
     </div>
 
     <div class="config-form creative-config-form">
-        <div class="creative-mode-bar" id="creative-mode-bar" role="status">
-            <span class="creative-mode-icon" aria-hidden="true">🎨</span>
-            <div class="creative-mode-copy">
-                <strong id="creative-mode-title">自动选维</strong>
-                <span id="creative-mode-desc">AI 按内容类型挑选维度组合，无需逐项勾选</span>
-            </div>
-            <span class="creative-mode-pill" id="creative-enabled-pill">未启用</span>
+        
+        <!-- 总开关 -->
+        <div class="form-group">
+            <label class="form-checkbox">
+                <input type="checkbox" id="creative-enabled">
+                <span>启用维度化创意</span>
+            </label>
+            <p class="form-help">关闭后生成流程不再做创意改写</p>
         </div>
 
-        <details class="creative-settings-panel" open>
-            <summary class="creative-settings-summary">
-                <span class="creative-settings-summary-title">总开关与强度</span>
-                <span class="creative-settings-summary-desc">是否启用、创意强度与安全选项</span>
-            </summary>
-            <div class="creative-settings-body">
-                <label class="creative-toggle-card creative-toggle-card-primary">
-                    <input type="checkbox" id="creative-enabled">
-                    <span class="checkbox-custom"></span>
-                    <span class="creative-toggle-text">
-                        <strong>启用维度化创意</strong>
-                        <small>关闭后生成流程不再做创意改写</small>
-                    </span>
-                </label>
-                <div class="creative-slider-grid">
-                    <div class="form-group">
-                        <label for="creative-intensity">创意强度 <span class="creative-slider-val" id="creative-intensity-val">1.0</span></label>
-                        <input type="range" id="creative-intensity" class="form-slider creative-slider" min="0.7" max="1.5" step="0.1" value="1.0">
-                        <p class="form-help">0.7 保守 · 1.0 适中 · 1.5 激进</p>
-                    </div>
-                </div>
-                <div class="creative-toggle-grid">
-                    <label class="creative-toggle-card">
-                        <input type="checkbox" id="preserve-core-info" checked>
-                        <span class="checkbox-custom"></span>
-                        <span class="creative-toggle-text">
-                            <strong>保持核心信息</strong>
-                            <small>尽量不改动事实与主题</small>
+        <!-- 主内容区 -->
+        <div id="creative-main-content" style="display: none;">
+            
+            <!-- 快速场景选择 -->
+            <div class="form-section">
+                <h3 class="form-section-title">🎯 快速场景</h3>
+                <p class="form-section-desc">一键应用预设的维度组合</p>
+                <div class="creative-scenario-cards">
+                    <label class="creative-scenario-card">
+                        <input type="radio" name="scenario" value="professional">
+                        <span class="card-inner">
+                            <span class="card-icon">📊</span>
+                            <span class="card-title">职场专业</span>
+                            <span class="card-desc">商业分析、技术报告</span>
                         </span>
                     </label>
-                    <label class="creative-toggle-card">
-                        <input type="checkbox" id="allow-experimental">
-                        <span class="checkbox-custom"></span>
-                        <span class="creative-toggle-text">
-                            <strong>允许实验性组合</strong>
-                            <small>更冒险的维度搭配，可能偏风格化</small>
+                    <label class="creative-scenario-card">
+                        <input type="radio" name="scenario" value="humorous">
+                        <span class="card-inner">
+                            <span class="card-icon">🎭</span>
+                            <span class="card-title">轻松吐槽</span>
+                            <span class="card-desc">生活吐槽、热点评论</span>
+                        </span>
+                    </label>
+                    <label class="creative-scenario-card">
+                        <input type="radio" name="scenario" value="narrative">
+                        <span class="card-inner">
+                            <span class="card-icon">📖</span>
+                            <span class="card-title">故事讲述</span>
+                            <span class="card-desc">个人经历、情感故事</span>
+                        </span>
+                    </label>
+                    <label class="creative-scenario-card">
+                        <input type="radio" name="scenario" value="tech">
+                        <span class="card-inner">
+                            <span class="card-icon">💻</span>
+                            <span class="card-title">技术科普</span>
+                            <span class="card-desc">技术解析、科技评测</span>
+                        </span>
+                    </label>
+                    <label class="creative-scenario-card">
+                        <input type="radio" name="scenario" value="opinion">
+                        <span class="card-inner">
+                            <span class="card-icon">💭</span>
+                            <span class="card-title">观点评论</span>
+                            <span class="card-desc">深度评论、观点输出</span>
+                        </span>
+                    </label>
+                    <label class="creative-scenario-card">
+                        <input type="radio" name="scenario" value="lifestyle">
+                        <span class="card-inner">
+                            <span class="card-icon">🌟</span>
+                            <span class="card-title">生活分享</span>
+                            <span class="card-desc">生活方式、经验心得</span>
+                        </span>
+                    </label>
+                    <label class="creative-scenario-card creative-scenario-custom">
+                        <input type="radio" name="scenario" value="custom" checked>
+                        <span class="card-inner">
+                            <span class="card-icon">⚙️</span>
+                            <span class="card-title">自定义</span>
+                            <span class="card-desc">手动配置维度</span>
                         </span>
                     </label>
                 </div>
             </div>
-        </details>
 
-        <details class="creative-settings-panel" open>
-            <summary class="creative-settings-summary">
-                <span class="creative-settings-summary-title">维度选择策略</span>
-                <span class="creative-settings-summary-desc">自动 / 手动与兼容性</span>
-            </summary>
-            <div class="creative-settings-body">
-                <label class="creative-toggle-card">
-                    <input type="checkbox" id="auto-dimension-selection" checked>
-                    <span class="checkbox-custom"></span>
-                    <span class="creative-toggle-text">
-                        <strong>自动选择维度</strong>
-                        <small>推荐：由 AI 根据话题类型挑选合适维度</small>
-                    </span>
-                </label>
-                <div class="creative-field-grid creative-field-grid-2" id="creative-auto-params">
-                    <div class="form-group">
-                        <label for="max-dimensions">最大维度数</label>
-                        <input type="number" id="max-dimensions" class="form-control" min="1" max="10" value="3">
-                        <p class="form-help">同时参与改写的维度上限</p>
+            <!-- 维度详细选择 -->
+            <div class="form-section">
+                <h3 class="form-section-title">🎨 自定义维度</h3>
+                <p class="form-section-desc">精细控制每个创作维度</p>
+                
+                <div class="dimensions-grid">
+                    <!-- 左列 -->
+                    <div class="dimension-column">
+                        <div class="dimension-card">
+                            <h4 class="dimension-card-title">✍️ 文体表达</h4>
+                            <div class="dimension-fields">
+                                <div class="dimension-field">
+                                    <label>语言风格</label>
+                                    <select class="form-select" id="dim-language">
+                                        <option value="">不限定</option>
+                                        <option value="professional">📊 专业术语</option>
+                                        <option value="modern">💬 现代口语</option>
+                                        <option value="vivid">🎨 生动形象</option>
+                                        <option value="casual">😎 随意轻松</option>
+                                    </select>
+                                </div>
+                                <div class="dimension-field">
+                                    <label>语气</label>
+                                    <select class="form-select" id="dim-tone">
+                                        <option value="">不限定</option>
+                                        <option value="formal">🎩 正式</option>
+                                        <option value="humorous">😄 幽默</option>
+                                        <option value="sarcastic">😏 讽刺</option>
+                                        <option value="gentle">🌸 温和</option>
+                                        <option value="relaxed">☕ 轻松</option>
+                                        <option value="provocative">⚡ 挑衅</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="dimension-card">
+                            <h4 class="dimension-card-title">🎭 角色技法</h4>
+                            <div class="dimension-fields">
+                                <div class="dimension-field">
+                                    <label>叙述视角</label>
+                                    <select class="form-select" id="dim-perspective">
+                                        <option value="">不限定</option>
+                                        <option value="first_person">👤 第一人称</option>
+                                        <option value="third_person">👥 第三人称</option>
+                                    </select>
+                                </div>
+                                <div class="dimension-field">
+                                    <label>修辞技巧</label>
+                                    <select class="form-select" id="dim-technique">
+                                        <option value="">不限定</option>
+                                        <option value="analysis">📈 分析论证</option>
+                                        <option value="satire">🎪 讽刺</option>
+                                        <option value="humor">🤣 幽默</option>
+                                        <option value="contrast">⚖️ 对比反差</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="compatibility-threshold">兼容性阈值 <span class="creative-slider-val" id="compatibility-threshold-val">0.6</span></label>
-                        <input type="range" id="compatibility-threshold" class="form-slider creative-slider" min="0" max="1" step="0.1" value="0.6">
-                        <p class="form-help">越高越要求维度之间风格协调</p>
+
+                    <!-- 右列 -->
+                    <div class="dimension-column">
+                        <div class="dimension-card">
+                            <h4 class="dimension-card-title">📐 结构节奏</h4>
+                            <div class="dimension-fields">
+                                <div class="dimension-field">
+                                    <label>结构方式</label>
+                                    <select class="form-select" id="dim-structure">
+                                        <option value="">不限定</option>
+                                        <option value="logical">🔗 逻辑递进</option>
+                                        <option value="cause_effect">🔄 因果关系</option>
+                                        <option value="narrative">📚 故事叙述</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="dimension-card">
+                            <h4 class="dimension-card-title">🎯 受众情感</h4>
+                            <div class="dimension-fields">
+                                <div class="dimension-field">
+                                    <label>目标受众</label>
+                                    <select class="form-select" id="dim-audience">
+                                        <option value="">不限定</option>
+                                        <option value="professionals">💼 专业人士</option>
+                                        <option value="general">🌍 普通大众</option>
+                                    </select>
+                                </div>
+                                <div class="dimension-field">
+                                    <label>情感基调</label>
+                                    <select class="form-select" id="dim-emotion">
+                                        <option value="">不限定</option>
+                                        <option value="empathy">💓 共鸣</option>
+                                        <option value="warmth">🌞 温情</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <p class="creative-manual-hint" id="creative-manual-hint" hidden>
-                    手动模式下请在下方的维度列表中<strong>勾选</strong>要启用的维度，并为每项选择预设或「自定义」。未勾选任何维度时，创意步骤将自动跳过。
-                </p>
             </div>
-        </details>
 
-        <details class="creative-settings-panel" open>
-            <summary class="creative-settings-summary">
-                <span class="creative-settings-summary-title">维度明细</span>
-                <span class="creative-settings-summary-desc">五大类 · 共 15 个可选维度</span>
-            </summary>
-            <div class="creative-settings-body creative-dimensions-body">
-                <div class="creative-dim-toolbar">
-                    <button type="button" class="btn btn-ghost btn-sm" id="creative-expand-all">全部展开</button>
-                    <button type="button" class="btn btn-ghost btn-sm" id="creative-collapse-all">全部收起</button>
-                    <button type="button" class="btn btn-ghost btn-sm" id="creative-enable-recommended">启用推荐维度</button>
+            <!-- 创意强度 -->
+            <div class="form-section">
+                <h3 class="form-section-title">💪 创意强度</h3>
+                <div class="intensity-container">
+                    <div class="intensity-info">
+                        <span class="intensity-label">当前强度</span>
+                        <span class="intensity-value" id="creative-intensity-display">0.8</span>
+                    </div>
+                    <input type="range" id="creative-intensity" class="form-slider" 
+                           min="0.7" max="1.5" step="0.1" value="0.8">
+                    <div class="slider-labels">
+                        <span>保守 0.7</span>
+                        <span>适中 1.0</span>
+                        <span>激进 1.5</span>
+                    </div>
                 </div>
-                <div id="dimension-groups-container" class="creative-dimension-groups"></div>
             </div>
-        </details>
 
-        <details class="creative-settings-panel creative-help-panel">
-            <summary class="creative-settings-summary">
-                <span class="creative-settings-summary-title">使用说明</span>
-            </summary>
-            <div class="creative-settings-body creative-help-body">
-                <ul>
-                    <li><strong>自动选维</strong>：适合大多数场景；新闻/政治类会自动收紧维度和强度。</li>
-                    <li><strong>手动选维</strong>：需勾选维度并选择预设；下拉选「自动选择」表示该维度由系统随机一项预设。</li>
-                    <li>修改后请点击右上角<strong>保存设置</strong>，否则仅保存在内存中。</li>
-                    <li>「内容生成」的<strong>极速模式</strong>会跳过本功能，与是否启用无关。</li>
-                </ul>
-            </div>
-        </details>
+        </div>
     </div>
 </div>

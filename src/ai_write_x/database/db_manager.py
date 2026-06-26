@@ -262,7 +262,7 @@ class DBManager:
     def add_scheduled_task(self, topic: str, execution_time: datetime, platform: str = "wechat", 
                            is_recurring: bool = False, interval_hours: int = 0,
                            article_count: int = 1, use_ai_beautify: bool = True,
-                           collection_mode: bool = False) -> Optional[ScheduledTask]:
+                           collection_mode: bool = False, target_appid: str = None) -> Optional[ScheduledTask]:
         try:
             with get_session() as session:
                 task = ScheduledTask(
@@ -273,7 +273,8 @@ class DBManager:
                     interval_hours=interval_hours,
                     article_count=article_count,
                     use_ai_beautify=use_ai_beautify,
-                    collection_mode=collection_mode
+                    collection_mode=collection_mode,
+                    target_appid=target_appid,
                 )
                 session.add(task)
                 session.commit()

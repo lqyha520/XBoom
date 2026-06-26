@@ -47,7 +47,24 @@ class WebViewGUI:
             return {"maximized": self._manager._custom_titlebar_maximized}
 
         def close_window(self):
+            """点击关闭按钮时弹出选择对话框，而不是直接退出"""
+            self._manager.show_close_dialog()
+            return True
+
+        def minimize_to_tray(self):
+            """最小化到系统托盘"""
+            self._manager._close_dialog_shown = False
+            self._manager.hide_window()
+            return True
+
+        def force_quit(self):
+            """确认退出程序"""
             self._manager.quit_application()
+            return True
+
+        def dismiss_close_dialog(self):
+            """取消关闭对话框"""
+            self._manager._close_dialog_shown = False
             return True
 
     # 类级别单实例互斥锁
@@ -84,6 +101,7 @@ class WebViewGUI:
         self._browser_gui_opened = False
         self._desktop_ui_ready = False
         self._custom_titlebar_maximized = False
+        self._close_dialog_shown = False
         self._desktop_window_api = self.DesktopWindowApi(self)
 
         # 【新增】生成客户端安全令牌
@@ -289,10 +307,7 @@ class WebViewGUI:
         def delayed_tray_creation():
             time.sleep(2.0)
             if self.tray_manager.create_tray_icon():
-                self.tray_thread = threading.Thread(
-                    target=self.tray_manager.tray.run, daemon=True
-                )
-                self.tray_thread.start()
+                self.tray_thread = self.tray_manager.run_tray()
                 self.tray_manager.update_tooltip("运行中")
 
         threading.Thread(target=delayed_tray_creation, daemon=True).start()
@@ -697,18 +712,88 @@ class WebViewGUI:
 
         if self.window:
             try:
-                self.window.minimize()
+                self.window.hide()
             except Exception:
-                pass
+                try:
+                    self.window.minimize()
+                except Exception:
+                    pass
 
         # 通知用户已最小化到托盘
         if self.tray_manager:
             self.tray_manager.show_notification("小爆来咯", "已最小化到系统托盘")
 
     def on_window_closing(self):
-        """窗口关闭事件处理"""
-        self.quit_application()
-        return True
+        """窗口关闭事件处理 — 弹出选择对话框"""
+        self.show_close_dialog()
+        return False
+
+    def show_close_dialog(self):
+        """在 webview 中注入关闭选择对话框，让用户选「最小化到托盘」或「退出程序」"""
+        if self._close_dialog_shown or self.is_shutting_down:
+            return
+        self._close_dialog_shown = True
+        if not self.window:
+            return
+        # 先清理可能残留的旧对话框
+        self.window.evaluate_js(
+            "(function(){var o=document.getElementById('xb-close-dialog-overlay');"
+            "if(o)o.remove();}());"
+        )
+        dialog_js = r"""
+(function(){
+  if(document.getElementById('xb-close-dialog-overlay'))return;
+  var api=window.pywebview&&window.pywebview.api?window.pywebview.api:null;
+  var overlay=document.createElement('div');
+  overlay.id='xb-close-dialog-overlay';
+  overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;'
+    +'background:rgba(0,0,0,0.45);z-index:2147483647;display:flex;'
+    +'align-items:center;justify-content:center;backdrop-filter:blur(2px);';
+  overlay.innerHTML=''
+    +'<div style="position:relative;background:#fff;border-radius:14px;padding:28px 32px 24px;'
+    +'max-width:380px;width:92%;box-shadow:0 8px 40px rgba(0,0,0,0.28);'
+    +'text-align:center;font-family:\'Segoe UI\',\'Microsoft YaHei\',sans-serif;">'
+      +'<div style="font-size:17px;font-weight:700;color:#2f3528;margin-bottom:8px;">'
+        +'确认退出</div>'
+      +'<p style="font-size:13px;color:#7c7a63;margin:0 0 22px;line-height:1.6;">'
+        +'你是想「最小化到托盘」继续在后台运行，还是「退出程序」？</p>'
+      +'<div style="display:flex;gap:12px;justify-content:center;">'
+        +'<button id="xb-dialog-tray" style="flex:1;padding:10px 0;border:none;'
+          +'border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;'
+          +'background:#f0f7ee;color:#3d6f8d;transition:background .15s;">'
+          +'最小化到托盘</button>'
+        +'<button id="xb-dialog-quit" style="flex:1;padding:10px 0;border:none;'
+          +'border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;'
+          +'background:#d4584f;color:#fff;transition:background .15s;">'
+          +'退出程序</button>'
+      +'</div>'
+        +'<button id="xb-dialog-close-x" style="position:absolute;top:10px;right:12px;'
+          +'background:none;border:none;font-size:18px;cursor:pointer;color:#aaa;'
+          +'width:28px;height:28px;display:flex;align-items:center;justify-content:center;'
+          +'border-radius:6px;line-height:1;">×</button>'
+    +'</div>';
+  document.body.appendChild(overlay);
+
+  function clean(){overlay.remove();}
+
+  document.getElementById('xb-dialog-tray').onclick=function(){
+    clean();if(api&&api.minimize_to_tray)api.minimize_to_tray();
+  };
+  document.getElementById('xb-dialog-quit').onclick=function(){
+    clean();if(api&&api.force_quit)api.force_quit();
+  };
+  document.getElementById('xb-dialog-close-x').onclick=function(){
+    clean();if(api&&api.dismiss_close_dialog)api.dismiss_close_dialog();
+  };
+  var xbX=document.getElementById('xb-dialog-close-x');
+  xbX.onmouseover=function(){xbX.style.background='rgba(0,0,0,0.06)';xbX.style.color='#666';};
+  xbX.onmouseout=function(){xbX.style.background='none';xbX.style.color='#aaa';};
+  overlay.onclick=function(e){if(e.target===overlay){
+    clean();if(api&&api.dismiss_close_dialog)api.dismiss_close_dialog();}
+  };
+})();
+"""
+        self.window.evaluate_js(dialog_js)
 
     def start(self):
         """启动WebView应用"""

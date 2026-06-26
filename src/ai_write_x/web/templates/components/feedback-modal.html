@@ -1,0 +1,120 @@
+﻿<!-- 问题反馈 Modal -->
+<div id="feedbackModal" class="feedback-modal" style="display: none;">
+    <div class="feedback-overlay"></div>
+    <div class="feedback-container">
+        <div class="feedback-header">
+            <h3>问题反馈</h3>
+            <button class="feedback-close" onclick="closeFeedbackModal()">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                    <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="feedback-body">
+            <form id="feedbackForm">
+                <!-- 反馈类型 -->
+                <div class="form-group">
+                    <label class="form-label required">反馈类型</label>
+                    <div class="feedback-type-grid">
+                        <label class="feedback-type-option">
+                            <input type="radio" name="feedbackType" value="bug" required>
+                            <span class="type-card">
+                                <span class="type-icon">🐛</span>
+                                <span class="type-label">Bug反馈</span>
+                            </span>
+                        </label>
+                        <label class="feedback-type-option">
+                            <input type="radio" name="feedbackType" value="feature" required>
+                            <span class="type-card">
+                                <span class="type-icon">💡</span>
+                                <span class="type-label">功能建议</span>
+                            </span>
+                        </label>
+                        <label class="feedback-type-option">
+                            <input type="radio" name="feedbackType" value="question" required>
+                            <span class="type-card">
+                                <span class="type-icon">❓</span>
+                                <span class="type-label">使用问题</span>
+                            </span>
+                        </label>
+                        <label class="feedback-type-option">
+                            <input type="radio" name="feedbackType" value="other" required>
+                            <span class="type-card">
+                                <span class="type-icon">📝</span>
+                                <span class="type-label">其他</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 问题描述 -->
+                <div class="form-group">
+                    <label class="form-label required">问题描述</label>
+                    <textarea 
+                        id="feedbackDescription" 
+                        class="form-textarea" 
+                        rows="5" 
+                        placeholder="请详细描述您遇到的问题或建议（10-1000字）"
+                        minlength="10"
+                        maxlength="1000"
+                        required
+                    ></textarea>
+                    <div class="char-count">
+                        <span id="charCount">0</span> / 1000
+                    </div>
+                </div>
+
+                <!-- 复现步骤（仅Bug显示） -->
+                <div class="form-group" id="reproduceStepsGroup" style="display: none;">
+                    <label class="form-label">复现步骤（选填）</label>
+                    <textarea 
+                        id="reproduceSteps" 
+                        class="form-textarea" 
+                        rows="3" 
+                        placeholder="如何复现这个问题？&#10;1. 打开XX页面&#10;2. 点击XX按钮&#10;3. 看到错误..."
+                        maxlength="500"
+                    ></textarea>
+                </div>
+
+                <!-- 联系方式 -->
+                <div class="form-group">
+                    <label class="form-label">联系方式（选填）</label>
+                    <input 
+                        type="text" 
+                        id="feedbackContact" 
+                        class="form-input" 
+                        placeholder="邮箱/微信，方便我们跟进处理"
+                        maxlength="100"
+                    >
+                </div>
+
+                <!-- 截图上传 -->
+                <div class="form-group">
+                    <label class="form-label">截图（选填，最多3张）</label>
+                    <div class="screenshot-upload-area" id="screenshotUpload">
+                        <input type="file" id="screenshotInput" accept="image/*" multiple hidden>
+                        <div class="upload-prompt">
+                            <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" fill="none">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                            </svg>
+                            <p>点击或拖拽图片到这里</p>
+                        </div>
+                        <div class="screenshot-preview" id="screenshotPreview"></div>
+                    </div>
+                </div>
+
+                <!-- 提交按钮 -->
+                <div class="feedback-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeFeedbackModal()">取消</button>
+                    <button type="submit" class="btn btn-primary" id="submitFeedbackBtn">
+                        <span class="btn-text">提交反馈</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner"></span> 提交中...
+                        </span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

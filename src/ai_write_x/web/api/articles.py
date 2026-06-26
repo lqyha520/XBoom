@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, File, UploadFile
@@ -262,7 +262,7 @@ async def smart_clean_articles():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/")
+@router.get("")
 async def list_articles(page: int = 1, page_size: int = 50, status: str = None):
     """获取文章列表 - 支持分页和筛选"""
     try:
@@ -412,7 +412,7 @@ async def get_article_source(path: str):
     return Response(content=content, media_type="text/plain; charset=utf-8")
 
 
-@router.delete("/")
+@router.delete("")
 async def delete_article(path: str):
     """删除文章 - 删除所有关联格式文件"""
     file_path = _resolve_article_path(path)

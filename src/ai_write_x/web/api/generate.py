@@ -183,6 +183,8 @@ async def generate_content(request: GenerateRequest):
                         sub_prompt = (
                             f"核心系列「{series_name}」，请为每篇文章生成一个不同的子话题。\n"
                             f"要求：只输出子话题本身，不要包含「{series_name}」前缀，不要冒号，不要序号。\n"
+                            f"【话题锚定铁律】：生成的子话题必须严格属于「{series_name}」领域，禁止偏移到其他领域。"
+                            f"例如，如果系列是「育儿经验」，子话题必须是关于育儿的，不能变成职场、情感等其他话题。\n"
                             f"不要与以下已用选题重复：{excluded_str}\n"
                             f"共需 {article_count} 个子话题，每行一个。"
                         )
@@ -193,7 +195,12 @@ async def generate_content(request: GenerateRequest):
                             lines_res = [l.strip().strip('-*0123456789. \n"\'') for l in res.split('\n') if l.strip()]
                             for line in lines_res:
                                 if line:
-                                    full_title = f"{series_name}：{line}" if not line.startswith(series_name) else line
+                                    # 剥离子话题中可能带有的任何「XXX：」前缀（AI可能返回其他系列名）
+                                    if "：" in line:
+                                        line = line.split("：", 1)[1].strip()
+                                    elif ":" in line:
+                                        line = line.split(":", 1)[1].strip()
+                                    full_title = f"{series_name}：{line}"
                                     if full_title not in topics_to_generate:
                                         topics_to_generate.append(full_title)
                         except Exception:
@@ -1369,3 +1376,40 @@ async def get_mass_fetch_status():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== 创意预览API =====
+class CreativePreviewRequest(BaseModel):
+    text: str
+    config: dict
+
+@router.post("/preview_creative")
+async def preview_creative(request: CreativePreviewRequest):
+    """
+    预览维度化创意效果
+    输入原文和维度配置,返回改写后的短文本示例
+    """
+    try:
+        from src.ai_write_x.core.dimensional_engine import DimensionalCreativeEngine
+        
+        # 获取配置
+        app_config = Config.get_instance()
+        
+        # 创建临时维度引擎
+        engine = DimensionalCreativeEngine(request.config)
+        
+        # 简单改写(不调用完整流程,只做维度转换演示)
+        # 这里应该调用一个轻量级的改写函数
+        transformed = await engine.preview_transform(request.text)
+        
+        return {
+            "success": True,
+            "transformed_text": transformed
+        }
+    except Exception as e:
+        log.error(f"创意预览失败: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "transformed_text": "预览功能暂时不可用,保存配置后正式生成时会应用你的设置"
+        }

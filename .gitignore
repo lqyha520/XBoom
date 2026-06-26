@@ -6,7 +6,6 @@
 .env
 .env.*
 *.env
-scripts/gitee-release.env
 scripts/update-mirror.env
 scripts/usage-stats.env
 scripts/.xboom-credentials.local.txt
@@ -53,6 +52,7 @@ ENV/
 *.swp
 *.swo
 *~
+*.backup*
 .DS_Store
 Thumbs.db
 

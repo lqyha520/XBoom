@@ -1,3 +1,52 @@
+
+// ===== 场景化创意配置常量 =====
+const CREATIVE_SCENARIOS = {
+    professional: {
+        name: '职场专业',
+        dimensions: {
+            language: 'professional',
+            tone: 'formal',
+            structure: 'logical',
+            audience: 'professionals',
+            technique: 'analysis'
+        },
+        intensity: 0.7
+    },
+    humorous: {
+        name: '轻松吐槽',
+        dimensions: {
+            language: 'modern',
+            tone: 'sarcastic',
+            technique: 'satire',
+            perspective: 'first_person',
+            structure: 'cause_effect'
+        },
+        intensity: 1.2
+    },
+    narrative: {
+        name: '故事讲述',
+        dimensions: {
+            perspective: 'first_person',
+            emotion: 'empathy',
+            structure: 'narrative',
+            language: 'vivid',
+            scene: 'detailed'
+        },
+        intensity: 1.0
+    }
+};
+
+const STYLE_TAG_MAPPINGS = {
+    professional: ['language:professional', 'tone:formal'],
+    humorous: ['tone:humorous', 'technique:humor'],
+    narrative: ['perspective:first_person', 'structure:narrative'],
+    controversial: ['tone:provocative', 'technique:contrast'],
+    warm: ['emotion:warmth', 'tone:gentle'],
+    sharp: ['tone:sarcastic', 'technique:satire'],
+    analytical: ['technique:analysis', 'structure:logical'],
+    casual: ['language:casual', 'tone:relaxed']
+};
+
 class AIWriteXConfigManager {
     constructor() {
         // 维度分组定义  
@@ -84,6 +133,9 @@ class AIWriteXConfigManager {
 
             // 6. 最后绑定导航事件(确保DOM已加载)    
             this.bindConfigNavigation();
+            
+            // 7. 初始化场景创意UI（在配置加载完成后）
+            this.initScenarioCreativeUI();
         } catch (error) {
         }
     }
@@ -301,6 +353,25 @@ class AIWriteXConfigManager {
 
         // 串行模式强制开关 (V18.0)
         const serialModeCheckbox = document.getElementById('serial-mode-forced');
+        if (serialModeCheckbox) {
+            serialModeCheckbox.addEventListener('change', async (e) => {
+                await this.updateConfig({ 
+                    swarm_settings: { 
+                        ...this.config.swarm_settings, 
+                        serial_mode_forced: e.target.checked 
+                    } 
+                });
+            });
+        }
+
+        // 飞书反馈 Webhook
+        const feishuWebhookInput = document.getElementById('feishu-feedback-webhook');
+        if (feishuWebhookInput) {
+            feishuWebhookInput.addEventListener('change', async (e) => {
+                await this.updateConfig({ feishu_feedback_webhook: e.target.value.trim() });
+                this._markGeneralConfigDirty();
+            });
+        }
         if (serialModeCheckbox) {
             serialModeCheckbox.addEventListener('change', async (e) => {
                 const forced = e.target.checked;
@@ -1110,8 +1181,21 @@ class AIWriteXConfigManager {
 
         // ========== 9. 填充并发模式控制 (V18.0) ==========
         const serialModeCheckbox = document.getElementById('serial-mode-forced');
-        if (serialModeCheckbox && this.config.swarm_settings) {
-            serialModeCheckbox.checked = this.config.swarm_settings.serial_mode_forced !== false;
+        if (serialModeCheckbox) {
+            serialModeCheckbox.addEventListener('change', async (e) => {
+                await this.updateConfig({ 
+                    swarm_settings: { 
+                        ...this.config.swarm_settings, 
+                        serial_mode_forced: e.target.checked 
+                    } 
+                });
+            });
+        }
+
+        // ========== 10. 填充飞书反馈 Webhook ==========
+        const feishuWebhookInput = document.getElementById('feishu-feedback-webhook');
+        if (feishuWebhookInput) {
+            feishuWebhookInput.value = this.config.feishu_feedback_webhook || '';
         }
 
         // ========== 8. 填充界面配置 ==========  
@@ -1424,24 +1508,18 @@ class AIWriteXConfigManager {
 
     // 删除凭证  
     deleteWeChatCredential(index) {
-        if (index === 0) {
-            window.app?.showNotification(
-                '第一个凭证不能删除',
-                'warning'
-            );
-            return;
-        }
-
         const credentials = [...(this.config.wechat?.credentials || [])];
         credentials.splice(index, 1);
 
         this.updateConfig({
             wechat: { credentials }
-        }).then(() => {
+        }).then(async () => {
+            // 删除后立即保存到文件，防止重启后凭证恢复
+            await this.saveConfig();
             this.populateWeChatUI();
 
             window.app?.showNotification(
-                '凭证已删除',
+                '凭证已删除并保存',
                 'info'
             );
         });
@@ -6110,186 +6188,245 @@ class AIWriteXConfigManager {
         });
     }
 
+    // ========== 维度化创意 - 场景预设 ==========
+    _creativeScenarioPresets = {
+        professional: { language: 'professional', tone: 'formal', structure: 'logical', audience: 'professionals', technique: 'analysis', intensity: 0.7 },
+        humorous:     { language: 'modern',      tone: 'sarcastic', technique: 'satire', perspective: 'first_person', structure: 'cause_effect', intensity: 1.2 },
+        narrative:    { perspective: 'first_person', emotion: 'empathy', structure: 'narrative', language: 'vivid', intensity: 1.0 },
+        tech:         { language: 'professional', tone: 'formal', structure: 'logical', technique: 'analysis', audience: 'general', intensity: 0.8 },
+        opinion:      { language: 'modern',      tone: 'provocative', technique: 'contrast', structure: 'logical', perspective: 'first_person', intensity: 1.1 },
+        lifestyle:    { language: 'casual',      tone: 'relaxed', emotion: 'warmth', perspective: 'first_person', structure: 'narrative', intensity: 0.9 }
+    };
+
+    _creativeDimensionIds = ['language', 'tone', 'perspective', 'technique', 'structure', 'audience', 'emotion'];
+
+    _isApplyingCreativePreset = false;
+
+    _applyCreativeScenarioPreset(scenario) {
+        const preset = this._creativeScenarioPresets[scenario];
+        if (!preset) return;
+
+        this._isApplyingCreativePreset = true;
+
+        // 重置所有维度下拉框
+        this._creativeDimensionIds.forEach(id => {
+            const sel = document.getElementById('dim-' + id);
+            if (sel) sel.value = '';
+        });
+
+        // 填充预设值
+        for (const [dim, value] of Object.entries(preset)) {
+            if (dim === 'intensity') {
+                const slider = document.getElementById('creative-intensity');
+                const display = document.getElementById('creative-intensity-display');
+                if (slider) slider.value = value;
+                if (display) display.textContent = value;
+            } else {
+                const sel = document.getElementById('dim-' + dim);
+                if (sel) sel.value = value;
+            }
+        }
+
+        // 延迟重置标志
+        setTimeout(() => { this._isApplyingCreativePreset = false; }, 150);
+    }
+
+    _markCreativeConfigDirty() {
+        const btn = document.getElementById('save-creative-config');
+        if (btn && !btn.classList.contains('has-changes')) {
+            btn.classList.add('has-changes');
+            btn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
+        }
+    }
+
+    _clearCreativeConfigDirty() {
+        const btn = document.getElementById('save-creative-config');
+        if (btn) {
+            btn.classList.remove('has-changes');
+            btn.innerHTML = '保存设置';
+        }
+    }
+
+    // 从 DOM 收集创意配置
+    _collectCreativeConfigFromUI() {
+        const dimensions = {};
+        this._creativeDimensionIds.forEach(id => {
+            const sel = document.getElementById('dim-' + id);
+            if (sel && sel.value) dimensions[id] = sel.value;
+        });
+
+        const selected_dimensions_arr = [];
+        for (const [cat, opt] of Object.entries(dimensions)) {
+            selected_dimensions_arr.push({ category: cat, option: opt });
+        }
+
+        const enabled = document.getElementById('creative-enabled')?.checked ?? false;
+        const intensity = parseFloat(document.getElementById('creative-intensity')?.value || '0.8');
+        const scenarioRadio = document.querySelector('input[name="scenario"]:checked');
+        const scenario = scenarioRadio?.value || 'custom';
+
+        return {
+            enabled,
+            creative_intensity: intensity,
+            scenario,
+            selected_dimensions: selected_dimensions_arr,
+            selected_dimensions_map: { ...dimensions },
+            auto_dimension_selection: false
+        };
+    }
+
     bindCreativeConfigListeners() {
         if (this._creativeBindingsReady) return;
         this._creativeBindingsReady = true;
 
-        const markDirty = () => {
-            const btn = document.getElementById('save-creative-config');
-            if (btn && !btn.classList.contains('has-changes')) {
-                btn.classList.add('has-changes');
-                btn.innerHTML = '保存设置 <span style="color: var(--warning-color);">(有未保存更改)</span>';
-            }
-        };
+        // ---- 开关 ----
+        const enabledCheckbox = document.getElementById('creative-enabled');
+        if (enabledCheckbox) {
+            enabledCheckbox.addEventListener('change', (e) => {
+                const mainContent = document.getElementById('creative-main-content');
+                if (mainContent) mainContent.style.display = e.target.checked ? 'block' : 'none';
+                this._markCreativeConfigDirty();
+            });
+        }
 
-        const patchCreative = async (patch) => {
-            await this.updateConfig({
-                dimensional_creative: {
-                    ...this.config.dimensional_creative,
-                    ...patch
+        // ---- 场景卡片 ----
+        document.querySelectorAll('input[name="scenario"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const scenario = e.target.value;
+                if (scenario !== 'custom') {
+                    this._applyCreativeScenarioPreset(scenario);
+                }
+                this._markCreativeConfigDirty();
+            });
+        });
+
+        // ---- 维度下拉框 ----
+        this._creativeDimensionIds.forEach(id => {
+            const sel = document.getElementById('dim-' + id);
+            if (sel) {
+                sel.addEventListener('change', () => {
+                    // 预设应用期间不切回自定义
+                    if (!this._isApplyingCreativePreset) {
+                        const customRadio = document.querySelector('input[name="scenario"][value="custom"]');
+                        if (customRadio && !customRadio.checked) customRadio.checked = true;
+                    }
+                    this._markCreativeConfigDirty();
+                });
+            }
+        });
+
+        // ---- 强度滑块 ----
+        const intensitySlider = document.getElementById('creative-intensity');
+        if (intensitySlider) {
+            intensitySlider.addEventListener('input', (e) => {
+                const display = document.getElementById('creative-intensity-display');
+                if (display) display.textContent = e.target.value;
+                this._markCreativeConfigDirty();
+            });
+        }
+
+        // ---- 保存按钮 ----
+        const saveBtn = document.getElementById('save-creative-config');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+                const creativeConfig = this._collectCreativeConfigFromUI();
+                await this.updateConfig({ dimensional_creative: creativeConfig });
+                const success = await this.saveConfig();
+                if (success) {
+                    this._clearCreativeConfigDirty();
+                }
+                window.app?.showNotification(
+                    success ? '创意配置已保存' : '保存创意配置失败',
+                    success ? 'success' : 'error'
+                );
+            });
+        }
+
+        // ---- 恢复默认按钮 ----
+        const resetBtn = document.getElementById('reset-creative-config');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+                if (!confirm('确定要恢复默认配置吗？')) return;
+                try {
+                    const response = await fetch(`${this.apiEndpoint}/default`);
+                    if (!response.ok) throw new Error('获取默认配置失败');
+                    const result = await response.json();
+                    await this.updateConfig({ dimensional_creative: result.data.dimensional_creative });
+                    this.populateCreativeUI();
+                    window.app?.showNotification('已恢复默认创意配置', 'info');
+                } catch (e) {
+                    window.app?.showNotification('恢复默认配置失败: ' + e.message, 'error');
                 }
             });
-            markDirty();
-        };
-
-        document.getElementById('creative-enabled')?.addEventListener('change', async (e) => {
-            await patchCreative({ enabled: e.target.checked });
-            this.updateCreativeControlsState();
-        });
-
-        document.getElementById('auto-dimension-selection')?.addEventListener('change', async (e) => {
-            await patchCreative({ auto_dimension_selection: e.target.checked });
-            this.updateCreativeControlsState();
-        });
-
-        document.getElementById('preserve-core-info')?.addEventListener('change', async (e) => {
-            await patchCreative({ preserve_core_info: e.target.checked });
-        });
-
-        document.getElementById('allow-experimental')?.addEventListener('change', async (e) => {
-            await patchCreative({ allow_experimental: e.target.checked });
-        });
-
-        document.getElementById('creative-intensity')?.addEventListener('input', async (e) => {
-            this.updateCreativeSliderLabels();
-            await patchCreative({ creative_intensity: parseFloat(e.target.value) });
-        });
-
-        document.getElementById('compatibility-threshold')?.addEventListener('input', async (e) => {
-            this.updateCreativeSliderLabels();
-            await patchCreative({ compatibility_threshold: parseFloat(e.target.value) });
-        });
-
-        document.getElementById('max-dimensions')?.addEventListener('change', async (e) => {
-            await patchCreative({ max_dimensions: parseInt(e.target.value, 10) || 3 });
-        });
-
-        document.getElementById('save-creative-config')?.addEventListener('click', async () => {
-            await this.syncDimensionalCreativeFromUI();
-            const success = await this.saveConfig();
-            const btn = document.getElementById('save-creative-config');
-            if (success && btn) {
-                btn.classList.remove('has-changes');
-                btn.innerHTML = '保存设置';
-            }
-            window.app?.showNotification(
-                success ? '创意配置已保存' : '保存创意配置失败',
-                success ? 'success' : 'error'
-            );
-        });
-
-        document.getElementById('reset-creative-config')?.addEventListener('click', async () => {
-            const response = await fetch(`${this.apiEndpoint}/default`);
-            if (!response.ok) {
-                window.app?.showNotification('恢复默认配置失败', 'error');
-                return;
-            }
-            const result = await response.json();
-            await this.updateConfig({ dimensional_creative: result.data.dimensional_creative });
-            this.populateCreativeUI();
-            window.app?.showNotification('已恢复默认创意配置', 'info');
-        });
-
-        document.getElementById('creative-expand-all')?.addEventListener('click', () => {
-            document.querySelectorAll('.creative-dimension-card .creative-dimension-body').forEach((el) => {
-                el.classList.remove('collapsed');
-            });
-            document.querySelectorAll('.creative-dimension-chevron').forEach((el) => el.classList.add('rotated'));
-        });
-
-        document.getElementById('creative-collapse-all')?.addEventListener('click', () => {
-            document.querySelectorAll('.creative-dimension-card .creative-dimension-body').forEach((el) => {
-                el.classList.add('collapsed');
-            });
-            document.querySelectorAll('.creative-dimension-chevron').forEach((el) => el.classList.remove('rotated'));
-        });
-
-        document.getElementById('creative-enable-recommended')?.addEventListener('click', async () => {
-            const enabled = { ...(this.config.dimensional_creative?.enabled_dimensions || {}) };
-            this._creativeRecommendedDimensions.forEach((key) => {
-                enabled[key] = true;
-            });
-            await patchCreative({ enabled_dimensions: enabled, auto_dimension_selection: false });
-            this.populateCreativeUI();
-        });
+        }
     }
 
     updateCreativeSliderLabels() {
         const intensity = document.getElementById('creative-intensity');
-        const intensityVal = document.getElementById('creative-intensity-val');
-        if (intensity && intensityVal) intensityVal.textContent = intensity.value;
-
-        const threshold = document.getElementById('compatibility-threshold');
-        const thresholdVal = document.getElementById('compatibility-threshold-val');
-        if (threshold && thresholdVal) thresholdVal.textContent = threshold.value;
+        const display = document.getElementById('creative-intensity-display');
+        if (intensity && display) display.textContent = intensity.value;
     }
 
     async syncDimensionalCreativeFromUI() {
-        if (!this.config.dimensional_creative) return;
-
-        const selected_dimensions = [];
-        Object.entries(this.DIMENSION_GROUPS).forEach(([, groupData]) => {
-            groupData.dimensions.forEach((dimensionKey) => {
-                const checkbox = document.getElementById(`dimension-${dimensionKey}-enabled`);
-                const select = document.getElementById(`dimension-${dimensionKey}-select`);
-                if (!checkbox?.checked) return;
-                const option = select?.value || '';
-                selected_dimensions.push({ category: dimensionKey, option });
-            });
-        });
-
-        await this.updateConfig({
-            dimensional_creative: {
-                ...this.collectDimensionalCreativeFromForm(),
-                selected_dimensions
-            }
-        });
+        const creativeConfig = this._collectCreativeConfigFromUI();
+        await this.updateConfig({ dimensional_creative: creativeConfig });
     }
 
     collectDimensionalCreativeFromForm() {
-        return {
-            enabled: document.getElementById('creative-enabled')?.checked || false,
-            creative_intensity: parseFloat(document.getElementById('creative-intensity')?.value || '1'),
-            preserve_core_info: document.getElementById('preserve-core-info')?.checked !== false,
-            allow_experimental: document.getElementById('allow-experimental')?.checked || false,
-            auto_dimension_selection: document.getElementById('auto-dimension-selection')?.checked !== false,
-            max_dimensions: parseInt(document.getElementById('max-dimensions')?.value || '3', 10),
-            compatibility_threshold: parseFloat(document.getElementById('compatibility-threshold')?.value || '0.6')
-        };
+        return this._collectCreativeConfigFromUI();
     }
 
-    // 填充创意配置UI  
+    // 填充创意配置UI（页面加载时调用）
     populateCreativeUI() {
         if (!this.config.dimensional_creative) return;
 
-        const creativeConfig = this.config.dimensional_creative;
+        const dc = this.config.dimensional_creative;
 
+        // 1. 开关
         const enabledCheckbox = document.getElementById('creative-enabled');
-        if (enabledCheckbox) enabledCheckbox.checked = !!creativeConfig.enabled;
+        const mainContent = document.getElementById('creative-main-content');
+        if (enabledCheckbox) enabledCheckbox.checked = !!dc.enabled;
+        if (mainContent) mainContent.style.display = enabledCheckbox?.checked ? 'block' : 'none';
 
-        const intensitySlider = document.getElementById('creative-intensity');
-        if (intensitySlider) intensitySlider.value = creativeConfig.creative_intensity ?? 1.0;
+        // 2. 场景 + 维度
+        const savedScenario = dc.scenario || 'custom';
 
-        const preserveCheckbox = document.getElementById('preserve-core-info');
-        if (preserveCheckbox) preserveCheckbox.checked = creativeConfig.preserve_core_info !== false;
+        if (savedScenario !== 'custom' && this._creativeScenarioPresets[savedScenario]) {
+            // 非自定义：勾选 radio + 应用预设
+            const radio = document.querySelector('input[name="scenario"][value="' + savedScenario + '"]');
+            if (radio) radio.checked = true;
 
-        const autoSelectionCheckbox = document.getElementById('auto-dimension-selection');
-        if (autoSelectionCheckbox) {
-            autoSelectionCheckbox.checked = creativeConfig.auto_dimension_selection !== false;
+            this._isApplyingCreativePreset = true;
+            this._applyCreativeScenarioPreset(savedScenario);
+            setTimeout(() => { this._isApplyingCreativePreset = false; }, 200);
+        } else {
+            // 自定义：勾选 radio + 逐个恢复维度
+            const customRadio = document.querySelector('input[name="scenario"][value="custom"]');
+            if (customRadio) customRadio.checked = true;
+
+            const dimMap = dc.selected_dimensions_map || dc.selected_dimensions;
+            if (dimMap && typeof dimMap === 'object' && !Array.isArray(dimMap)) {
+                for (const [dim, value] of Object.entries(dimMap)) {
+                    const sel = document.getElementById('dim-' + dim);
+                    if (sel) sel.value = value;
+                }
+            } else if (Array.isArray(dimMap)) {
+                for (const item of dimMap) {
+                    if (item && item.category) {
+                        const sel = document.getElementById('dim-' + item.category);
+                        if (sel) sel.value = item.option || item.value || '';
+                    }
+                }
+            }
         }
 
-        const maxDimensionsInput = document.getElementById('max-dimensions');
-        if (maxDimensionsInput) maxDimensionsInput.value = creativeConfig.max_dimensions ?? 3;
-
-        const thresholdSlider = document.getElementById('compatibility-threshold');
-        if (thresholdSlider) thresholdSlider.value = creativeConfig.compatibility_threshold ?? 0.6;
-
-        const experimentalCheckbox = document.getElementById('allow-experimental');
-        if (experimentalCheckbox) experimentalCheckbox.checked = !!creativeConfig.allow_experimental;
-
-        this.updateCreativeSliderLabels();
-        this.populateDimensionGroups();
-        this.updateCreativeControlsState();
+        // 3. 强度
+        if (dc.creative_intensity != null) {
+            const slider = document.getElementById('creative-intensity');
+            const display = document.getElementById('creative-intensity-display');
+            if (slider) slider.value = dc.creative_intensity;
+            if (display) display.textContent = dc.creative_intensity;
+        }
     }
 
     // 生成维度分组卡片  
@@ -6326,6 +6463,7 @@ class AIWriteXConfigManager {
         const intensitySlider = document.getElementById('creative-intensity');
         const preserveCheckbox = document.getElementById('preserve-core-info');
         const experimentalCheckbox = document.getElementById('allow-experimental');
+        const forceAutoCheckbox = document.getElementById('force-auto-serious');
         const autoSelectionCheckbox = document.getElementById('auto-dimension-selection');
         const maxDimensionsInput = document.getElementById('max-dimensions');
         const thresholdSlider = document.getElementById('compatibility-threshold');
@@ -6339,6 +6477,7 @@ class AIWriteXConfigManager {
         if (intensitySlider) intensitySlider.disabled = !globalEnabled;
         if (preserveCheckbox) preserveCheckbox.disabled = !globalEnabled;
         if (experimentalCheckbox) experimentalCheckbox.disabled = !globalEnabled;
+        if (forceAutoCheckbox) forceAutoCheckbox.disabled = !globalEnabled;
         if (autoSelectionCheckbox) autoSelectionCheckbox.disabled = !globalEnabled;
         if (maxDimensionsInput) maxDimensionsInput.disabled = !globalEnabled || !autoSelection;
         if (thresholdSlider) thresholdSlider.disabled = !globalEnabled || !autoSelection;
@@ -6766,6 +6905,192 @@ class AIWriteXConfigManager {
             return false;
         }
     }
+
+    updateSelectedStyleSummary() {
+        const summary = document.getElementById('creative-selected-summary');
+        const activeTags = Array.from(document.querySelectorAll('.creative-tag.active'));
+        
+        if (activeTags.length === 0) {
+            summary.textContent = '未选择任何风格';
+        } else {
+            const styles = activeTags.map(tag => tag.textContent.trim()).join('、');
+            summary.textContent = `已选择: ${styles}`;
+        }
+    }
+
+    applyScenario(scenarioKey) {
+        const scenario = CREATIVE_SCENARIOS[scenarioKey];
+        if (!scenario) return;
+
+        const detailSection = document.getElementById('creative-dimensions-detail');
+        const scenarioName = document.getElementById('creative-current-scenario-name');
+        const keyDimensionsContainer = document.getElementById('creative-key-dimensions');
+
+        if (detailSection && scenarioName && keyDimensionsContainer) {
+            scenarioName.textContent = scenario.name;
+            detailSection.style.display = 'block';
+
+            let html = '';
+            for (const [dimKey, dimValue] of Object.entries(scenario.dimensions)) {
+                const dimName = this.getDimensionDisplayName(dimKey);
+                const dimValueName = this.getDimensionValueDisplayName(dimKey, dimValue);
+                const dimDesc = this.getDimensionDescription(dimKey, dimValue);
+                
+                html += `
+                    <div class="creative-dimension-item">
+                        <div class="creative-dimension-info">
+                            <div class="creative-dimension-name">${dimName}</div>
+                            <div class="creative-dimension-value">✓ ${dimValueName}</div>
+                            <div class="creative-dimension-desc">${dimDesc}</div>
+                        </div>
+                        <button class="creative-dimension-example-btn" data-dimension="${dimKey}" data-value="${dimValue}">
+                            👁️ 查看示例
+                        </button>
+                    </div>
+                `;
+            }
+            keyDimensionsContainer.innerHTML = html;
+
+            keyDimensionsContainer.querySelectorAll('.creative-dimension-example-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.showDimensionExample(btn.dataset.dimension, btn.dataset.value);
+                });
+            });
+        }
+
+        const intensitySlider = document.getElementById('creative-intensity');
+        const intensityValue = document.getElementById('creative-intensity-display');
+        if (intensitySlider && intensityValue && scenario.intensity) {
+            intensitySlider.value = scenario.intensity;
+            intensityValue.textContent = scenario.intensity;
+        }
+
+        this.currentScenario = scenarioKey;
+    }
+
+    getDimensionDisplayName(key) {
+        const names = {
+            language: '语言风格',
+            tone: '语气',
+            technique: '修辞技巧',
+            perspective: '叙述视角',
+            structure: '结构方式',
+            audience: '目标受众',
+            theme: '主题',
+            emotion: '情感基调',
+            scene: '场景描述',
+            format: '格式'
+        };
+        return names[key] || key;
+    }
+
+    getDimensionValueDisplayName(key, value) {
+        const mappings = {
+            language: { professional: '专业术语', modern: '现代口语', vivid: '生动形象', casual: '随意轻松' },
+            tone: { formal: '正式', sarcastic: '讽刺', humorous: '幽默', gentle: '温和', relaxed: '轻松', provocative: '挑衅' },
+            technique: { analysis: '分析论证', satire: '讽刺', humor: '幽默', contrast: '对比反差' },
+            perspective: { first_person: '第一人称', third_person: '第三人称' },
+            structure: { logical: '逻辑递进', cause_effect: '因果关系', narrative: '故事叙述' },
+            audience: { professionals: '专业人士', general: '普通大众' },
+            emotion: { empathy: '共鸣', warmth: '温情' },
+            scene: { detailed: '细节丰富' }
+        };
+        return mappings[key]?.[value] || value;
+    }
+
+    getDimensionDescription(key, value) {
+        return '通过这个维度让文章更有表现力';
+    }
+
+    showDimensionExample(dimension, value) {
+        const modal = document.getElementById('dimension-example-modal');
+        const title = document.getElementById('dimension-example-title');
+        const afterText = document.getElementById('dimension-example-after');
+        const closeBtn = document.getElementById('close-example-modal');
+        const overlay = modal?.querySelector('.creative-modal-overlay');
+        
+        if (!modal) return;
+        
+        const dimName = this.getDimensionDisplayName(dimension);
+        const valueName = this.getDimensionValueDisplayName(dimension, value);
+        title.textContent = `${dimName}: ${valueName}`;
+        
+        modal.style.display = 'flex';
+        afterText.textContent = '加载示例中...';
+        
+        setTimeout(() => {
+            const examples = this.getDimensionExampleText(dimension, value);
+            afterText.textContent = examples;
+        }, 500);
+        
+        const closeModal = () => { modal.style.display = 'none'; };
+        closeBtn.onclick = closeModal;
+        if (overlay) overlay.onclick = closeModal;
+    }
+
+    getDimensionExampleText(dimension, value) {
+        const examples = {
+            'tone:sarcastic': '我们公司上个月又搞了一次"360度评估",结果那些天天开会刷存在感的人拿了A,真正解决Bug的老王还是B。',
+            'perspective:first_person': '去年我参加了一次行业峰会,台上嘉宾侃侃而谈"数字化转型",我坐在台下心想:这些方案能落地吗?',
+            'structure:cause_effect': '由于市场竞争加剧,公司不得不削减成本;成本削减导致人才流失;人才流失又进一步削弱了竞争力。',
+            'language:modern': '最近大家都在卷AI,但真正搞明白怎么用的公司没几个。'
+        };
+        const key = `${dimension}:${value}`;
+        return examples[key] || '这个维度会让表达更有个性,具体效果请在实际生成时查看。';
+    }
+
+    async refreshCreativePreview() {
+        const previewTransformed = document.getElementById('creative-preview-transformed');
+        if (!previewTransformed) return;
+
+        previewTransformed.innerHTML = '<div class="creative-preview-loading"><span class="spinner"></span> 正在生成预览...</div>';
+
+        try {
+            const config = this.collectScenarioCreativeConfig();
+            const originalText = document.getElementById('creative-preview-original')?.textContent?.trim() || '';
+
+            const response = await fetch('/api/preview_creative', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: originalText, config: config })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                previewTransformed.textContent = data.transformed_text || '预览生成失败';
+            } else {
+                previewTransformed.innerHTML = '<div style="color: #e74c3c;">预览生成失败，请稍后重试</div>';
+            }
+        } catch (error) {
+            console.error('预览失败:', error);
+            previewTransformed.innerHTML = '<div style="color: #e74c3c;">网络错误，请检查连接</div>';
+        }
+    }
+
+    collectScenarioCreativeConfig() {
+        const enabled = document.getElementById('creative-enabled')?.checked || false;
+        const intensity = parseFloat(document.getElementById('creative-intensity')?.value || '0.8');
+        
+        const config = {
+            enabled: enabled,
+            creative_intensity: intensity,
+            scenario: this.currentScenario || 'professional',
+            preserve_core_info: intensity < 1.0,
+            allow_experimental: intensity > 1.2
+        };
+
+        if (this.currentScenario && CREATIVE_SCENARIOS[this.currentScenario]) {
+            config.selected_dimensions = [];
+            const scenario = CREATIVE_SCENARIOS[this.currentScenario];
+            for (const [category, option] of Object.entries(scenario.dimensions)) {
+                config.selected_dimensions.push({ category, option });
+            }
+        }
+
+        return config;
+    }
+
+
 }
 
 // 全局配置管理器实例    
@@ -6853,6 +7178,76 @@ testResultStyle.textContent = `
     .model-refresh-btn-inline.spinning {
         pointer-events: none;
         color: var(--text-secondary);
+
+    // ===== 场景化创意UI方法 =====
+    
+        initScenarioCreativeUI() {
+        const enabledCheckbox = document.getElementById('creative-enabled');
+        const mainContent = document.getElementById('creative-main-content');
+        const refreshPreviewBtn = document.getElementById('creative-refresh-preview');
+        const intensitySlider = document.getElementById('creative-intensity');
+        const intensityValue = document.getElementById('creative-intensity-display');
+
+        // 绑定内部元素事件的函数
+        const bindInnerEvents = () => {
+            // 绑定风格标签
+            document.querySelectorAll('.creative-tag').forEach(tag => {
+                tag.addEventListener('click', () => {
+                    tag.classList.toggle('active');
+                    this.updateSelectedStyleSummary();
+                });
+            });
+
+            // 绑定场景卡片
+            document.querySelectorAll('.creative-scenario-card').forEach(card => {
+                const btn = card.querySelector('.creative-scenario-btn');
+                if (btn) {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        document.querySelectorAll('.creative-scenario-card').forEach(c => c.classList.remove('selected'));
+                        card.classList.add('selected');
+                        const scenario = card.dataset.scenario;
+                        this.applyScenario(scenario);
+                    });
+                }
+            });
+        };
+
+        // 复选框切换事件
+        if (enabledCheckbox) {
+            enabledCheckbox.addEventListener('change', (e) => {
+                if (mainContent) {
+                    mainContent.style.display = e.target.checked ? 'block' : 'none';
+                }
+                // 显示后重新绑定内部事件
+                if (e.target.checked) {
+                    setTimeout(() => bindInnerEvents(), 50);
+                }
+            });
+            
+            // 设置初始显示状态
+            if (mainContent) {
+                mainContent.style.display = enabledCheckbox.checked ? 'block' : 'none';
+                // 如果初始就是显示状态，立即绑定事件
+                if (enabledCheckbox.checked) {
+                    setTimeout(() => bindInnerEvents(), 50);
+                }
+            }
+        }
+
+        // 强度滑块
+        if (intensitySlider && intensityValue) {
+            intensitySlider.addEventListener('input', (e) => {
+                intensityValue.textContent = e.target.value;
+            });
+        }
+
+        // 预览按钮
+        if (refreshPreviewBtn) {
+            refreshPreviewBtn.addEventListener('click', () => {
+                this.refreshCreativePreview();
+            });
+        }
     }
 `;
 document.head.appendChild(testResultStyle);
@@ -6862,3 +7257,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     configManager = new AIWriteXConfigManager();
     window.configManager = configManager;
 });
+
+
+

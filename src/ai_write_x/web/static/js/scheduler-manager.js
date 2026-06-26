@@ -6,6 +6,7 @@ class SchedulerManager {
     constructor() {
         this.tasks = [];
         this.logs = [];
+        this.wechatCredentials = [];
         this.selectedTaskId = null;
         this.lastCreatedTaskId = null;
         this.refreshInterval = null;
@@ -25,6 +26,7 @@ class SchedulerManager {
         if (this._initialized) return;
         this._initialized = true;
         this.refreshData(true);
+        this.fetchWechatCredentials();
         if (this.refreshInterval) clearInterval(this.refreshInterval);
         this.refreshInterval = setInterval(() => {
             const view = document.getElementById('scheduler-view');
@@ -147,6 +149,38 @@ class SchedulerManager {
         }
     }
 
+    async fetchWechatCredentials() {
+        try {
+            this.wechatCredentials = await this._fetchJson('/api/scheduler/wechat-credentials');
+            if (!Array.isArray(this.wechatCredentials)) this.wechatCredentials = [];
+            this.renderWechatCredentials();
+        } catch (error) {
+            console.error('Fetch wechat credentials failed:', error);
+            this.wechatCredentials = [];
+        }
+    }
+
+    renderWechatCredentials() {
+        const select = document.getElementById('task-target-appid');
+        if (!select) return;
+        const current = select.value;
+        select.innerHTML = '<option value="">全部公众号</option>';
+        for (const cred of this.wechatCredentials) {
+            const label = cred.author ? `${cred.author} (${cred.appid})` : cred.appid;
+            const opt = document.createElement('option');
+            opt.value = cred.appid;
+            opt.textContent = label;
+            select.appendChild(opt);
+        }
+        if (current) select.value = current;
+    }
+
+    _getCredentialLabel(appid) {
+        if (!appid) return '全部';
+        const cred = this.wechatCredentials.find(c => c.appid === appid);
+        return cred ? (cred.author || cred.appid) : appid;
+    }
+
     _shortId(id) {
         if (!id) return '-';
         const s = String(id);
@@ -219,13 +253,19 @@ class SchedulerManager {
             <tr${rowClass} data-task-id="${id}">
                 <td class="scheduler-id-cell" title="${this.escapeAttr(task.id)}">#${this.escapeHtml(this._shortId(task.id))}</td>
                 <td class="font-medium" title="${this.escapeAttr(this._taskLabel(task))}">${this.escapeHtml(this.truncate(this._taskLabel(task), 36))}</td>
-                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span></td>
+                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span>${task.target_appid ? `<br><span class="text-secondary" style="font-size:11px;">→ ${this.escapeHtml(this._getCredentialLabel(task.target_appid))}</span>` : ''}</td>
                 <td style="white-space:nowrap;font-size:13px;">${this.escapeHtml(task.execution_time || '-')}</td>
                 <td>${task.is_recurring ? `每 ${this.escapeHtml(task.interval_hours)} 小时` : '单次'}</td>
                 <td><span class="status-badge status-${this.escapeAttr(task.status)}">${this.getStatusText(task.status)}</span></td>
                 <td>
                     <div class="table-actions">
                         ${isRunning ? this._cancelButton(id) : ''}
+                        <button class="btn btn-icon btn-sm" onclick="window.schedulerManager.openEditTaskModal('${id}')" title="编辑"${isRunning ? ' disabled' : ''}>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                        </button>
                         <button class="btn btn-icon btn-sm" onclick="window.schedulerManager.toggleTask('${id}', '${this.escapeAttr(task.status)}')" title="${toggleTitle}"${isRunning ? ' disabled' : ''}>
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                                 ${task.status === 'enabled' ? '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>' : '<polygon points="5 3 19 12 5 21 5 3"></polygon>'}
@@ -314,6 +354,7 @@ class SchedulerManager {
         document.getElementById('task-modal-title').innerText = '新建定时任务';
         document.getElementById('task-topic').value = '';
         document.getElementById('task-platform').value = 'wechat';
+        document.getElementById('task-target-appid').value = '';
         document.getElementById('task-exec-time').value = this.getDefaultExecTime();
         document.getElementById('task-recurring').checked = false;
         document.getElementById('task-beautify').checked = true;
@@ -325,6 +366,37 @@ class SchedulerManager {
         if (tip) tip.style.display = 'none';
         document.getElementById('task-edit-modal').style.display = 'flex';
         this.checkPlatformConnection('wechat');
+        this.renderWechatCredentials();
+        this.fetchWechatCredentials();
+    }
+
+    openEditTaskModal(id) {
+        const task = this.tasks.find(t => String(t.id) === String(id));
+        if (!task) return;
+        if (this._isRunningStatus(task.status)) {
+            this._notify('任务正在执行，无法编辑', 'warning');
+            return;
+        }
+        this.selectedTaskId = id;
+        document.getElementById('task-modal-title').innerText = '编辑定时任务';
+        document.getElementById('task-topic').value = task.topic || '';
+        document.getElementById('task-platform').value = task.platform || 'wechat';
+        document.getElementById('task-target-appid').value = task.target_appid || '';
+        // execution_time 格式: "2026-06-24 08:00:00" -> "2026-06-24T08:00:00"
+        const execTime = (task.execution_time || '').replace(' ', 'T');
+        document.getElementById('task-exec-time').value = execTime;
+        document.getElementById('task-recurring').checked = !!task.is_recurring;
+        document.getElementById('task-beautify').checked = task.use_ai_beautify !== false;
+        document.getElementById('task-article-count').value = task.article_count || 1;
+        document.getElementById('task-collection-mode').checked = !!task.collection_mode;
+        document.getElementById('task-interval').value = task.interval_hours || 24;
+        document.getElementById('task-interval-group').style.display = task.is_recurring ? 'block' : 'none';
+        const tip = document.getElementById('platform-verify-tip');
+        if (tip) tip.style.display = 'none';
+        document.getElementById('task-edit-modal').style.display = 'flex';
+        this.checkPlatformConnection(task.platform || 'wechat');
+        this.renderWechatCredentials();
+        this.fetchWechatCredentials();
     }
 
     closeModal() {
@@ -393,6 +465,7 @@ class SchedulerManager {
         const topic = document.getElementById('task-topic').value.trim();
         const execTime = document.getElementById('task-exec-time').value;
         const platform = document.getElementById('task-platform').value;
+        const targetAppid = document.getElementById('task-target-appid').value;
         const isRecurring = document.getElementById('task-recurring').checked;
         const interval = document.getElementById('task-interval').value;
         const articleCount = document.getElementById('task-article-count').value;
@@ -409,24 +482,38 @@ class SchedulerManager {
         }
 
         try {
-            const result = await this._fetchJson('/api/scheduler/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    topic,
-                    execution_time: this.formatExecTimeForApi(execTime),
-                    platform,
-                    is_recurring: isRecurring,
-                    interval_hours: parseInt(interval, 10) || 24,
-                    article_count: parseInt(articleCount, 10) || 1,
-                    use_ai_beautify: useAIBeautify,
-                    collection_mode: collectionMode,
-                }),
-            });
-            this.lastCreatedTaskId = result.id ? String(result.id) : null;
+            const body = {
+                topic,
+                execution_time: this.formatExecTimeForApi(execTime),
+                platform,
+                is_recurring: isRecurring,
+                interval_hours: parseInt(interval, 10) || 24,
+                article_count: parseInt(articleCount, 10) || 1,
+                use_ai_beautify: useAIBeautify,
+                collection_mode: collectionMode,
+            };
+            if (targetAppid) body.target_appid = targetAppid;
+
+            let result;
+            if (this.selectedTaskId) {
+                // 编辑模式：PUT 更新
+                result = await this._fetchJson(`/api/scheduler/tasks/${encodeURIComponent(this.selectedTaskId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            } else {
+                // 新建模式：POST 创建
+                result = await this._fetchJson('/api/scheduler/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                this.lastCreatedTaskId = result.id ? String(result.id) : null;
+            }
             this.closeModal();
             await this.refreshData(false);
-            this._notify(`任务已保存：${topic || '自动热点任务'}`, 'success');
+            this._notify(`任务已${this.selectedTaskId ? '更新' : '保存'}：${topic || '自动热点任务'}`, 'success');
         } catch (error) {
             console.error('Save task failed:', error);
             this._notify(`保存失败：${error.message || '请检查网络后重试'}`, 'error');

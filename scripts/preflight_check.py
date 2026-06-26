@@ -53,7 +53,6 @@ def check_entrypoint() -> bool:
 def check_secret_files(release: bool = False) -> bool:
     blocked = [
         ROOT / ".env",
-        ROOT / "scripts" / "gitee-release.env",
         ROOT / "scripts" / "update-mirror.env",
         ROOT / "scripts" / "usage-stats.env",
     ]

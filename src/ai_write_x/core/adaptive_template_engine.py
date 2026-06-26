@@ -322,12 +322,12 @@ class ModularTemplateBuilder:
         return random.choice(schemes)
     
     def _build_head(self, title: str) -> str:
-        """构建 HTML 头部和 CSS (核心样式已转为内联)"""
+        """构建 HTML 头部和 CSS (手机优先响应式)"""
         return f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>{title}</title>
     <style>
         :root {{
@@ -338,25 +338,86 @@ class ModularTemplateBuilder:
             --text-main: {self.design_tokens.get("text_color", "#334155")};
         }}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        html {{ -webkit-text-size-adjust: 100%; }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
             background: #FAFAFA;
             color: var(--text-main);
-            line-height: 1.8;
+            line-height: 1.75;
+            font-size: 15px;
+            padding: 0 3px;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            -webkit-overflow-scrolling: touch;
         }}
-        .event-card img {{ max-width: 100%; height: auto; border-radius: 8px; margin: 16px 0; }}
-        blockquote {{ margin: 20px 0; padding: 15px 20px; background: #f8fafc; border-left: 4px solid var(--primary); color: #475569; }}
+        /* ---- 手机优先：所有组件默认紧凑 ---- */
+        .header-section {{ padding: 10px 14px !important; border-radius: 8px !important; margin-bottom: 14px !important; }}
+        .header-section h1 {{ font-size: 1.1em !important; gap: 6px !important; margin: 0 !important; line-height: 1.3 !important; }}
+        .quote-block {{ padding: 12px 14px !important; margin: 16px 0 !important; border-radius: 0 8px 8px 0 !important; font-size: 0.95em !important; }}
+        .footer-card {{ padding: 16px 14px !important; margin-top: 20px !important; border-radius: 10px !important; }}
+        .footer-card h3 {{ font-size: 1em !important; margin-bottom: 8px !important; }}
+        .footer-card p {{ font-size: 0.9em !important; line-height: 1.7 !important; }}
+        .section-title {{ margin: 22px 0 12px 0 !important; }}
+        .section-title h2 {{ font-size: 1.1em !important; }}
+        .section-icon {{ padding: 4px !important; margin-right: 8px !important; border-width: 2px !important; }}
+        .event-card, .event-accent-box, .event-glass-card {{ padding: 14px !important; margin-bottom: 14px !important; border-radius: 10px !important; }}
+        .event-clean-flow {{ padding: 4px 0 !important; margin-bottom: 14px !important; }}
+        .event-card > div:last-child, .event-accent-box > div:last-child, .event-glass-card > div:last-child {{
+            font-size: 0.95em !important; line-height: 1.7 !important;
+        }}
+        .event-clean-flow > div:last-child {{ font-size: 0.98em !important; line-height: 1.75 !important; }}
+        /* 图片：手机端紧凑圆角和间距 */
+        .event-card img, .event-accent-box img, .event-glass-card img, .event-clean-flow img {{
+            max-width: 100% !important; height: auto !important; border-radius: 6px !important; margin: 8px 0 !important;
+        }}
+        blockquote {{ margin: 12px 0 !important; padding: 10px 14px !important; border-radius: 0 6px 6px 0 !important; font-size: 0.92em !important; }}
+        .date-badge {{ padding: 4px 10px !important; font-size: 0.82em !important; margin-bottom: 8px !important; }}
+        .img-placeholder {{ width: 100% !important; margin-left: 0 !important; margin-top: 0 !important; border-radius: 8px 8px 0 0 !important; margin-bottom: 12px !important; }}
+        .img-placeholder > div {{ padding: 14px !important; }}
+        .feature-list > div, .stats-grid > div, .comparison-grid > div {{
+            padding: 10px 12px !important; margin-bottom: 10px !important; border-radius: 8px !important; gap: 8px !important;
+        }}
+        /* 防止图片溢出导致横向滚动 */
+        img {{ max-width: 100% !important; height: auto !important; }}
+        table {{ max-width: 100% !important; display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+        pre {{ white-space: pre-wrap !important; word-wrap: break-word !important; }}
+
+        /* ---- 平板及以上：恢复宽松间距 ---- */
+        @media (min-width: 768px) {{
+            body {{ padding: 0 16px; font-size: 16px; line-height: 1.8; }}
+            .header-section {{ padding: 28px 36px !important; border-radius: 16px !important; margin-bottom: 30px !important; }}
+            .header-section h1 {{ font-size: 1.8em !important; gap: 12px !important; }}
+            .quote-block {{ padding: 24px 28px !important; margin: 32px 0 !important; font-size: 1.1em !important; }}
+            .footer-card {{ padding: 30px !important; margin-top: 40px !important; }}
+            .footer-card h3 {{ font-size: 1.15em !important; }}
+            .footer-card p {{ font-size: 1em !important; }}
+            .section-title {{ margin: 40px 0 20px 0 !important; }}
+            .section-title h2 {{ font-size: 1.4em !important; }}
+            .section-icon {{ padding: 8px !important; margin-right: 14px !important; border-width: 3px !important; }}
+            .event-card, .event-accent-box, .event-glass-card {{ padding: 24px !important; margin-bottom: 24px !important; border-radius: 14px !important; }}
+            .event-clean-flow {{ padding: 8px 0 !important; margin-bottom: 24px !important; }}
+            .event-card > div:last-child, .event-accent-box > div:last-child, .event-glass-card > div:last-child {{
+                font-size: 1.05em !important; line-height: 1.85 !important;
+            }}
+            .event-card img, .event-accent-box img, .event-glass-card img {{
+                border-radius: 10px !important; margin: 16px 0 !important;
+            }}
+            blockquote {{ margin: 24px 0 !important; padding: 16px 24px !important; }}
+            .date-badge {{ padding: 6px 14px !important; font-size: 0.9em !important; }}
+            .feature-list > div, .stats-grid > div, .comparison-grid > div {{
+                padding: 16px 20px !important; margin-bottom: 14px !important; gap: 14px !important;
+            }}
+        }}
     </style>
 </head>'''
 
     def _build_footer(self, block: ContentBlock) -> str:
-        """构建底部卡片"""
-        icon_svg = self._get_svg_icon("book-open", 24, self.design_scheme.primary_color)
+        """构建底部卡片 (手机优先)"""
+        icon_svg = self._get_svg_icon("book-open", 20, self.design_scheme.primary_color)
         return f'''
-    <!-- 结语卡片 -->
-    <footer class="footer-card" style="background: linear-gradient(to right, #ffffff, {self.design_scheme.bg_color}); border-radius: 16px; padding: 35px; margin-top: 50px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.04); border-left: 5px solid {self.design_scheme.primary_color}; border: 1px solid rgba(255,255,255,0.5);">
-        <h3 style="color: {self.design_scheme.secondary_color}; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; gap: 10px;">{icon_svg} 探索与启示</h3>
-        <p style="color: {self.design_scheme.text_color}; line-height: 1.8;">{self._format_inline_styles(block.content)}</p>
+    <footer class="footer-card" style="background: linear-gradient(to right, #ffffff, {self.design_scheme.bg_color}); border-radius: 12px; padding: 20px 18px; margin-top: 28px; text-align: center; box-shadow: 0 6px 18px rgba(0,0,0,0.03); border-left: 4px solid {self.design_scheme.primary_color}; border: 1px solid rgba(255,255,255,0.6);">
+        <h3 style="color: {self.design_scheme.secondary_color}; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 1.05em;">{icon_svg} 探索与启示</h3>
+        <p style="color: {self.design_scheme.text_color}; line-height: 1.75; font-size: 0.95em;">{self._format_inline_styles(block.content)}</p>
     </footer>'''
     
     def _build_body_start(self) -> str:
@@ -433,23 +494,19 @@ class ModularTemplateBuilder:
         return random.choice(icons)
 
     def _build_hero(self, block: ContentBlock) -> str:
-        """构建顶部英雄区"""
-        icon_svg = self._get_svg_icon("compass", 32, "white")
-        ornament = self._get_background_ornament("circles")
+        """构建顶部英雄区 (紧凑型，高度贴近文字)"""
+        icon_svg = self._get_svg_icon("compass", 18, "white")
         return f'''
-    <!-- 顶层 Header 区 -->
-    <header class="header-section" style="background: linear-gradient(135deg, {self.design_tokens.get("secondary", "#4338CA")} 0%, {self.design_tokens.get("primary", "#4F46E5")} 100%); border-radius: 20px; padding: 40px; color: white; box-shadow: 0 15px 35px rgba(0,0,0,0.04); margin-bottom: 40px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
-        {ornament}
-        <h1 style="font-size: 2.2em; font-weight: 800; margin-bottom: 15px; display: flex; align-items: center; gap: 12px; position: relative; color: white;">{icon_svg} {self._format_inline_styles(block.content)}</h1>
+    <header class="header-section" style="background: linear-gradient(135deg, {self.design_tokens.get("secondary", "#4338CA")} 0%, {self.design_tokens.get("primary", "#4F46E5")} 100%); border-radius: 10px; padding: 12px 16px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 18px; position: relative; overflow: hidden;">
+        <h1 style="font-size: 1.15em; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 8px; position: relative; color: white; line-height: 1.35;">{icon_svg} {self._format_inline_styles(block.content)}</h1>
     </header>'''
     
     def _build_intro_card(self, block: ContentBlock) -> str:
-        """构建导语卡片"""
-        icon_svg = self._get_svg_icon("quote", 40, self.design_tokens.get("accent", "#EAB308"))
+        """构建导语卡片 (手机优先)"""
+        icon_svg = self._get_svg_icon("quote", 28, self.design_tokens.get("accent", "#EAB308"))
         return f'''
-    <!-- 核心引用区 -->
-    <div class="quote-block" style="background: #ffffff; border-left: 5px solid {self.design_tokens.get("accent", "#EAB308")}; padding: 25px 30px; margin: 40px 0; border-radius: 0 12px 12px 0; box-shadow: 0 8px 20px rgba(0,0,0,0.04); font-size: 1.15em; color: {self.design_tokens.get("text_color", "#334155")}; position: relative; border: 1px solid rgba(0,0,0,0.05);">
-        <div style="position: absolute; top: 20px; right: 25px; opacity: 0.15;">{icon_svg}</div>
+    <div class="quote-block" style="background: #ffffff; border-left: 5px solid {self.design_tokens.get("accent", "#EAB308")}; padding: 16px 18px; margin: 24px 0; border-radius: 0 10px 10px 0; box-shadow: 0 4px 12px rgba(0,0,0,0.03); font-size: 1.02em; color: {self.design_tokens.get("text_color", "#334155")}; position: relative; border: 1px solid rgba(0,0,0,0.04);">
+        <div style="position: absolute; top: 12px; right: 14px; opacity: 0.12;">{icon_svg}</div>
         {self._format_inline_styles(block.content)}
     </div>'''
     
@@ -488,17 +545,16 @@ class ModularTemplateBuilder:
             # 移除可能残留的HTML实体
             clean_title = re.sub(r'&[a-z]+;', '', clean_title)
             icon_name = self._get_icon_for_heading(clean_title)
-            icon_svg = self._get_svg_icon(icon_name, 24, self.design_tokens["primary"])
+            icon_svg = self._get_svg_icon(icon_name, 18, self.design_tokens["primary"])
             return f'''
-        <!-- 章节标题 -->
-        <div class="section-title" style="position: relative; margin: 50px 0 25px 0; display: flex; align-items: center; color: {self.design_tokens["secondary"]};">
-            <div class="section-icon" style="background: white; padding: 8px; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.1); color: {self.design_tokens["primary"]}; z-index: 2; margin-right: 15px; border: 3px solid {self.design_tokens["bg"]}; display: flex; align-items: center; justify-content: center;">{icon_svg}</div>
-            <h2 style="font-size: 1.5em; font-weight: 700;">{clean_title}</h2>
+        <div class="section-title" style="position: relative; margin: 22px 0 12px 0; display: flex; align-items: center; color: {self.design_tokens["secondary"]};">
+            <div class="section-icon" style="background: white; padding: 4px; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.06); color: {self.design_tokens["primary"]}; z-index: 2; margin-right: 8px; border: 2px solid {self.design_tokens["bg"]}; display: flex; align-items: center; justify-content: center;">{icon_svg}</div>
+            <h2 style="font-size: 1.1em; font-weight: 700;">{clean_title}</h2>
         </div>'''
         else:
             date_str = self._extract_date_from_text(block.content)
             cal_svg = self._get_svg_icon("calendar", 16, self.design_tokens["secondary"])
-            date_html = f'<div class="date-badge" style="display: inline-flex; align-items: center; gap: 6px; background: {self.design_tokens["bg"]}; color: {self.design_tokens["secondary"]}; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 0.9em; margin-bottom: 12px; letter-spacing: 0.5px;">{cal_svg} {date_str}</div>' if date_str else ''
+            date_html = f'<div class="date-badge" style="display: inline-flex; align-items: center; gap: 5px; background: {self.design_tokens["bg"]}; color: {self.design_tokens["secondary"]}; padding: 4px 10px; border-radius: 16px; font-weight: 700; font-size: 0.82em; margin-bottom: 8px; letter-spacing: 0.3px;">{cal_svg} {date_str}</div>' if date_str else ''
             
             img_html = ""
             # 检查正文中是否已经包含图片（HTML img 标签、Markdown 图片语法、或图片占位符）
@@ -516,21 +572,21 @@ class ModularTemplateBuilder:
                 img_svg = self._get_svg_icon("image", 40, self.design_tokens["primary"])
                 
                 img_html = f'''
-            <div class="img-placeholder" data-img-prompt="{prompt}" data-aspect-ratio="{aspect_ratio}" style="padding-top: {padding_top}; width: calc(100% + 50px); margin-left: -25px; margin-top: -25px; position: relative; overflow: hidden; background: linear-gradient(135deg, {self.design_tokens["bg"]} 0%, {self.design_tokens["bg"]}99 100%); border-bottom: 2px dashed {self.design_tokens["primary"]}22; border-radius: 16px 16px 0 0; margin-bottom: 20px;">
-                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px;">
-                    <div style="position: absolute; top: 15px; right: 15px; background: {self.design_tokens["primary"]}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; box-shadow: 0 4px 10px {self.design_tokens["primary"]}44; display: flex; align-items: center; gap: 4px;">
-                        <span style="width: 6px; height: 6px; background: white; border-radius: 50%; display: inline-block;"></span>
+            <div class="img-placeholder" data-img-prompt="{prompt}" data-aspect-ratio="{aspect_ratio}" style="padding-top: {padding_top}; width: 100%; margin-left: 0; margin-top: 0; position: relative; overflow: hidden; background: linear-gradient(135deg, {self.design_tokens["bg"]} 0%, {self.design_tokens["bg"]}99 100%); border-bottom: 2px dashed {self.design_tokens["primary"]}22; border-radius: 8px; margin-bottom: 12px;">
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px;">
+                    <div style="position: absolute; top: 8px; right: 8px; background: {self.design_tokens["primary"]}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 9px; font-weight: 700; box-shadow: 0 2px 6px {self.design_tokens["primary"]}44; display: flex; align-items: center; gap: 3px;">
+                        <span style="width: 5px; height: 5px; background: white; border-radius: 50%; display: inline-block;"></span>
                         高品质自动配图中
                     </div>
                     <div style="animation: float 3s ease-in-out infinite;">{img_svg}</div>
-                    <span style="margin-top: 15px; font-weight: 700; color: {self.design_tokens["secondary"]}; letter-spacing: 1px; font-size: 1.1em;">🎨 AI 视觉引擎正在深度构图...</span>
-                    <span style="font-size: 0.8em; color: {self.design_tokens["text_color"]}cc; max-width: 80%; text-align: center; margin-top: 10px; font-style: italic; line-height: 1.5; background: white; padding: 6px 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+                    <span style="margin-top: 8px; font-weight: 700; color: {self.design_tokens["secondary"]}; letter-spacing: 0.5px; font-size: 0.85em;">AI 视觉引擎正在深度构图...</span>
+                    <span style="font-size: 0.72em; color: {self.design_tokens["text_color"]}cc; max-width: 85%; text-align: center; margin-top: 6px; font-style: italic; line-height: 1.4; background: white; padding: 4px 10px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
                         <strong>视觉倾向:</strong> {prompt}
                     </span>
-                    <div style="margin-top: 15px; display: flex; gap: 6px;">
-                        <div style="width: 5px; height: 5px; border-radius: 50%; background: {self.design_tokens["primary"]}; animation: flicker 1s infinite;"></div>
-                        <div style="width: 5px; height: 5px; border-radius: 50%; background: {self.design_tokens["primary"]}; animation: flicker 1s infinite 0.2s;"></div>
-                        <div style="width: 5px; height: 5px; border-radius: 50%; background: {self.design_tokens["primary"]}; animation: flicker 1s infinite 0.4s;"></div>
+                    <div style="margin-top: 10px; display: flex; gap: 5px;">
+                        <div style="width: 4px; height: 4px; border-radius: 50%; background: {self.design_tokens["primary"]}; animation: flicker 1s infinite;"></div>
+                        <div style="width: 4px; height: 4px; border-radius: 50%; background: {self.design_tokens["primary"]}; animation: flicker 1s infinite 0.2s;"></div>
+                        <div style="width: 4px; height: 4px; border-radius: 50%; background: {self.design_tokens["primary"]}; animation: flicker 1s infinite 0.4s;"></div>
                     </div>
                 </div>
             </div>'''
@@ -551,7 +607,7 @@ class ModularTemplateBuilder:
             if layout_style == 'accent':
                 # 风格2: 带侧边强调线的轻量卡片
                 return f'''
-        <div class="event-accent-box" style="background: {self.design_tokens.get("bg", "#F8FAFC")}33; border-left: 4px solid {self.design_tokens.get("primary", "#4F46E5")}; padding: 20px 25px; margin-bottom: 30px; border-radius: 4px 12px 12px 4px; position: relative;">
+        <div class="event-accent-box" style="background: {self.design_tokens.get("bg", "#F8FAFC")}33; border-left: 4px solid {self.design_tokens.get("primary", "#4F46E5")}; padding: 14px 18px; margin-bottom: 18px; border-radius: 4px 10px 10px 4px; position: relative;">
             {img_html}
             {date_html}
             <div style="font-size: 1.05em; line-height: 1.8; color: {self.design_tokens.get("text_color", "#334155")}; text-align: justify;">{self._format_inline_styles(cleaned_content)}</div>
@@ -560,7 +616,7 @@ class ModularTemplateBuilder:
             elif layout_style == 'glass':
                 # 风格3: 极简磨砂质感 (带极细边框)
                 return f'''
-        <div class="event-glass-card" style="background: rgba(255,255,255,0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(0,0,0,0.05); border-radius: 12px; padding: 25px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.02);">
+        <div class="event-glass-card" style="background: rgba(255,255,255,0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(0,0,0,0.05); border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; box-shadow: 0 2px 10px rgba(0,0,0,0.015);">
             {img_html}
             {date_html}
             <div style="font-size: 1.05em; line-height: 1.8; color: {self.design_tokens.get("text_color", "#334155")}; text-align: justify;">{self._format_inline_styles(cleaned_content)}</div>
@@ -570,19 +626,17 @@ class ModularTemplateBuilder:
                 # 风格4: 纯净文本流 (带图标符号)
                 symbol_svg = self._get_svg_icon("sparkles", 14, self.design_tokens.get("primary", "#4F46E5"))
                 return f'''
-        <div class="event-clean-flow" style="padding: 10px 0; margin-bottom: 30px; position: relative;">
+        <div class="event-clean-flow" style="padding: 6px 0; margin-bottom: 18px; position: relative;">
             {img_html}
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">{symbol_svg} {date_html}</div>
             <div style="font-size: 1.1em; line-height: 1.9; color: {self.design_tokens.get("text_color", "#334155")}; text-align: justify;">{self._format_inline_styles(cleaned_content)}</div>
         </div>'''
 
-            # 默认风格1: 标准高质感卡片
             return f'''
-        <!-- 事件卡片 -->
-        <div class="event-card" style="background: white; border-radius: 16px; padding: 25px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02); position: relative; overflow: hidden;">
+        <div class="event-card" style="background: white; border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; box-shadow: 0 4px 14px rgba(0,0,0,0.025); border: 1px solid rgba(0,0,0,0.03); position: relative; overflow: hidden;">
             {img_html}
             {date_html}
-            <div style="font-size: 1.05em; line-height: 1.8; color: {self.design_tokens.get("text_color", "#334155")}; text-align: justify;">{self._format_inline_styles(cleaned_content)}</div>
+            <div style="font-size: 1em; line-height: 1.75; color: {self.design_tokens.get("text_color", "#334155")}; text-align: justify;">{self._format_inline_styles(cleaned_content)}</div>
         </div>'''
 
     def _build_quote_card(self, block: ContentBlock) -> str:
@@ -595,9 +649,9 @@ class ModularTemplateBuilder:
         for item in block.items:
             icon_svg = self._get_svg_icon("star", 18, self.design_tokens["primary"])
             items_html += f'''
-        <div style="background: #ffffff; border-radius: 12px; padding: 15px 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); border: 1px solid {self.design_tokens["bg"]}; display: flex; align-items: flex-start; gap: 12px;">
-            <div style="margin-top: 4px; flex-shrink: 0;">{icon_svg}</div>
-            <div style="font-size: 1.05em; color: {self.design_tokens["text_color"]};">{self._format_inline_styles(item)}</div>
+        <div style="background: #ffffff; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); border: 1px solid {self.design_tokens["bg"]}; display: flex; align-items: flex-start; gap: 8px;">
+            <div style="margin-top: 3px; flex-shrink: 0;">{icon_svg}</div>
+            <div style="font-size: 0.95em; color: {self.design_tokens["text_color"]}; line-height: 1.7;">{self._format_inline_styles(item)}</div>
         </div>'''
         return items_html
     
@@ -615,7 +669,7 @@ class ModularTemplateBuilder:
             
             # 图片转换
             text = re.sub(r'\!\[(.*?)\]\((.*?)\)', 
-                         lambda m: f'<img src="{m.group(2)}" alt="{m.group(1)}" style="max-width: 100%; height: auto; border-radius: 12px; margin: 20px 0; display: block; box-shadow: 0 6px 20px rgba(0,0,0,0.07);">', 
+                         lambda m: f'<img src="{m.group(2)}" alt="{m.group(1)}" style="max-width: 100%; height: auto; border-radius: 6px; margin: 8px 0; display: block; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">', 
                          text)
             # 基础加粗 (处理多种变体)
             text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)

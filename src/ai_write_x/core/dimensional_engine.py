@@ -445,8 +445,11 @@ class DimensionalCreativeEngine:
             "\n【语言规范】：全文中文叙事；禁止用英文镜头/电影术语作章节标题；不要写成分镜脚本。"
         )
         prompt_parts.append(
-            "\n【话题锚定（最高优先级）】：创意变换必须严格围绕原话题展开。变换的是表达方式、叙事视角和修辞手法，"
-            "绝不是话题本身。禁止将文章改写为与原话题无关的内容。原话题中的核心关键词必须在变换后的正文中出现。"
+            "\n【话题锚定铁律 - 最高优先级】：\n"
+            "1. 创意变换必须严格围绕原话题展开，变换的是表达方式、叙事视角和修辞手法，绝不是话题本身。\n"
+            "2. 原话题的核心关键词必须在变换后的正文中多次出现。\n"
+            "3. 禁止将文章改写为与原话题无关的内容，即使新话题更有创意也不允许。\n"
+            "4. 标题必须保留原话题的核心关键词，不得替换为其他领域的关键词。"
         )
 
         return "\n".join(prompt_parts)
@@ -482,8 +485,12 @@ class DimensionalCreativeEngine:
         content_type = self._detect_content_type(content, title)
         type_config = self._get_dimensions_for_content_type(content_type)
         
-        # 如果是严肃内容类型，强制使用智能推荐
-        force_auto_selection = content_type in ["news", "politics", "technical", "academic", "business"]
+        # ??????????????????????????
+        force_auto_enabled = self.config.get("force_auto_for_serious_content", False)
+        force_auto_selection = (
+            force_auto_enabled 
+            and content_type in ["news", "politics", "technical", "academic", "business"]
+        )
         
         # 选择维度组合（传入content和title进行内容类型检测）
         auto_selection = self.config.get("auto_dimension_selection", True)
@@ -643,7 +650,12 @@ class DimensionalCreativeEngine:
 你需要将这些维度的特点融合到内容中，创造出独特而富有创意的作品。
 保持内容的核心信息不变，但要在表达方式、风格、视角等方面体现出这些维度的特色。
 
-【话题锚定铁律】：你变换的只是表达方式和叙事角度，绝不是话题本身。变换后的文章必须仍然严格围绕原话题展开，原话题的核心关键词必须在正文中出现。禁止将文章改写为与原话题无关的创意故事。
+【话题锚定铁律 - 最高优先级】：
+1. 你变换的只是表达方式和叙事角度，绝不是话题本身。
+2. 变换后的文章必须仍然严格围绕原话题展开，原话题的核心关键词必须在正文中多次出现。
+3. 禁止将文章改写为与原话题无关的内容，即使新话题更有创意也不允许。
+4. 如果原话题是"育儿经验"，变换后必须仍然是关于育儿的，不能变成职场、情感等其他话题。
+5. 标题必须保留原话题的核心关键词，不得替换为其他领域的关键词。
 
 【极度重要的字数限制】：变换后的内容**绝对不能比原文字数短**！你必须通过你丰富的创意和详尽的补充细节，使变换后的文章变得比原来还要长，并且充斥着深度分析，严禁对其进行任何形式的粗糙总结、遗漏核心段落或内容压缩。""",
                 tools=[],
@@ -713,3 +725,37 @@ class DimensionalCreativeEngine:
             # 每个冲突降低0.3分，确保不兼容组合被过滤
             compatibility_score = max(0.0, 1.0 - conflicts * 0.3)
             return compatibility_score
+    async def preview_transform(self, text: str) -> str:
+        """
+        轻量级预览转换,用于UI实时预览
+        不调用完整流程,只展示维度效果
+        """
+        try:
+            # 构建简单的预览提示词
+            dimensions_desc = []
+            if hasattr(self, 'currentScenario') and self.currentScenario:
+                scenario_name = self.currentScenario
+                dimensions_desc.append(f"场景: {scenario_name}")
+            
+            # 简化的改写请求
+            prompt = f"""请将下面这段文字按照以下维度进行改写(仅作示例,保持简短):
+
+原文: {text}
+
+要求:
+- 保持核心意思不变
+- 体现选定的创意维度风格
+- 长度控制在原文的1-1.5倍
+
+改写后:"""
+
+            # 调用AI(这里简化处理,实际应该用轻量模型)
+            from src.ai_write_x.core.llm_client import LLMClient
+            client = LLMClient()
+            response = client.chat(prompt, model="deepseek-chat")
+            
+            return response.strip() if response else text
+            
+        except Exception as e:
+            # 预览失败时返回示例文本
+            return f"【预览示例】{text} (实际生成时会应用你的维度设置)"

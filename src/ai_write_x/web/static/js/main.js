@@ -169,19 +169,26 @@ class AIWriteXApp {
             });
         });
 
-        // 配置二级菜单点击事件    
         document.querySelectorAll('.nav-sublink').forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
                 const configType = link.dataset.config;
 
-                // 更新二级菜单状态    
+                const configView = document.getElementById('config-manager-view');
+                if (configView && !configView.classList.contains('active')) {
+                    this.showView('config-manager');
+                }
+
+                const parentExpandable = link.closest('.nav-item-expandable');
+                if (parentExpandable && !parentExpandable.classList.contains('expanded')) {
+                    parentExpandable.classList.add('expanded');
+                }
+
                 document.querySelectorAll('.nav-sublink').forEach(sublink => {
                     sublink.classList.remove('active');
                 });
                 link.classList.add('active');
 
-                // 委托给配置管理器    
                 if (window.configManager) {
                     window.configManager.showConfigPanel(configType);
                 }

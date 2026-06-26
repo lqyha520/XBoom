@@ -32,15 +32,6 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "install_mode": "on_exit",
     "update_level": "normal",
     "rollout_percent": 100,
-    "provider": "gitee_release",
-    "gitee_owner": "lqyha520",
-    "gitee_repo": "XBoom",
-    "gitee_branch": "master",
-    "gitee_release_path": "releases",
-    "gitee_token": "",
-    "github_owner": "lqyha520",
-    "github_repo": "XBoom",
-    "allow_prerelease": False,
     "manifest_url": "https://updates.bcxtech.cn/updates/version-policy.json",
     "manifest_asset_name": "version-policy.json",
     "installer_asset_name": INSTALLER_NAME,
@@ -52,8 +43,6 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "latest_version": "",
     "manual_download_url": "",
     "update_mirror_base": "https://updates.bcxtech.cn/updates",
-    "prefer_mirror": True,
-    "fallback_github": False,
 }
 
 _update_progress: Dict[str, Any] = {
@@ -131,59 +120,6 @@ def _merge_update_config() -> Dict[str, Any]:
     return merged
 
 
-def _release_tag_version(item: dict) -> Version:
-    tag = str(item.get("tag_name", "")).strip().lstrip("vV")
-    try:
-        return _safe_version(tag)
-    except InvalidVersion:
-        return Version("0")
-
-
-def _select_release(data: list[dict], allow_prerelease: bool) -> Optional[dict]:
-    """Gitee/GitHub 列表顺序不保证最新在前，按 tag 版本号取最大。"""
-    candidates: list[dict] = []
-    for item in data:
-        if item.get("draft"):
-            continue
-        if not allow_prerelease and item.get("prerelease"):
-            continue
-        candidates.append(item)
-    if not candidates:
-        return None
-    return max(candidates, key=_release_tag_version)
-
-
-def _find_asset(assets: list[dict], preferred_name: str, suffix: str) -> Optional[dict]:
-    preferred_name = (preferred_name or "").strip().lower()
-    for asset in assets:
-        if asset.get("name", "").strip().lower() == preferred_name:
-            return asset
-    for asset in assets:
-        name = asset.get("name", "").strip().lower()
-        if preferred_name and preferred_name in name:
-            return asset
-    for asset in assets:
-        if asset.get("name", "").strip().lower().endswith(suffix):
-            return asset
-    return None
-
-
-def _asset_download_url(asset: Optional[dict]) -> str:
-    if not asset:
-        return ""
-    return str(asset.get("browser_download_url") or asset.get("url") or "").strip()
-
-
-def _release_assets(release: dict) -> list[dict]:
-    assets = release.get("assets")
-    if isinstance(assets, list) and assets:
-        return assets
-    attach = release.get("attach_files") or release.get("attachments")
-    if isinstance(attach, list):
-        return attach
-    return []
-
-
 async def _fetch_json(url: str, timeout_seconds: int, headers: Optional[dict] = None) -> dict:
     request_headers = dict(headers or {})
     request_headers.setdefault("User-Agent", "AIWriteX-Updater")
@@ -193,43 +129,8 @@ async def _fetch_json(url: str, timeout_seconds: int, headers: Optional[dict] = 
         return response.json()
 
 
-def _gitee_auth_params(settings: Dict[str, Any]) -> Dict[str, str]:
-    token = str(settings.get("gitee_token") or os.environ.get("GITEE_TOKEN") or "").strip()
-    if token:
-        return {"access_token": token}
-    return {}
-
-
-def _gitee_auth_url(url: str, settings: Dict[str, Any]) -> str:
-    if "gitee.com" not in (url or ""):
-        return url
-    params = _gitee_auth_params(settings)
-    if not params:
-        return url
-    token = params["access_token"]
-    separator = "&" if "?" in url else "?"
-    return f"{url}{separator}access_token={token}"
-
-
 def _installer_filename(settings: Dict[str, Any]) -> str:
     return str(settings.get("installer_asset_name") or INSTALLER_NAME)
-
-
-def _resolve_gitee_raw_urls(settings: Dict[str, Any]) -> Dict[str, str]:
-    """Gitee 仓库 raw 直链（version-policy + 安装包，适合小文件或 LFS）。"""
-    owner = str(settings.get("gitee_owner") or settings.get("github_owner") or "").strip()
-    repo = str(settings.get("gitee_repo") or settings.get("github_repo") or "").strip()
-    branch = str(settings.get("gitee_branch") or "master").strip() or "master"
-    subdir = str(settings.get("gitee_release_path") or "releases").strip().strip("/") or "releases"
-    if not owner or not repo:
-        return {}
-    base = f"https://gitee.com/{owner}/{repo}/raw/{branch}/{subdir}"
-    installer = _installer_filename(settings)
-    return {
-        "manifest_url": f"{base}/version-policy.json",
-        "download_url": f"{base}/{installer}",
-        "html_url": f"https://gitee.com/{owner}/{repo}/releases",
-    }
 
 
 def _resolve_mirror_urls(settings: Dict[str, Any]) -> Dict[str, str]:
@@ -245,12 +146,9 @@ def _resolve_mirror_urls(settings: Dict[str, Any]) -> Dict[str, str]:
 
 
 async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, str]:
-    """仅从 Gitee Release / 国内镜像 / 手动配置获取更新信息，不使用 GitHub。"""
+    """从国内镜像 / 手动配置获取更新信息。"""
     timeout = int(settings.get("check_timeout_seconds", 15))
-    prefer_mirror = bool(settings.get("prefer_mirror", True))
-    provider = str(settings.get("provider") or "gitee_release").strip().lower()
 
-    gitee_raw = _resolve_gitee_raw_urls(settings)
     mirror_urls = _resolve_mirror_urls(settings)
     explicit_manifest = str(settings.get("manifest_url", "") or "").strip()
 
@@ -261,105 +159,50 @@ async def _load_update_sources(settings: Dict[str, Any]) -> tuple[dict, dict, st
         cleaned["download_url"] = _resolve_download_url(
             str(cleaned.get("download_url") or ""),
             settings,
-            gitee_raw=gitee_raw,
             mirror_urls=mirror_urls,
         )
         return cleaned
 
     manifest_urls: list[str] = []
-    # 优先 Gitee Release 上的策略（最权威），再镜像直链，避免镜像文件过期
     for url in (
         explicit_manifest,
-        gitee_raw.get("manifest_url", ""),
         mirror_urls.get("manifest_url", ""),
     ):
         if url and url not in manifest_urls:
             manifest_urls.append(url)
 
-    if prefer_mirror:
-        release_info = await _load_gitee_release_info(settings)
-        if release_info:
-            manifest: dict = {}
-            manifest_url = release_info.get("manifest_url", "")
-            if manifest_url:
-                manifest = _finalize_manifest(
-                    await _load_manifest(manifest_url, timeout, settings), manifest_url
+    for manifest_url in manifest_urls:
+        manifest = _finalize_manifest(await _load_manifest(manifest_url, timeout, settings), manifest_url)
+        if manifest:
+            if not manifest.get("download_url"):
+                download_url = _resolve_download_url(
+                    "",
+                    settings,
+                    mirror_urls=mirror_urls,
                 )
-            if manifest:
-                if not manifest.get("download_url") and release_info.get("download_url"):
+                if download_url:
                     manifest = dict(manifest)
-                    manifest["download_url"] = _resolve_download_url(
-                        release_info["download_url"],
-                        settings,
-                        gitee_raw=gitee_raw,
-                        mirror_urls=mirror_urls,
-                    )
-                return manifest, release_info, release_info.get("html_url") or "gitee"
+                    manifest["download_url"] = download_url
+            return manifest, {}, manifest_url
 
-        for manifest_url in manifest_urls:
-            manifest = _finalize_manifest(await _load_manifest(manifest_url, timeout, settings), manifest_url)
-            if manifest:
-                if not manifest.get("download_url"):
-                    download_url = _resolve_download_url(
-                        "",
-                        settings,
-                        gitee_raw=gitee_raw,
-                        mirror_urls=mirror_urls,
-                    )
-                    if download_url:
-                        manifest = dict(manifest)
-                        manifest["download_url"] = download_url
-                return manifest, {}, manifest_url
-
-        manual_download = _resolve_download_url(
-            str(settings.get("manual_download_url", "") or ""),
-            settings,
-            gitee_raw=gitee_raw,
-            mirror_urls=mirror_urls,
+    manual_download = _resolve_download_url(
+        str(settings.get("manual_download_url", "") or ""),
+        settings,
+        mirror_urls=mirror_urls,
+    )
+    configured_latest = str(settings.get("latest_version", "") or "").strip()
+    if manual_download and configured_latest:
+        return (
+            {
+                "latest_version": configured_latest,
+                "download_url": manual_download,
+                "min_supported_version": settings.get("min_supported_version", ""),
+            },
+            {},
+            "manual_download_url",
         )
-        configured_latest = str(settings.get("latest_version", "") or "").strip()
-        if manual_download and configured_latest and not manifest_urls:
-            return (
-                {
-                    "latest_version": configured_latest,
-                    "download_url": manual_download,
-                    "min_supported_version": settings.get("min_supported_version", ""),
-                },
-                {},
-                "manual_download_url",
-            )
 
-    release_info: dict = {}
-    if provider in ("gitee_release", "gitee", "gitee_only", "auto", "mirror", "github_release"):
-        release_info = await _load_gitee_release_info(settings)
-        if release_info:
-            manifest: dict = {}
-            manifest_url = release_info.get("manifest_url", "")
-            if manifest_url:
-                manifest = _finalize_manifest(await _load_manifest(manifest_url, timeout, settings), manifest_url)
-            if not manifest and release_info.get("latest_version"):
-                manifest = _finalize_manifest(
-                    {
-                        "latest_version": release_info.get("latest_version", ""),
-                        "download_url": release_info.get("download_url", ""),
-                        "min_supported_version": "",
-                    },
-                    "gitee_release",
-                )
-            if manifest:
-                if not manifest.get("download_url") and release_info.get("download_url"):
-                    manifest = dict(manifest)
-                    manifest["download_url"] = _resolve_download_url(
-                        release_info["download_url"],
-                        settings,
-                        gitee_raw=gitee_raw,
-                        mirror_urls=mirror_urls,
-                    )
-                return manifest, release_info, release_info.get("html_url") or "gitee"
-            if release_info.get("download_url"):
-                return {}, release_info, release_info.get("html_url") or "gitee"
-
-    return {}, release_info, "config"
+    return {}, {}, "config"
 
 
 async def _load_manifest(manifest_url: str, timeout_seconds: int, settings: Optional[Dict[str, Any]] = None) -> dict:
@@ -367,84 +210,9 @@ async def _load_manifest(manifest_url: str, timeout_seconds: int, settings: Opti
         return {}
     settings = settings or _merge_update_config()
     try:
-        url = _gitee_auth_url(manifest_url, settings)
-        return await _fetch_json(url, timeout_seconds)
+        return await _fetch_json(manifest_url, timeout_seconds)
     except Exception as exc:
         log.print_log(f"[Updater] 加载版本策略失败: {exc}", "warning")
-        return {}
-
-
-async def _load_gitee_release_info(settings: Dict[str, Any]) -> dict:
-    owner = str(settings.get("gitee_owner") or settings.get("github_owner") or "").strip()
-    repo = str(settings.get("gitee_repo") or settings.get("github_repo") or "").strip()
-    if not owner or not repo:
-        return {}
-
-    api_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/releases"
-    params: Dict[str, str] = {}
-    token = str(settings.get("gitee_token") or os.environ.get("GITEE_TOKEN") or "").strip()
-    if token:
-        params["access_token"] = token
-    headers = {"User-Agent": "AIWriteX-Updater"}
-
-    try:
-        timeout = int(settings.get("check_timeout_seconds", 15))
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(api_url, params=params, headers=headers)
-            response.raise_for_status()
-            releases = response.json()
-        if not isinstance(releases, list):
-            return {}
-        release = _select_release(releases, bool(settings.get("allow_prerelease")))
-        if not release:
-            return {}
-
-        assets = _release_assets(release)
-        installer_asset = _find_asset(assets, settings.get("installer_asset_name", ""), ".exe")
-        manifest_asset = _find_asset(assets, settings.get("manifest_asset_name", ""), ".json")
-        tag = str(release.get("tag_name", "")).lstrip("vV")
-        tag_name = str(release.get("tag_name", tag) or tag)
-
-        download_url = _asset_download_url(installer_asset)
-        if not download_url and tag_name:
-            installer_name = settings.get("installer_asset_name", INSTALLER_NAME)
-            has_installer = any(
-                (a.get("name") or "").strip().lower() == installer_name.strip().lower()
-                for a in assets
-            )
-            if has_installer:
-                download_url = (
-                    f"https://gitee.com/{owner}/{repo}/releases/download/"
-                    f"{tag_name}/{installer_name}"
-                )
-            else:
-                gh_owner = str(settings.get("github_owner") or owner).strip()
-                gh_repo = str(settings.get("github_repo") or repo).strip()
-                installer_name = str(settings.get("installer_asset_name", INSTALLER_NAME))
-                direct_github = (
-                    f"https://github.com/{gh_owner}/{gh_repo}/releases/download/"
-                    f"{tag_name}/{installer_name}"
-                )
-                mirrors = _expand_download_urls(direct_github)
-                download_url = mirrors[0] if mirrors else ""
-
-        download_url = _resolve_download_url(
-            download_url,
-            settings,
-            gitee_raw=_resolve_gitee_raw_urls(settings),
-            mirror_urls=_resolve_mirror_urls(settings),
-        )
-
-        return {
-            "latest_version": tag,
-            "release_notes": release.get("body") or release.get("name") or "",
-            "published_at": release.get("created_at") or release.get("published_at") or "",
-            "download_url": download_url,
-            "manifest_url": _asset_download_url(manifest_asset),
-            "html_url": release.get("html_url") or f"https://gitee.com/{owner}/{repo}/releases",
-        }
-    except Exception as exc:
-        log.print_log(f"[Updater] 获取 Gitee Release 失败: {exc}", "warning")
         return {}
 
 
@@ -498,12 +266,10 @@ async def _build_update_policy() -> UpdatePolicyResponse:
     download_url = _resolve_download_url(
         str(manifest.get("download_url") or release_info.get("download_url") or ""),
         settings,
-        gitee_raw=_resolve_gitee_raw_urls(settings),
         mirror_urls=mirror_urls,
     ) or _resolve_download_url(
         str(settings.get("manual_download_url") or ""),
         settings,
-        gitee_raw=_resolve_gitee_raw_urls(settings),
         mirror_urls=mirror_urls,
     )
     release_notes = (
@@ -649,16 +415,13 @@ def _resolve_download_url(
     url: str,
     settings: Dict[str, Any],
     *,
-    gitee_raw: Optional[Dict[str, str]] = None,
     mirror_urls: Optional[Dict[str, str]] = None,
 ) -> str:
-    gitee_raw = gitee_raw if gitee_raw is not None else _resolve_gitee_raw_urls(settings)
     mirror_urls = mirror_urls if mirror_urls is not None else _resolve_mirror_urls(settings)
 
     for candidate in (
         url,
         mirror_urls.get("download_url", ""),
-        gitee_raw.get("download_url", ""),
         str(settings.get("manual_download_url", "") or ""),
     ):
         expanded = _expand_download_urls(str(candidate or "").strip())
@@ -679,9 +442,7 @@ def _build_download_candidates(primary_url: str, settings: Dict[str, Any]) -> li
 
     add(primary_url)
     mirror_urls = _resolve_mirror_urls(settings)
-    gitee_raw = _resolve_gitee_raw_urls(settings)
     add(mirror_urls.get("download_url", ""))
-    add(gitee_raw.get("download_url", ""))
     add(str(settings.get("manual_download_url", "") or ""))
 
     return candidates

@@ -43,6 +43,7 @@ from .api.scheduler import router as scheduler_router
 from .api.updater import router as updater_router
 from .api.menu_ip_whitelist import router as menu_ip_whitelist_router
 from .api.batch import router as batch_router
+from .api.feedback import router as feedback_router
 
 # 添加全局状态
 app_shutdown_event = asyncio.Event()
@@ -303,6 +304,7 @@ app = FastAPI(
     version=get_version(),
     description="智能内容创作平台Web接口",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # 获取Web模块路径
@@ -420,6 +422,21 @@ except Exception as e:
 # 模板引擎
 templates = Jinja2Templates(directory=str(templates_path))
 
+
+# 尾部斜杠兼容中间件：将 /api/xxx/ 重写为 /api/xxx（内部重写，不返回307重定向）
+@app.middleware("http")
+async def strip_api_trailing_slash(request: Request, call_next):
+    path = request.url.path
+    # 仅对 /api/ 路径且以斜杠结尾（但不是 /api/ 本身）的请求去掉尾部斜杠
+    if path.startswith("/api/") and path.endswith("/") and len(path) > 5:
+        new_path = path.rstrip("/")
+        # 直接修改 scope 中的路径信息，确保路由匹配使用新路径
+        request.scope["path"] = new_path
+        request.scope["raw_path"] = new_path.encode("utf-8")
+        # 同时修改 path_info（某些中间件可能用到）
+        request.scope.setdefault("path_info", new_path)
+    return await call_next(request)
+
 # 注册API路由
 app.include_router(config_router)
 app.include_router(templates_router)
@@ -434,6 +451,7 @@ app.include_router(scheduler_router)
 app.include_router(updater_router)
 app.include_router(menu_ip_whitelist_router)
 app.include_router(batch_router)
+app.include_router(feedback_router)
 
 
 # 全局允许的客户端令牌集合
@@ -545,7 +563,6 @@ async def verify_client_token(request: Request, call_next):
         return await call_next(request)
 
     # 如果是访问主页但没带token，或者接口没带token且不在白名单，拒绝
-    from fastapi.responses import JSONResponse
     return JSONResponse(
         status_code=403,
         content={"detail": "Access Denied: Standard browser access is disabled. Please use AIWriteX Client."}

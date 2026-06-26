@@ -81,6 +81,11 @@
                             <span>资讯采集</span>
                         </a>
                     </li>
+                    <li class="nav-subitem">
+                        <a href="#" class="nav-sublink" data-config="platforms">
+                            <span>选题来源</span>
+                        </a>
+                    </li>
                 </ul>
             </li>
             <li class="nav-item">
@@ -159,11 +164,6 @@
                         </a>
                     </li>
                     <li class="nav-subitem">
-                        <a href="#" class="nav-sublink" data-config="platforms">
-                            <span>选题来源</span>
-                        </a>
-                    </li>
-                    <li class="nav-subitem">
                         <a href="#" class="nav-sublink" data-config="wechat">
                             <span>微信公众号</span>
                             <span class="config-required">*</span>
@@ -193,6 +193,15 @@
                     </li>
                     {% endif %}
                 </ul>
+            </li>
+                    <!-- 问题反馈 -->
+            <li class="nav-item">
+                <a href="#" class="nav-link" onclick="openFeedbackModal(); return false;">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    <span>问题反馈</span>
+                </a>
             </li>
         </ul>
     </nav>

@@ -15,7 +15,6 @@ hiddenimports = collect_submodules('aiforge') + collect_submodules('tiktoken_ext
     'jinja2',
     'sqlmodel',
     'playwright',
-    'pystray',
     'PIL',
     'lxml',
     'lxml.etree',
@@ -24,6 +23,9 @@ hiddenimports = collect_submodules('aiforge') + collect_submodules('tiktoken_ext
     'aiohttp',
     'feedparser',
     'asyncpg',
+    'win32gui',
+    'win32con',
+    'win32api',
 ]
 
 # 仅打包出厂资源：勿包含本机 config.yaml / install_id / 个人备份等

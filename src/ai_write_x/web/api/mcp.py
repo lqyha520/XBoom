@@ -40,7 +40,7 @@ class MCPServiceUpdate(BaseModel):
 
 
 # API端点
-@router.get("/")
+@router.get("")
 async def get_all_services():
     """获取所有MCP服务列表"""
     try:
@@ -129,7 +129,7 @@ async def get_service(service_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/")
+@router.post("")
 async def add_service(config: MCPServerConfig):
     """添加新的MCP服务"""
     try:

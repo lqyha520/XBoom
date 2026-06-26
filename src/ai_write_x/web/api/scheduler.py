@@ -20,6 +20,7 @@ class TaskCreate(BaseModel):
     article_count: int = 1
     use_ai_beautify: bool = True
     collection_mode: bool = False
+    target_appid: Optional[str] = None
 
 class TaskUpdate(BaseModel):
     status: Optional[str] = None
@@ -28,6 +29,10 @@ class TaskUpdate(BaseModel):
     platform: Optional[str] = None
     is_recurring: Optional[bool] = None
     interval_hours: Optional[int] = None
+    target_appid: Optional[str] = None
+    article_count: Optional[int] = None
+    use_ai_beautify: Optional[bool] = None
+    collection_mode: Optional[bool] = None
 
 @router.get("/tasks")
 async def get_tasks():
@@ -42,6 +47,7 @@ async def get_tasks():
         "article_count": t.article_count,
         "use_ai_beautify": t.use_ai_beautify,
         "collection_mode": getattr(t, "collection_mode", False),
+        "target_appid": getattr(t, "target_appid", None),
         "status": t.status,
         "last_run_at": t.last_run_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(t, "last_run_at", None) else None,
         "created_at": t.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -64,7 +70,8 @@ async def create_task(data: TaskCreate):
             interval_hours=data.interval_hours,
             article_count=data.article_count,
             use_ai_beautify=data.use_ai_beautify,
-            collection_mode=data.collection_mode
+            collection_mode=data.collection_mode,
+            target_appid=data.target_appid,
         )
         if task:
             return {"status": "success", "id": str(task.id)}
@@ -84,7 +91,7 @@ async def update_task(task_id: str, data: TaskUpdate):
             raise HTTPException(status_code=409, detail="Task is running; cancel this run before changing status")
         if data.status:
             task.status = data.status
-        if data.topic:
+        if data.topic is not None:
             task.topic = data.topic
         if data.platform:
             task.platform = data.platform
@@ -92,6 +99,14 @@ async def update_task(task_id: str, data: TaskUpdate):
             task.is_recurring = data.is_recurring
         if data.interval_hours is not None:
             task.interval_hours = data.interval_hours
+        if data.target_appid is not None:
+            task.target_appid = data.target_appid
+        if data.article_count is not None:
+            task.article_count = data.article_count
+        if data.use_ai_beautify is not None:
+            task.use_ai_beautify = data.use_ai_beautify
+        if data.collection_mode is not None:
+            task.collection_mode = data.collection_mode
         if data.execution_time:
             try:
                 task.execution_time = datetime.fromisoformat(data.execution_time.replace("Z", "+00:00"))
@@ -170,3 +185,26 @@ async def verify_platform(platform: str):
     except Exception as e:
         log.print_log(f"[Scheduler] 公众号连接检测异常: {e}", "error")
         return {"success": False, "message": f"检测异常: {str(e)}"}
+
+
+@router.get("/wechat-credentials")
+async def get_wechat_credentials():
+    """获取已配置的微信公众号凭证列表（脱敏）"""
+    try:
+        from src.ai_write_x.config.config import Config
+        config = Config.get_instance()
+        creds = config.wechat_credentials or []
+        result = []
+        for c in creds:
+            appid = (c.get("appid") or "").strip()
+            if not appid:
+                continue
+            result.append({
+                "appid": appid,
+                "author": c.get("author", ""),
+                "draft_only": c.get("draft_only", False),
+            })
+        return result
+    except Exception as e:
+        log.print_log(f"[Scheduler] 获取凭证列表失败: {e}", "error")
+        return []

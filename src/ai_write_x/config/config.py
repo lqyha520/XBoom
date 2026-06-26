@@ -1,4 +1,4 @@
-﻿from typing import Any, Dict
+from typing import Any, Dict
 import os
 import yaml
 import threading
@@ -249,15 +249,6 @@ class Config:
                 "install_mode": "on_exit",
                 "update_level": "normal",
                 "rollout_percent": 100,
-                "provider": "gitee_release",
-                "gitee_owner": "lqyha520",
-                "gitee_repo": "XBoom",
-                "gitee_branch": "master",
-                "gitee_release_path": "releases",
-                "gitee_token": "",
-                "github_owner": "lqyha520",
-                "github_repo": "XBoom",
-                "allow_prerelease": False,
                 "manifest_url": "https://updates.bcxtech.cn/updates/version-policy.json",
                 "update_mirror_base": "https://updates.bcxtech.cn/updates",
                 "manifest_asset_name": "version-policy.json",
@@ -269,8 +260,6 @@ class Config:
                 "min_supported_version": "",
                 "latest_version": "",
                 "manual_download_url": "",
-                "prefer_mirror": True,
-                "fallback_github": False,
             },
             "usage_stats": {
                 "enabled": True,
@@ -2288,11 +2277,11 @@ class Config:
                 if "credentials" not in self.config["wechat"]:
                     self.config["wechat"]["credentials"] = []
                 
-                # 如果config中的credentials为空，直接使用secrets中的
+                # 以 config.yaml 为主：只有 credentials 为空时才用 secrets 填充
                 if not self.config["wechat"]["credentials"]:
                     self.config["wechat"]["credentials"] = secrets["wechat"]["credentials"]
                 else:
-                    # 否则合并到现有凭据
+                    # 只用 secrets 补全 appid/appsecret（密码），不添加新凭证
                     for i, sec_cred in enumerate(secrets["wechat"]["credentials"]):
                         if i < len(self.config["wechat"]["credentials"]):
                             cred = self.config["wechat"]["credentials"][i]
@@ -2300,9 +2289,6 @@ class Config:
                                 cred["appid"] = sec_cred["appid"]
                             if sec_cred.get("appsecret"):
                                 cred["appsecret"] = sec_cred["appsecret"]
-                        else:
-                            # 添加新的凭据
-                            self.config["wechat"]["credentials"].append(sec_cred)
 
             # 合并 LLM API 密钥
             if "api" in secrets:
@@ -2382,8 +2368,8 @@ class Config:
         import copy
         sanitized = copy.deepcopy(config)
         
-        # 定义需要被屏蔽的敏感字段名
-        SECRET_FIELDS = {"api_key", "appsecret", "appid", "key_index"}
+        # 定义需要被屏蔽的敏感字段名（appid 是公开标识符，不需要屏蔽）
+        SECRET_FIELDS = {"api_key", "appsecret", "key_index"}
         
         def _recurse_strip(obj):
             if isinstance(obj, dict):
@@ -2500,18 +2486,7 @@ class Config:
         for key in ["wechat", "api", "img_api"]:
             if key not in new_secrets:
                 new_secrets[key] = existing_secrets.get(key, {})
-            elif key in existing_secrets:
-                # 深度合并
-                if key == "wechat" and "credentials" in existing_secrets.get("wechat", {}):
-                    # 保留没有在新配置中出现的凭据
-                    existing_creds = existing_secrets["wechat"]["credentials"]
-                    new_creds = new_secrets.get("wechat", {}).get("credentials", [])
-                    new_appids = {c.get("appid") for c in new_creds if c.get("appid")}
-                    for ec in existing_creds:
-                        if ec.get("appid") and ec["appid"] not in new_appids:
-                            if "credentials" not in new_secrets["wechat"]:
-                                new_secrets["wechat"]["credentials"] = []
-                            new_secrets["wechat"]["credentials"].append(ec)
+            # 微信凭证：以当前内存配置为准，不再合并旧文件中的已删除凭证
         
         try:
             # 生成带注释的文件头

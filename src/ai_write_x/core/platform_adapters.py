@@ -188,6 +188,21 @@ class WeChatAdapter(PlatformAdapter):
                 error_code="MISSING_CREDENTIALS",
             )
 
+        # 如果指定了 target_appid，只发布到该账号
+        target_appid = kwargs.get("target_appid")
+        if target_appid:
+            valid_credentials = [
+                cred for cred in valid_credentials
+                if cred["appid"] == target_appid
+            ]
+            if not valid_credentials:
+                return PublishResult(
+                    success=False,
+                    message=f"未找到 AppID 为 {target_appid} 的有效凭据",
+                    platform_id=PlatformType.WECHAT.value,
+                    error_code="CREDENTIAL_NOT_FOUND",
+                )
+
         publish_results = []
         success_count = 0
         content = self.format_content(content_result)

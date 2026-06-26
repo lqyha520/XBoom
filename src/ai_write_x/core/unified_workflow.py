@@ -1184,7 +1184,7 @@ class UnifiedContentWorkflow:
             yield {"type": "log", "message": "🎉 Agent Step 7: 全流程审计完成。UI 资产同步中，准备交付..."}
 
             publish_result = None
-            should_publish = self._should_publish()
+            should_publish = self._should_publish(kwargs)
             if should_publish and quality_publish_blocked:
                 yield {"type": "log", "message": "⛔ 最终AI评分严重不合格，已阻止自动发布，仅保存本地草稿"}
             elif should_publish:
@@ -1944,12 +1944,15 @@ class UnifiedContentWorkflow:
             "platform": publish_platform,
         }
 
-    def _should_publish(self) -> bool:
+    def _should_publish(self, kwargs=None) -> bool:
         """判断是否应该发布"""
         config = Config.get_instance()
 
-        # 检查配置中的自动发布设置
-        if not config.auto_publish:
+        # 优先使用调用方显式传入的 auto_publish（如调度器任务）
+        if kwargs and "auto_publish" in kwargs:
+            if not kwargs["auto_publish"]:
+                return False
+        elif not config.auto_publish:
             return False
 
         # 检查是否有有效的微信凭据

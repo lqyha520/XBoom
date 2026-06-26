@@ -134,7 +134,7 @@ async def get_default_template_categories():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/")
+@router.get("")
 async def list_templates(category: str = None):
     """获取模板列表"""
     templates = []
@@ -224,7 +224,7 @@ async def delete_template(template_path: str):
     raise HTTPException(status_code=404, detail="模板不存在")
 
 
-@router.post("/")
+@router.post("")
 async def create_template(template: TemplateCreate):
     """创建新模板"""
     template_dir = PathManager.get_template_dir()

@@ -73,6 +73,7 @@ class WeixinPublisher:
                 self.adaptive_pause = max(0, self.adaptive_pause - 1) # 逐渐衰减
                 
             try:
+                kwargs.setdefault("timeout", 60)
                 if method.upper() == "GET":
                     response = requests.get(url, **kwargs)
                 else:
@@ -546,6 +547,40 @@ class WeixinPublisher:
                 if not mime_type:
                     mime_type = "image/jpeg"
                 file_name = os.path.basename(resolved_path)
+
+                # 自动压缩：超过500KB的图片缩小尺寸并转为JPEG
+                if file_size > 500 * 1024:
+                    try:
+                        from PIL import Image
+                        img = Image.open(image_buffer)
+                        original_size = img.size
+                        # 缩放到最长边不超过1600px
+                        max_edge = 1600
+                        if max(original_size) > max_edge:
+                            ratio = max_edge / max(original_size)
+                            new_size = (int(original_size[0] * ratio), int(original_size[1] * ratio))
+                            img = img.resize(new_size, Image.LANCZOS)
+                        # PNG转JPEG（透明通道填充白色背景）
+                        if img.mode in ("RGBA", "P"):
+                            background = Image.new("RGB", img.size, (255, 255, 255))
+                            if img.mode == "P":
+                                img = img.convert("RGBA")
+                            background.paste(img, mask=img.split()[3])
+                            img = background
+                        elif img.mode != "RGB":
+                            img = img.convert("RGB")
+                        image_buffer = BytesIO()
+                        img.save(image_buffer, format="JPEG", quality=85)
+                        image_buffer.seek(0)
+                        new_size_kb = len(image_buffer.getvalue()) // 1024
+                        log.print_log(f"[upload_image] 图片已压缩: {file_size//1024}KB -> {new_size_kb}KB, 尺寸: {original_size} -> {img.size}", "info")
+                        mime_type = "image/jpeg"
+                        file_name = os.path.splitext(file_name)[0] + ".jpg"
+                    except ImportError:
+                        log.print_log("[upload_image] Pillow未安装，跳过图片压缩", "warning")
+                    except Exception as e:
+                        log.print_log(f"[upload_image] 图片压缩失败，使用原图: {e}", "warning")
+                        image_buffer.seek(0)
 
             token = self._ensure_access_token()
             if self.is_verified:

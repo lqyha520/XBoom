@@ -2807,6 +2807,150 @@ select.form-control {
     min-width: 200px;
 }
 
+/* ========== 维度化创意 - 新版 UI ========== */
+.form-section {
+    margin-bottom: 24px;
+}
+.form-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.form-section-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+.form-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+}
+.form-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* 场景卡片 */
+.creative-scenario-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+}
+.creative-scenario-card {
+    cursor: pointer;
+}
+.creative-scenario-card input[type="radio"] {
+    display: none;
+}
+.creative-scenario-card .card-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 14px 10px;
+    border: 2px solid var(--border-color, #e0e0e0);
+    border-radius: 10px;
+    transition: all 0.2s;
+    text-align: center;
+}
+.creative-scenario-card input:checked + .card-inner {
+    border-color: var(--primary-color, #4a90d9);
+    background: var(--primary-bg, rgba(74,144,217,0.08));
+    box-shadow: 0 0 0 1px var(--primary-color, #4a90d9);
+}
+.creative-scenario-card .card-icon {
+    font-size: 24px;
+    margin-bottom: 6px;
+}
+.creative-scenario-card .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.creative-scenario-card .card-desc {
+    font-size: 11px;
+    color: var(--text-secondary, #888);
+}
+
+/* 维度网格 */
+.dimensions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+@media (max-width: 700px) {
+    .dimensions-grid { grid-template-columns: 1fr; }
+}
+.dimension-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.dimension-card {
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 8px;
+    padding: 14px;
+}
+.dimension-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+.dimension-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.dimension-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    color: var(--text-secondary, #666);
+}
+.dimension-field .form-select {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--input-bg, #fff);
+    color: var(--text-primary, #333);
+}
+
+/* 强度滑块 */
+.intensity-container {
+    max-width: 400px;
+}
+.intensity-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.intensity-label {
+    font-size: 13px;
+    color: var(--text-secondary, #666);
+}
+.intensity-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary-color, #4a90d9);
+}
+.form-slider {
+    width: 100%;
+    margin-bottom: 6px;
+}
+.slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-tertiary, #aaa);
+}
+
 /* 滑块控件样式 */
 .slider-container {
     display: flex;

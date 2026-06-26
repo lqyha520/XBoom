@@ -9,7 +9,7 @@
     <link rel="icon" href="/static/images/app-logo.png?v=20260523" />
 
     <!-- 核心样式文件 -->
-    <link rel="stylesheet" href="/static/css/main.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/main.css?v=final_20260615090029">
     </link>
 
     <!-- 主题样式文件 -->
@@ -19,6 +19,7 @@
     <!-- 组件样式文件 -->
     <link rel="stylesheet" href="/static/css/components/header.css?v=20260524c">
     <link rel="stylesheet" href="/static/css/components/sidebar.css?v=20260304a">
+    <link rel="stylesheet" href="/static/css/components/feedback-modal.css?v=20260614">
     <link rel="stylesheet" href="/static/css/components/footer.css?v=20260524d">
     <link rel="stylesheet" href="/static/css/components/navigation.css?v=20260304a">
     <link rel="stylesheet" href="/static/css/components/buttons.css?v=20260304a">
@@ -488,18 +489,30 @@
     <script src="/static/js/mcp-manager.js?v=20260301d"></script>
     <script src="/static/js/newshub-manager.js?v=20260524a"></script>
     <script src="/static/js/content-editor.js?v=20260301c"></script>
-    <script src="/static/js/config-manager.js?v=20260525e"></script>
+    <script src="/static/js/config-manager.js?v=final_20260615090029"></script>
+    <!-- creative-simple.js 已整合到 config-manager.js -->
     <script src="/static/js/quality-manager.js?v=20260301c"></script>
     <script src="/static/js/dashboard-manager.js?v=20260305b"></script>
     <script src="/static/js/theme-manager.js?v=20260301c"></script>
-    <script src="/static/js/scheduler-manager.js?v=20260524a"></script>
+    <script src="/static/js/scheduler-manager.js?v=20260624b"></script>
     <script src="/static/js/window-modes.js?v=20260301c"></script>
     <script src="/static/js/swarm-monitor.js?v=20260307"></script>
     <script src="/static/js/database-manager.js?v=20260307"></script>
     <script src="/static/js/aesthetic-voting.js?v=20260307"></script>
     <script src="/static/js/preview-gallery.js?v=20260308"></script>
     <script src="/static/js/menu-ip-whitelist-manager.js?v=20260528"></script>
+    <script src="/static/js/feedback-modal.js?v=20260614"></script>
     <script src="/static/js/desktop-titlebar.js?v=20260609a"></script>
-</body>
+    {% include 'components/feedback-modal.html' %}
+
+    </body>
 
 </html>
+
+
+
+
+
+
+
+

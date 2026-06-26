@@ -1,4 +1,4 @@
-/* AIWriteX 主样式文件 - 核心变量和布局 */
+﻿/* AIWriteX 主样式文件 - 核心变量和布局 */
 :root {
     /* 统一的布局变量 */
     --sidebar-width: 200px;
@@ -407,4 +407,215 @@ body {
 .v11-nexus-pulse {
     pointer-events: none;
     mix-blend-mode: screen;
+}
+
+
+/* ========================================
+   维度化创意 - 优化布局设计
+   ======================================== */
+
+/* 快速场景 - 横向卡片网格 */
+.creative-scenario-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.creative-scenario-card {
+    display: block;
+    cursor: pointer;
+    position: relative;
+}
+
+.creative-scenario-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.creative-scenario-card .card-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 12px;
+    background: white;
+    border: 2px solid #e1e8ed;
+    border-radius: 10px;
+    transition: all 0.25s ease;
+    min-height: 120px;
+    justify-content: center;
+}
+
+.creative-scenario-card:hover .card-inner {
+    border-color: #667eea;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.creative-scenario-card input:checked + .card-inner {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+    color: white;
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+}
+
+.creative-scenario-card .card-icon {
+    font-size: 32px;
+    line-height: 1;
+}
+
+.creative-scenario-card .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.creative-scenario-card .card-desc {
+    font-size: 12px;
+    text-align: center;
+    opacity: 0.8;
+    line-height: 1.3;
+}
+
+.creative-scenario-custom input:checked + .card-inner {
+    background: #f8f9fa;
+    border-color: #95a5a6;
+    color: #2c3e50;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 维度两列布局 */
+.dimensions-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin-top: 16px;
+}
+
+.dimension-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.dimension-card {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 16px;
+    border: 1px solid #e1e8ed;
+}
+
+.dimension-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin: 0 0 12px 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e1e8ed;
+}
+
+.dimension-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dimension-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dimension-field label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #34495e;
+}
+
+.form-select {
+    padding: 8px 12px;
+    border: 2px solid #e1e8ed;
+    border-radius: 6px;
+    background: white;
+    font-size: 13px;
+    color: #2c3e50;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.form-select:hover {
+    border-color: #667eea;
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* 创意强度样式优化 */
+.intensity-container {
+    max-width: 600px;
+}
+
+.intensity-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.intensity-label {
+    font-size: 14px;
+    color: #7f8c8d;
+}
+
+.intensity-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #667eea;
+}
+
+.slider-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #7f8c8d;
+}
+
+/* 响应式 */
+@media (max-width: 1024px) {
+    .creative-scenario-cards {
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    }
+    
+    .dimensions-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .creative-scenario-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .creative-scenario-card .card-inner {
+        min-height: 100px;
+        padding: 12px 8px;
+    }
+    
+    .creative-scenario-card .card-icon {
+        font-size: 28px;
+    }
+    
+    .creative-scenario-card .card-title {
+        font-size: 13px;
+    }
+    
+    .creative-scenario-card .card-desc {
+        font-size: 11px;
+    }
 }

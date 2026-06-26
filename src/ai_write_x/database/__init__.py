@@ -223,6 +223,15 @@ class MigrationManager:
                     "ALTER TABLE agent_memories ADD COLUMN content VARCHAR DEFAULT ''",
                 ],
             },
+            {
+                "version": "v1.3.0-scheduler-fields",
+                "description": "定时任务新增字段（文章数量、AI润色、目标公众号等）",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN article_count INTEGER DEFAULT 1",
+                    "ALTER TABLE scheduled_tasks ADD COLUMN use_ai_beautify BOOLEAN DEFAULT 1",
+                    "ALTER TABLE scheduled_tasks ADD COLUMN target_appid VARCHAR",
+                ],
+            },
         ]
         
         for migration in migrations:

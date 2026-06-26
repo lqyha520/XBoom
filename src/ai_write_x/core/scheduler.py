@@ -4,6 +4,9 @@ import traceback
 from datetime import datetime, timedelta
 from typing import Set
 
+from src.ai_write_x.core.notifications.mail_notifier import send_task_completion_email
+from src.ai_write_x.core.notifications.feishu_notifier import send_task_completion_feishu
+
 from src.ai_write_x.database.db_manager import db_manager
 from src.ai_write_x.core import task_status
 from src.ai_write_x.utils import log
@@ -159,11 +162,15 @@ class SchedulerService:
             workflow = UnifiedContentWorkflow()
             deduplicator = TopicDeduplicator(dedup_days=3)
             used_topics_in_batch = []
+            generated_articles = []
             kwargs = {
                 "publish_platform": task.platform,
                 "auto_publish": True,
                 "use_ai_beautify": task.use_ai_beautify,
             }
+            target_appid = getattr(task, "target_appid", None)
+            if target_appid:
+                kwargs["target_appid"] = target_appid
             kwargs["cancel_check"] = lambda task_id=task_id: self.is_cancel_requested(task_id)
             if is_collection:
                 kwargs["collection_mode"] = True
@@ -211,6 +218,7 @@ class SchedulerService:
 
                 if results.get("success"):
                     success_count += 1
+                    generated_articles.append(current_topic)
                     message = f"Article {article_no}/{count} generated successfully"
                     publish_result = results.get("publish_result")
                     if publish_result:
@@ -243,6 +251,30 @@ class SchedulerService:
             db_manager.log_task_execution(task_id, task_status.FAILED, f"{message}\n{traceback.format_exc()}")
         finally:
             self._finalize_task(task_id, outcome)
+            # Send completion email notification
+            try:
+                send_task_completion_email(
+                    task_topic=original_topic or task.topic or '',
+                    platform=task.platform,
+                    total_count=count,
+                    success_count=success_count,
+                    outcome=outcome,
+                    article_titles=generated_articles,
+                )
+            except Exception as email_err:
+                log.print_log(f"[Scheduler] Email notification failed: {email_err}", "warning")
+            # Send completion Feishu notification
+            try:
+                send_task_completion_feishu(
+                    task_topic=original_topic or task.topic or '',
+                    platform=task.platform,
+                    total_count=count,
+                    success_count=success_count,
+                    outcome=outcome,
+                    article_titles=generated_articles,
+                )
+            except Exception as feishu_err:
+                log.print_log(f"[Scheduler] Feishu notification failed: {feishu_err}", "warning")
             self._clear_cancel_request(task_id)
             self._mark_task_thread_finished(task_id)
 
@@ -347,3 +379,4 @@ class SchedulerService:
 
 
 scheduler_service = SchedulerService()
+
