@@ -34,7 +34,8 @@ def test_github_workflow_deploys_only_after_verification():
     assert "cancel-in-progress: false" in workflow
     assert "XBOOM_SSH_PRIVATE_KEY" in workflow
     assert "xboom-deploy.sh deploy" in workflow
-    assert "git -C \"$mirror\" fetch --force --depth=1 origin \"$sha\"" in workflow
+    assert "rsync -azc --delete --partial" in workflow
     assert "ServerAliveInterval=30" in workflow
     assert "scp -P" not in workflow
+    assert "git -C" not in workflow
     assert "deployment_id" in workflow

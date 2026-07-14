@@ -61,33 +61,64 @@ jobs:
           ssh-keyscan -p "$SSH_PORT" -t ed25519 -H "$SSH_HOST" >> ~/.ssh/known_hosts || true
           test -s ~/.ssh/known_hosts
 
-      - name: Fetch commit and deploy blue-green release
+      - name: Prepare incremental staging directory
         shell: bash
         run: |
           ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
-            "bash -s -- '${GITHUB_SHA}' '${GITHUB_REPOSITORY}'" <<'REMOTE'
+            "bash -s -- '${GITHUB_SHA}'" <<'REMOTE'
           set -Eeuo pipefail
           sha="$1"
-          repository="$2"
-          mirror="/www/wwwroot/xboom-git"
-          archive="/tmp/xboom-${sha}.tar.gz"
-
-          if [[ ! -d "$mirror/.git" ]]; then
-            mkdir -p "$mirror"
-            git -C "$mirror" init
-            git -C "$mirror" remote add origin "https://github.com/${repository}.git"
-          else
-            git -C "$mirror" remote set-url origin "https://github.com/${repository}.git"
+          stage="/tmp/xboom-sync-${sha}"
+          current="/www/wwwroot/xboom-current"
+          rm -rf -- "$stage"
+          mkdir -p "$stage"
+          if [[ -f "$current/server.py" ]]; then
+            for item in config knowledge scripts src server.py pyproject.toml requirements.txt version-policy.json README.md; do
+              if [[ -e "$current/$item" ]]; then
+                cp -al "$current/$item" "$stage/$item"
+              fi
+            done
           fi
+          REMOTE
 
-          git -C "$mirror" fetch --force --depth=1 origin "$sha"
-          test "$(git -C "$mirror" rev-parse FETCH_HEAD)" = "$sha"
-          git -C "$mirror" archive --format=tar.gz --output="$archive" "$sha" -- \
-            config knowledge scripts src server.py pyproject.toml requirements.txt version-policy.json README.md
-          git -C "$mirror" show "$sha:scripts/deploy-blue-green.sh" > /tmp/xboom-deploy.sh
-          chmod 700 /tmp/xboom-deploy.sh
+      - name: Sync changed source files
+        shell: bash
+        run: |
+          stage="/tmp/xboom-sync-${GITHUB_SHA}/"
+          success=0
+          for attempt in 1 2 3; do
+            if rsync -azc --delete --partial --timeout=120 \
+              --exclude='*/node_modules/***' \
+              --exclude='*/__pycache__/***' \
+              --exclude='*.pyc' \
+              --exclude='src/output/***' \
+              -e "ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -p ${SSH_PORT}" \
+              config knowledge scripts src server.py pyproject.toml requirements.txt version-policy.json README.md \
+              "${SSH_USER}@${SSH_HOST}:${stage}"; then
+              success=1
+              break
+            fi
+            sleep $((attempt * 10))
+          done
+          test "$success" = 1
+
+      - name: Deploy synchronized release
+        shell: bash
+        run: |
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
+            "bash -s -- '${GITHUB_SHA}'" <<'REMOTE'
+          set -Eeuo pipefail
+          sha="$1"
+          stage="/tmp/xboom-sync-${sha}"
+          archive="/tmp/xboom-${sha}.tar.gz"
+          test -f "$stage/server.py"
+          test -f "$stage/scripts/deploy-blue-green.sh"
+          tar -czf "$archive" -C "$stage" .
+          install -m 0700 "$stage/scripts/deploy-blue-green.sh" /tmp/xboom-deploy.sh
           /tmp/xboom-deploy.sh deploy "$archive" "$sha"
+          rm -rf -- "$stage"
           REMOTE
 
       - name: Verify public health

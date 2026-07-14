@@ -1,6 +1,6 @@
 # GitHub 蓝绿热部署
 
-推送到 `main` 后，`.github/workflows/deploy-server.yml` 会先运行测试，再通过 SSH 通知生产服务器拉取该次提交并部署。服务器按提交 SHA 执行 `git fetch`，不会误部署后续提交，也不需要从 Actions Runner 传输完整源码包。
+推送到 `main` 后，`.github/workflows/deploy-server.yml` 会先运行测试，再把 Actions checkout 的精确提交同步到生产服务器。同步目录会用当前 release 的硬链接预热，随后通过 `rsync --checksum` 只传变化文件；网络中断时会保留部分文件并自动重试。
 
 ## GitHub Secrets
 
@@ -17,7 +17,6 @@
 - `/www/wwwroot/xboom-releases/<commit>`：不可变源码版本。
 - `/www/wwwroot/xboom-current`：当前版本软链接。
 - `/www/wwwroot/xboom-runtime`：PID、部署锁、槽位日志和 Nginx 备份。
-- `/www/wwwroot/xboom-git`：只用于按 SHA 增量拉取 GitHub 提交的本地 Git 缓存。
 
 Web 服务在 `8001` 与 `8002` 两个槽位之间切换。新槽位先通过 `/health` 检查，Nginx 才会切流；失败时继续使用旧槽位。
 
