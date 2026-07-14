@@ -558,6 +558,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": time.time(),
         "version": get_version(),
+        "deployment_id": os.environ.get("AIWRITEX_DEPLOYMENT_ID", "local"),
         "memory_mb": memory_mb,
         "active_threads": threading.active_count(),
         "startup_profile": get_startup_profile(),

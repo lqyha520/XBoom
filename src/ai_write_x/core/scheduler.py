@@ -95,6 +95,20 @@ class SchedulerService:
         with self._state_lock:
             self._running_task_ids.discard(task_id)
 
+    def running_task_count(self) -> int:
+        """Return the number of task executions still running in this process."""
+        with self._state_lock:
+            return len(self._running_task_ids)
+
+    def wait_until_idle(self, timeout: float = 3600.0, poll_interval: float = 0.5) -> bool:
+        """Wait for claimed task threads to finish after polling has stopped."""
+        deadline = time.monotonic() + max(0.0, timeout)
+        while self.running_task_count() > 0:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(max(0.05, poll_interval))
+        return True
+
     @staticmethod
     def _repeat_mode(task) -> str:
         if not getattr(task, "is_recurring", False):

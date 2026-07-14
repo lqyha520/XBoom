@@ -18,7 +18,9 @@ jobs:
           cache: pip
 
       - name: Install test dependencies
-        run: python -m pip install pytest sqlmodel pydantic
+        run: >-
+          python -m pip install pytest sqlmodel pydantic fastapi beautifulsoup4
+          pyyaml requests pillow python-multipart jinja2 aiohttp
 
       - name: Compile Python sources
         run: python -m compileall -q main.py src/ai_write_x

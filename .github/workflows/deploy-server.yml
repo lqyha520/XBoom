@@ -1,0 +1,96 @@
+name: deploy-server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: xboom-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: >-
+          python -m pip install pytest sqlmodel pydantic fastapi beautifulsoup4
+          pyyaml requests pillow python-multipart jinja2 aiohttp
+      - name: Compile Python sources
+        run: python -m compileall -q main.py server.py src/ai_write_x
+      - name: Run core tests
+        run: python -m pytest tests --tb=short -q
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SSH_HOST: ${{ secrets.XBOOM_SSH_HOST }}
+      SSH_PORT: ${{ secrets.XBOOM_SSH_PORT }}
+      SSH_USER: ${{ secrets.XBOOM_SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.XBOOM_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment secrets
+        shell: bash
+        run: |
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_PRIVATE_KEY"
+          echo "SSH_PORT=${SSH_PORT:-22}" >> "$GITHUB_ENV"
+
+      - name: Build source archive
+        shell: bash
+        run: |
+          archive="xboom-${GITHUB_SHA}.tar.gz"
+          tar -czf "$archive" \
+            --exclude='*/node_modules/*' \
+            --exclude='*/__pycache__/*' \
+            --exclude='*.pyc' \
+            --exclude='src/output/*' \
+            --exclude='*.db' \
+            --exclude='*.pem' \
+            --exclude='*.key' \
+            .github config docs knowledge scripts services src tests \
+            .editorconfig .gitattributes .gitignore \
+            main.py server.py pyproject.toml requirements.txt pytest.ini \
+            README.md RELEASES.md version-policy.json
+          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+          sha256sum "$archive"
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload and deploy blue-green release
+        shell: bash
+        run: |
+          remote_archive="/tmp/${ARCHIVE}"
+          scp -P "$SSH_PORT" "$ARCHIVE" "${SSH_USER}@${SSH_HOST}:${remote_archive}"
+          scp -P "$SSH_PORT" scripts/deploy-blue-green.sh "${SSH_USER}@${SSH_HOST}:/tmp/xboom-deploy.sh"
+          ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
+            "chmod 700 /tmp/xboom-deploy.sh && /tmp/xboom-deploy.sh deploy '${remote_archive}' '${GITHUB_SHA}'"
+
+      - name: Verify public health
+        shell: bash
+        run: |
+          response="$(curl -fsS --retry 5 --retry-delay 2 --max-time 15 "http://${SSH_HOST}:39005/health")"
+          echo "$response"
+          grep -q '"status":"healthy"' <<<"$response"
+          grep -q "\"deployment_id\":\"${GITHUB_SHA}\"" <<<"$response"
