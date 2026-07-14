@@ -1,8 +1,8 @@
 name: quality-gate
 
 on:
-  push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   core-tests:
