@@ -77,7 +77,8 @@ jobs:
           install -d -m 700 ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "$SSH_PORT" -t ed25519 -H "$SSH_HOST" >> ~/.ssh/known_hosts || true
+          test -s ~/.ssh/known_hosts
 
       - name: Upload and deploy blue-green release
         shell: bash
