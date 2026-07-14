@@ -40,7 +40,7 @@ cleanup_on_exit() {
 trap cleanup_on_exit EXIT
 
 mkdir -p "$RELEASES_DIR" "$RUNTIME_DIR"
-exec 9>"$RUNTIME_DIR/deploy.lock"
+exec 9>"$RUNTIME_DIR/deploy-v2.lock"
 flock -n 9 || fail "another deployment is already running"
 
 [[ -x "$VENV_DIR/bin/python" ]] || fail "missing Python environment: $VENV_DIR"
@@ -156,6 +156,8 @@ start_web() {
     assert_port_available "$port"
     : >"$log_file"
     (
+        # The web process must not inherit the deployment flock descriptor.
+        exec 9>&-
         cd "$release_dir"
         set -a
         # shellcheck disable=SC1091

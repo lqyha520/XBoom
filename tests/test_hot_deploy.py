@@ -23,6 +23,8 @@ def test_blue_green_deploy_checks_health_before_nginx_switch():
     assert 'GREEN_PORT="${XBOOM_GREEN_PORT:-8002}"' in script
     assert "wait_for_health" in script
     assert "wait_for_scheduler_idle" in script
+    assert 'exec 9>"$RUNTIME_DIR/deploy-v2.lock"' in script
+    assert "exec 9>&-" in script
     assert 'export AIWRITEX_SKIP_STARTUP_TASKS="scheduler"' in script
     assert '"$NGINX_BIN" -t' in script
     assert "systemctl enable xboom-scheduler.service" in script
