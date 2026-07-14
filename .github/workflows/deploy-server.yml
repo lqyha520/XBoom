@@ -52,25 +52,6 @@ jobs:
           test -n "$SSH_PRIVATE_KEY"
           echo "SSH_PORT=${SSH_PORT:-22}" >> "$GITHUB_ENV"
 
-      - name: Build source archive
-        shell: bash
-        run: |
-          archive="xboom-${GITHUB_SHA}.tar.gz"
-          tar -czf "$archive" \
-            --exclude='*/node_modules/*' \
-            --exclude='*/__pycache__/*' \
-            --exclude='*.pyc' \
-            --exclude='src/output/*' \
-            --exclude='*.db' \
-            --exclude='*.pem' \
-            --exclude='*.key' \
-            .github config docs knowledge scripts services src tests \
-            .editorconfig .gitattributes .gitignore \
-            main.py server.py pyproject.toml requirements.txt pytest.ini \
-            README.md RELEASES.md version-policy.json
-          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
-          sha256sum "$archive"
-
       - name: Configure SSH
         shell: bash
         run: |
@@ -80,14 +61,33 @@ jobs:
           ssh-keyscan -p "$SSH_PORT" -t ed25519 -H "$SSH_HOST" >> ~/.ssh/known_hosts || true
           test -s ~/.ssh/known_hosts
 
-      - name: Upload and deploy blue-green release
+      - name: Fetch commit and deploy blue-green release
         shell: bash
         run: |
-          remote_archive="/tmp/${ARCHIVE}"
-          scp -P "$SSH_PORT" "$ARCHIVE" "${SSH_USER}@${SSH_HOST}:${remote_archive}"
-          scp -P "$SSH_PORT" scripts/deploy-blue-green.sh "${SSH_USER}@${SSH_HOST}:/tmp/xboom-deploy.sh"
           ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
-            "chmod 700 /tmp/xboom-deploy.sh && /tmp/xboom-deploy.sh deploy '${remote_archive}' '${GITHUB_SHA}'"
+            "bash -s -- '${GITHUB_SHA}' '${GITHUB_REPOSITORY}'" <<'REMOTE'
+          set -Eeuo pipefail
+          sha="$1"
+          repository="$2"
+          mirror="/www/wwwroot/xboom-git"
+          archive="/tmp/xboom-${sha}.tar.gz"
+
+          if [[ ! -d "$mirror/.git" ]]; then
+            mkdir -p "$mirror"
+            git -C "$mirror" init
+            git -C "$mirror" remote add origin "https://github.com/${repository}.git"
+          else
+            git -C "$mirror" remote set-url origin "https://github.com/${repository}.git"
+          fi
+
+          git -C "$mirror" fetch --force --depth=1 origin "$sha"
+          test "$(git -C "$mirror" rev-parse FETCH_HEAD)" = "$sha"
+          git -C "$mirror" archive --format=tar.gz --output="$archive" "$sha" -- \
+            config knowledge scripts src server.py pyproject.toml requirements.txt version-policy.json README.md
+          git -C "$mirror" show "$sha:scripts/deploy-blue-green.sh" > /tmp/xboom-deploy.sh
+          chmod 700 /tmp/xboom-deploy.sh
+          /tmp/xboom-deploy.sh deploy "$archive" "$sha"
+          REMOTE
 
       - name: Verify public health
         shell: bash
