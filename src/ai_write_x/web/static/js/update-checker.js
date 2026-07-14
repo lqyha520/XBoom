@@ -11,6 +11,7 @@ class UpdateChecker {
         this.autoRestartTriggered = false;
         this.installAfterDownload = false;
         this.backgroundProgressTimer = null;
+        this.updateMarqueeKey = 'background-update';
         this.readyButton = null;
         this.currentStepId = 'check';
         this.elements = {};
@@ -323,18 +324,23 @@ class UpdateChecker {
         }
     }
 
+    setUpdateMarquee(text, type = 'info') {
+        if (window.footerMarquee?.setExclusiveMessage) {
+            window.footerMarquee.setExclusiveMessage(this.updateMarqueeKey, text, type);
+            return;
+        }
+        if (window.footerMarquee?.addMessage) {
+            window.footerMarquee.addMessage(text, type, false, 1);
+        }
+    }
+
     async checkStartupPolicy() {
         try {
             const policy = await this.fetchPolicy();
             this.policy = policy;
             if (policy.update_ready) {
                 this.showReadyButton();
-                if (window.footerMarquee?.addMessage) {
-                    window.footerMarquee.addMessage(
-                        `新版 v${policy.latest_version || ''} 已就绪，点击标题栏“立即更新”即可重启更新`,
-                        'success', false, 1
-                    );
-                }
+                this.setUpdateMarquee('下载完成，等待更新', 'success');
                 return;
             }
             if (!policy.enabled || !policy.startup_check || !policy.has_update) {
@@ -393,12 +399,7 @@ class UpdateChecker {
             if (!response.ok) {
                 throw new Error(body.detail || '准备更新失败');
             }
-            if (window.footerMarquee?.addMessage) {
-                window.footerMarquee.addMessage(
-                    `正在后台下载更新 v${policy.latest_version}`,
-                    'info', false, 1
-                );
-            }
+            this.setUpdateMarquee(`正在下载更新 v${policy.latest_version}：0%`, 'info');
             this.backgroundProgressTimer = setInterval(() => this.pollBackgroundPreparation(), 2000);
             await this.pollBackgroundPreparation();
         } catch (error) {
@@ -413,26 +414,25 @@ class UpdateChecker {
         try {
             const response = await fetch('/api/system/update-progress', { headers: this.getHeaders() });
             const data = await response.json().catch(() => ({}));
-            if (data.status === 'ready_to_install') {
+            if (data.status === 'downloading') {
+                const progress = Math.max(0, Math.min(100, Number(data.progress) || 0));
+                this.setUpdateMarquee(
+                    `正在下载更新 v${this.policy?.latest_version || ''}：${Math.round(progress)}%`,
+                    'info'
+                );
+            } else if (data.status === 'ready_to_install') {
                 if (this.backgroundProgressTimer) {
                     clearInterval(this.backgroundProgressTimer);
                     this.backgroundProgressTimer = null;
                 }
                 this.showReadyButton();
-                if (window.footerMarquee?.addMessage) {
-                    window.footerMarquee.addMessage(
-                        `新版 v${this.policy?.latest_version || ''} 已就绪，点击标题栏“立即更新”即可重启更新`,
-                        'success', false, 1
-                    );
-                }
+                this.setUpdateMarquee('下载完成，等待更新', 'success');
             } else if (data.status === 'error') {
                 if (this.backgroundProgressTimer) {
                     clearInterval(this.backgroundProgressTimer);
                     this.backgroundProgressTimer = null;
                 }
-                if (window.footerMarquee?.addMessage) {
-                    window.footerMarquee.addMessage(`更新下载失败：${this.normalizeError(data.error || data.message)}`, 'warning', false, 1);
-                }
+                this.setUpdateMarquee(`更新下载失败：${this.normalizeError(data.error || data.message)}`, 'warning');
             }
         } catch (error) {
             console.warn('Background update progress failed:', error);

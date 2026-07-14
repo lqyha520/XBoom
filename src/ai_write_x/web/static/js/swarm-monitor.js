@@ -92,5 +92,9 @@ class SwarmMonitor {
 
 // 自动实例化
 document.addEventListener('DOMContentLoaded', () => {
+    // 精简启动档不会渲染蜂群监控视图，避免向 Cytoscape 传入空容器。
+    if (!document.getElementById('swarm-cy-container') || typeof cytoscape !== 'function') {
+        return;
+    }
     window.swarmMonitor = new SwarmMonitor();
 });

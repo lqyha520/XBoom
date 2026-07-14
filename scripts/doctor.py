@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import importlib.metadata
 import os
 import socket
 import subprocess
@@ -56,6 +57,45 @@ def check_imports() -> bool:
     ]
     missing = [pkg for pkg in packages if importlib.util.find_spec(pkg) is None]
     return record("Core dependency imports", not missing, ", ".join(missing) if missing else "all present")
+
+
+def check_dependency_consistency() -> bool:
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "check"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    output = (result.stdout or "").strip()
+    if result.returncode == 0:
+        return record("Python dependency consistency", True, "pip check passed")
+
+    preview = "; ".join(line.strip() for line in output.splitlines()[:3] if line.strip())
+    warn(
+        "Python dependency consistency",
+        f"pip check found environment conflicts: {preview}. Prefer the project .venv.",
+    )
+    return True
+
+
+def check_requests_runtime_versions() -> bool:
+    try:
+        chardet_version = importlib.metadata.version("chardet")
+        major = int(chardet_version.split(".", 1)[0])
+    except importlib.metadata.PackageNotFoundError:
+        return record("Requests charset dependency", True, "chardet not installed")
+    except (TypeError, ValueError):
+        warn("Requests charset dependency", "unable to parse installed chardet version")
+        return True
+
+    if major >= 6:
+        warn(
+            "Requests charset dependency",
+            f"chardet {chardet_version} is outside the project constraint (<6); recreate .venv or install 'chardet>=5.2,<6'.",
+        )
+        return True
+    return record("Requests charset dependency", True, f"chardet {chardet_version}")
 
 
 def check_webview2() -> bool:
@@ -158,6 +198,8 @@ def main() -> int:
         check_python,
         check_virtualenv,
         check_imports,
+        check_dependency_consistency,
+        check_requests_runtime_versions,
         check_webview2,
         check_config_and_secrets,
         check_writable_paths,

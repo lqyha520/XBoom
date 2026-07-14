@@ -23,7 +23,7 @@ import hashlib
 import json
 import threading
 from typing import Any, Dict, List, Optional, Union
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from src.ai_write_x.config.config import Config
 from src.ai_write_x.utils import log
@@ -65,6 +65,15 @@ class _ResponseCache:
             self._cache[key] = (response, time.time())
 
 _response_cache = _ResponseCache()
+
+
+CUSTOM_API_DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 Chrome/120 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
 
 
 class VisionModelDetector:
@@ -168,18 +177,47 @@ class LLMClient:
                 "limits": httpx.Limits(max_keepalive_connections=5, max_connections=10),
                 "timeout": httpx.Timeout(120.0),
             }
-            if is_custom:
-                httpx_kwargs["headers"] = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-                    "Accept": "application/json",
-                }
             http_client = httpx.Client(**httpx_kwargs)
+            openai_kwargs: Dict[str, Any] = {
+                "api_key": api_key,
+                "base_url": base_url,
+                "http_client": http_client,
+            }
+            if is_custom:
+                # OpenAI SDK supplies its own User-Agent per request, which
+                # overrides headers configured only on the httpx client.
+                openai_kwargs["default_headers"] = dict(CUSTOM_API_DEFAULT_HEADERS)
             self._client_cache[cache_key] = OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                http_client=http_client
+                **openai_kwargs
             )
         return self._client_cache[cache_key]
+
+    def _get_async_client(
+        self,
+        api_key: str,
+        base_url: str,
+        *,
+        is_custom: Optional[bool] = None,
+    ) -> AsyncOpenAI:
+        """Create an async client with the same custom-API headers as sync calls.
+
+        Some OpenAI-compatible gateways use Cloudflare rules that reject the
+        SDK's ``AsyncOpenAI/Python`` user agent while accepting normal browser
+        traffic.  Connection tests use aiohttp and therefore do not expose the
+        problem unless streaming uses the same compatibility headers here.
+        """
+        if is_custom is None:
+            is_custom = self._is_custom_api_provider()
+
+        kwargs: Dict[str, Any] = {
+            "api_key": api_key,
+            "base_url": base_url,
+        }
+        if is_custom:
+            # default_headers overrides the SDK-level User-Agent. Supplying
+            # headers only on httpx would still be overwritten by OpenAI SDK.
+            kwargs["default_headers"] = dict(CUSTOM_API_DEFAULT_HEADERS)
+        return AsyncOpenAI(**kwargs)
 
     def _track_model_performance(self, model_name: str, success: bool, latency_ms: int = 0):
         with self._stats_lock:
@@ -658,8 +696,6 @@ class LLMClient:
         Yields:
             文本片段
         """
-        import httpx
-        from openai import AsyncOpenAI
         import asyncio
         import random
         
@@ -671,7 +707,7 @@ class LLMClient:
         current_model = model_name
         
         for attempt in range(max_retries + 1):
-            async_client = AsyncOpenAI(
+            async_client = self._get_async_client(
                 api_key=self._config.api_key,
                 base_url=self._config.api_apibase
             )
@@ -742,7 +778,14 @@ class LLMClient:
                     for fb_key, fb_base, fb_model, fb_provider in fallbacks:
                         log.print_log(f"🔄 正在尝试备用提供商(流式): {fb_provider} ({fb_model})", "warning")
                         try:
-                            fallback_client = AsyncOpenAI(api_key=fb_key, base_url=fb_base)
+                            fallback_client = self._get_async_client(
+                                api_key=fb_key,
+                                base_url=fb_base,
+                                is_custom=fb_provider not in {
+                                    "OpenRouter", "Deepseek", "Grok", "Qwen",
+                                    "Gemini", "Ollama", "SiliconFlow",
+                                },
+                            )
                             fb_stream = await fallback_client.chat.completions.create(
                                 model=fb_model,
                                 messages=messages,

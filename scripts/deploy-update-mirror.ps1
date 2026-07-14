@@ -75,7 +75,7 @@ $MIRROR_BASE_URL = Require-MirrorValue -Config $MirrorConfig -Name 'MIRROR_BASE_
 $SSH_HOST = Require-MirrorValue -Config $MirrorConfig -Name 'SSH_HOST' -Message '请在 update-mirror.env 中设置 SSH_HOST（服务器公网 IP）'
 $SSH_USER = if ([string]::IsNullOrWhiteSpace($MirrorConfig['SSH_USER'])) { 'root' } else { $MirrorConfig['SSH_USER'].Trim() }
 $SSH_PORT = if ([string]::IsNullOrWhiteSpace($MirrorConfig['SSH_PORT'])) { '22' } else { $MirrorConfig['SSH_PORT'].Trim() }
-$REMOTE_DIR = if ([string]::IsNullOrWhiteSpace($MirrorConfig['REMOTE_DIR'])) { '/www/wwwroot/updates.bcxtech.cn/updates' } else { $MirrorConfig['REMOTE_DIR'].Trim() }
+$REMOTE_DIR = if ([string]::IsNullOrWhiteSpace($MirrorConfig['REMOTE_DIR'])) { '/www/wwwroot/lohq1497247.bohrium.tech/updates/xboom' } else { $MirrorConfig['REMOTE_DIR'].Trim() }
 $SSH_KEY_PATH = if ([string]::IsNullOrWhiteSpace($MirrorConfig['SSH_KEY_PATH'])) { '.local_secrets\xiaobao.pem' } else { $MirrorConfig['SSH_KEY_PATH'].Trim() }
 if ($SSH_KEY_PATH -and -not [System.IO.Path]::IsPathRooted($SSH_KEY_PATH)) {
     $SSH_KEY_PATH = Join-Path $Root $SSH_KEY_PATH
@@ -236,8 +236,55 @@ Invoke-CheckedNative -Command 'scp.exe' -Arguments ($scpArgs + @($PolicyFile, "$
 Write-Host "Upload installer (about 1-3 minutes)..."
 Invoke-CheckedNative -Command 'scp.exe' -Arguments ($scpArgs + @($SetupFile, "${Remote}:${RemoteDir}/$InstallerName"))
 
+Write-Host "Keep latest 3 installers on remote..."
+$RemoteCleanupScript = @'
+set -e
+cd '__REMOTE_DIR__'
+tmp_file=$(mktemp)
+find . -maxdepth 1 -type f -name '*-Setup-v*.exe' -printf '%f\n' | sort -V -r > "$tmp_file"
+tail -n +4 "$tmp_file" | while IFS= read -r installer; do
+    if [ -n "$installer" ]; then
+        rm -f -- "$installer"
+        echo "deleted $installer"
+    fi
+done
+printf 'kept '
+head -n 3 "$tmp_file" | paste -sd ', ' -
+rm -f "$tmp_file"
+'@
+$RemoteCleanupScript = $RemoteCleanupScript.Replace('__REMOTE_DIR__', $RemoteDir.Replace("'", "'\''"))
+Invoke-CheckedNative -Command 'ssh.exe' -Arguments ($sshArgs + @($Remote, $RemoteCleanupScript))
+
 Write-Host ""
 Write-Host "Upload completed. Verify in browser:" -ForegroundColor Green
 Write-Host "  $MirrorBaseUrl/version-policy.json"
 Write-Host "  $MirrorBaseUrl/$InstallerName"
 
+$VerifyHeaders = @{
+    'User-Agent' = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) XBoomReleaseVerifier/1.0'
+}
+
+function Test-PublicUrl {
+    param(
+        [string]$Url,
+        [long]$ExpectedLength = 0
+    )
+
+    Write-Host "Verify public URL: $Url"
+    $response = Invoke-WebRequest -Uri $Url -Method Head -Headers $VerifyHeaders -UseBasicParsing -TimeoutSec 30
+    if ($response.StatusCode -ne 200) {
+        throw "Public URL returned HTTP $($response.StatusCode): $Url"
+    }
+    if ($ExpectedLength -gt 0) {
+        $contentLength = [long]$response.Headers['Content-Length']
+        if ($contentLength -ne $ExpectedLength) {
+            throw "Content-Length mismatch for $Url. expected=$ExpectedLength actual=$contentLength"
+        }
+    }
+}
+
+$PolicyAfterUpload = Get-Content -LiteralPath $PolicyFile -Encoding UTF8 | ConvertFrom-Json
+$ExpectedSetupLength = if ($PolicyAfterUpload.size) { [long]$PolicyAfterUpload.size } else { (Get-Item -LiteralPath $SetupFile).Length }
+Test-PublicUrl -Url "$MirrorBaseUrl/version-policy.json"
+Test-PublicUrl -Url "$MirrorBaseUrl/$InstallerName" -ExpectedLength $ExpectedSetupLength
+Write-Host "Public verification passed." -ForegroundColor Green

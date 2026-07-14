@@ -78,7 +78,6 @@ async def batch_publish_articles(request: BatchPublishRequest):
     success_count = 0
     fail_count = 0
     results = []
-    
     config = Config.get_instance()
     credentials = config.wechat_credentials
     
@@ -108,7 +107,7 @@ async def batch_publish_articles(request: BatchPublishRequest):
                 appid=cred.get("appid", ""),
                 appsecret=cred.get("appsecret", ""),
                 author=cred.get("author", "AIWriteX"),
-                mode="publish"
+                post_mode="publish"
             )
             
             if success:

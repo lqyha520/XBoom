@@ -1397,7 +1397,7 @@ class AIWriteXConfigManager {
                 e.stopPropagation();
 
                 // ✅ 微信公众号凭证      
-                const wechatMatch = id.match(/wechat-\w+-(\d+)/);
+                const wechatMatch = id.match(/wechat-[\w-]+-(\d+)/);
                 if (wechatMatch) {
                     const index = parseInt(wechatMatch[1]);
                     await this.updateWeChatCredential(index);
@@ -1461,9 +1461,17 @@ class AIWriteXConfigManager {
         const credentials = [...(this.config.wechat?.credentials || [])];
 
         const credential = {
+            ...(credentials[index] || {}),
+            name: document.getElementById(`wechat-name-${index}`)?.value || '',
             appid: document.getElementById(`wechat-appid-${index}`)?.value || '',
             appsecret: document.getElementById(`wechat-appsecret-${index}`)?.value || '',
             author: document.getElementById(`wechat-author-${index}`)?.value || '',
+            niche: document.getElementById(`wechat-niche-${index}`)?.value || '',
+            audience: document.getElementById(`wechat-audience-${index}`)?.value || '',
+            brand_voice: document.getElementById(`wechat-brand-voice-${index}`)?.value || '',
+            forbidden_words: (document.getElementById(`wechat-forbidden-words-${index}`)?.value || '')
+                .split(/[,，]/).map(value => value.trim()).filter(Boolean),
+            signature: document.getElementById(`wechat-signature-${index}`)?.value || '',
             draft_only: document.getElementById(`wechat-draft-only-${index}`)?.checked || false,
             call_sendall: document.getElementById(`wechat-call-sendall-${index}`)?.checked || false,
             sendall: document.getElementById(`wechat-sendall-${index}`)?.checked !== false,
@@ -1483,9 +1491,15 @@ class AIWriteXConfigManager {
 
         // 添加默认凭证  
         credentials.push({
+            name: '',
             appid: '',
             appsecret: '',
             author: '',
+            niche: '',
+            audience: '',
+            brand_voice: '',
+            forbidden_words: [],
+            signature: '',
             draft_only: false,
             call_sendall: false,
             sendall: true,
@@ -1574,7 +1588,24 @@ class AIWriteXConfigManager {
 
         const title = document.createElement('div');
         title.className = 'credential-title';
-        title.textContent = `凭证 ${index + 1}`;
+        title.textContent = credential.name || credential.author || `公众号 ${index + 1}`;
+
+        const identity = document.createElement('div');
+        identity.className = 'credential-identity';
+        const avatar = document.createElement('div');
+        avatar.className = 'credential-avatar';
+        avatar.textContent = (credential.name || credential.author || '微').trim().slice(0, 1).toUpperCase();
+        const titleBlock = document.createElement('div');
+        titleBlock.className = 'credential-title-block';
+        const meta = document.createElement('div');
+        meta.className = 'credential-meta';
+        meta.textContent = credential.appid
+            ? `${credential.appid.slice(0, 8)}${credential.appid.length > 8 ? '…' : ''}`
+            : `账号 ${index + 1} · 待配置 AppID`;
+        titleBlock.appendChild(title);
+        titleBlock.appendChild(meta);
+        identity.appendChild(avatar);
+        identity.appendChild(titleBlock);
 
         // 测试按钮
         const testBtn = document.createElement('button');
@@ -1597,9 +1628,12 @@ class AIWriteXConfigManager {
             this.deleteWeChatCredential(index);
         });
 
-        header.appendChild(title);
-        header.appendChild(testBtn);
-        header.appendChild(deleteBtn);
+        const headerActions = document.createElement('div');
+        headerActions.className = 'credential-header-actions';
+        headerActions.appendChild(testBtn);
+        headerActions.appendChild(deleteBtn);
+        header.appendChild(identity);
+        header.appendChild(headerActions);
 
         // 表单内容  
         const form = document.createElement('div');
@@ -1642,6 +1676,41 @@ class AIWriteXConfigManager {
         row1.appendChild(appsecretGroup);
         row1.appendChild(authorGroup);
 
+        // 账号档案字段统一放到微信公众号设置。
+        const profileRow = document.createElement('div');
+        profileRow.className = 'form-row';
+        const nameGroup = this.createFormGroup(
+            '账号名称', 'text', `wechat-name-${index}`, credential.name || '', '例如：科技前沿'
+        );
+        const nicheGroup = this.createFormGroup(
+            '账号定位', 'text', `wechat-niche-${index}`, credential.niche || '', '例如：AI科技深度解读'
+        );
+        const audienceGroup = this.createFormGroup(
+            '目标读者', 'text', `wechat-audience-${index}`, credential.audience || '', '例如：产品经理、科技从业者'
+        );
+        [nameGroup, nicheGroup, audienceGroup].forEach(group => group.classList.add('form-group-third'));
+        profileRow.appendChild(nameGroup);
+        profileRow.appendChild(nicheGroup);
+        profileRow.appendChild(audienceGroup);
+
+        const voiceRow = document.createElement('div');
+        voiceRow.className = 'form-row';
+        const voiceGroup = this.createFormGroup(
+            '品牌语气', 'text', `wechat-brand-voice-${index}`, credential.brand_voice || '', '专业但不晦涩，结论先行'
+        );
+        const forbiddenGroup = this.createFormGroup(
+            '禁用词', 'text', `wechat-forbidden-words-${index}`,
+            Array.isArray(credential.forbidden_words) ? credential.forbidden_words.join(', ') : (credential.forbidden_words || ''),
+            '多个词用逗号分隔'
+        );
+        const signatureGroup = this.createFormGroup(
+            '固定署名', 'text', `wechat-signature-${index}`, credential.signature || '', '文章结尾的固定署名或口头禅'
+        );
+        [voiceGroup, forbiddenGroup, signatureGroup].forEach(group => group.classList.add('form-group-third'));
+        voiceRow.appendChild(voiceGroup);
+        voiceRow.appendChild(forbiddenGroup);
+        voiceRow.appendChild(signatureGroup);
+
         // 状态显示区域
         const statusRow = document.createElement('div');
         statusRow.className = 'form-row';
@@ -1656,7 +1725,7 @@ class AIWriteXConfigManager {
 
         // 行2: 发布选项
         const row2 = document.createElement('div');
-        row2.className = 'form-row';
+        row2.className = 'form-row publishing-controls-row';
 
         const publishOptionsDiv = document.createElement('div');
         publishOptionsDiv.className = 'sendall-options';
@@ -1791,10 +1860,36 @@ class AIWriteXConfigManager {
         publishOptionsDiv.appendChild(tagIdGroup);
         row2.appendChild(publishOptionsDiv);
 
-        // 组装表单  
-        form.appendChild(row1);
-        form.appendChild(statusRow);
-        form.appendChild(row2);
+        const createSection = (titleText, description, className = '') => {
+            const section = document.createElement('section');
+            section.className = `credential-section ${className}`.trim();
+            const sectionHeader = document.createElement('div');
+            sectionHeader.className = 'credential-section-header';
+            const sectionTitle = document.createElement('strong');
+            sectionTitle.textContent = titleText;
+            const sectionDescription = document.createElement('span');
+            sectionDescription.textContent = description;
+            sectionHeader.appendChild(sectionTitle);
+            sectionHeader.appendChild(sectionDescription);
+            section.appendChild(sectionHeader);
+            return section;
+        };
+
+        const mainGrid = document.createElement('div');
+        mainGrid.className = 'credential-main-grid';
+        const profileSection = createSection('账号内容档案', '决定生成文章的定位与表达方式', 'profile-section');
+        profileSection.appendChild(profileRow);
+        profileSection.appendChild(voiceRow);
+        const accessSection = createSection('接口凭证', '用于连接微信公众号并执行发布', 'access-section');
+        accessSection.appendChild(row1);
+        accessSection.appendChild(statusRow);
+        mainGrid.appendChild(profileSection);
+        mainGrid.appendChild(accessSection);
+
+        const publishSection = createSection('发布方式', '设置草稿箱、群发与标签范围', 'publish-section');
+        publishSection.appendChild(row2);
+        form.appendChild(mainGrid);
+        form.appendChild(publishSection);
 
         // 组装卡片  
         card.appendChild(header);
@@ -7257,6 +7352,3 @@ document.addEventListener('DOMContentLoaded', async () => {
     configManager = new AIWriteXConfigManager();
     window.configManager = configManager;
 });
-
-
-

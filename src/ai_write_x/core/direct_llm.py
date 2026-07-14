@@ -15,7 +15,10 @@ from typing import Any, Dict, List, Optional, Union, Callable
 from openai import OpenAI
 from crewai import LLM
 
-from src.ai_write_x.core.llm_client import VisionModelDetector
+from src.ai_write_x.core.llm_client import (
+    CUSTOM_API_DEFAULT_HEADERS,
+    VisionModelDetector,
+)
 from src.ai_write_x.core.repetition_detector import check_generation_quality, get_detector
 from src.ai_write_x.core.exceptions import (
     NetworkError, APITimeoutError, RateLimitError,
@@ -37,6 +40,20 @@ def set_stream_callback(callback: Optional[Callable[[str], None]]):
 def get_stream_callback() -> Optional[Callable[[str], None]]:
     """获取全局流式输出回调"""
     return _stream_callback
+
+
+def _apply_compatibility_headers(
+    kwargs: Dict[str, Any],
+    compatibility_mode: bool,
+) -> Dict[str, Any]:
+    """Apply gateway headers at the OpenAI SDK layer.
+
+    Setting User-Agent only on httpx is insufficient because OpenAI SDK adds
+    its own ``OpenAI/Python`` header to every request afterwards.
+    """
+    if compatibility_mode:
+        kwargs["default_headers"] = dict(CUSTOM_API_DEFAULT_HEADERS)
+    return kwargs
 
 
 #region debug-point custom-api-blocked-reporter
@@ -160,16 +177,7 @@ class OpenAIDirectLLM(LLM):
             "base_url": processed_base_url,
             "timeout": timeout if timeout else 120.0,
         }
-        if self._compatibility_mode:
-            import httpx
-            openai_kwargs["http_client"] = httpx.Client(
-                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-                timeout=httpx.Timeout(timeout if timeout else 120.0),
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-                    "Accept": "application/json",
-                },
-            )
+        _apply_compatibility_headers(openai_kwargs, self._compatibility_mode)
         self._openai_client = OpenAI(**openai_kwargs)
 
         # 检测是否为视觉模型
@@ -575,16 +583,10 @@ class OpenAIDirectLLM(LLM):
                         "base_url": self.base_url,
                         "timeout": self.timeout if self.timeout else 120.0,
                     }
-                    if self._compatibility_mode:
-                        import httpx
-                        rebuild_kwargs["http_client"] = httpx.Client(
-                            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-                            timeout=httpx.Timeout(self.timeout if self.timeout else 120.0),
-                            headers={
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-                                "Accept": "application/json",
-                            },
-                        )
+                    _apply_compatibility_headers(
+                        rebuild_kwargs,
+                        self._compatibility_mode,
+                    )
                     self._openai_client = OpenAI(**rebuild_kwargs)
 
                     # 稍微等待以避免立即碰撞
@@ -647,16 +649,10 @@ class OpenAIDirectLLM(LLM):
                                             "base_url": self.base_url,
                                             "timeout": self.timeout if self.timeout else 120.0,
                                         }
-                                        if self._compatibility_mode:
-                                            import httpx
-                                            rebuild_kwargs["http_client"] = httpx.Client(
-                                                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-                                                timeout=httpx.Timeout(self.timeout if self.timeout else 120.0),
-                                                headers={
-                                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-                                                    "Accept": "application/json",
-                                                },
-                                            )
+                                        _apply_compatibility_headers(
+                                            rebuild_kwargs,
+                                            self._compatibility_mode,
+                                        )
                                         self._openai_client = OpenAI(**rebuild_kwargs)
                                         log.print_log(
                                             f"[Fallback-Failover] 切换备用 Key {self._current_key_index}", "warning")

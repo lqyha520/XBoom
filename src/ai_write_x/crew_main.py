@@ -133,7 +133,11 @@ def run(inputs):
             "reference_content": inputs.get("reference_content", ""),
             "date_str": inputs.get("date_str", "近期 (以系统时间推测)"),
             "fast_mode": inputs.get("fast_mode", False),
-            "collection_mode": inputs.get("collection_mode", False)
+            "image_style": inputs.get("image_style", "auto"),
+            "collection_mode": inputs.get("collection_mode", False),
+            "brand_profile": inputs.get("brand_profile"),
+            "target_appid": inputs.get("target_appid"),
+            "target_account_id": inputs.get("target_account_id"),
         }
         cancel_marker_path = inputs.get("cancel_marker_path")
         if cancel_marker_path:
@@ -206,7 +210,11 @@ def ai_write_x_run(config_data=None):
         "reference_content": config_data.get("reference_content", "") if config_data else "",
         "date_str": config_data.get("date_str", "近期 (以系统时间推测)") if config_data else "近期 (以系统时间推测)",
         "fast_mode": config_data.get("fast_mode", False) if config_data else False,
-        "collection_mode": config_data.get("collection_mode", False) if config_data else False
+        "image_style": config_data.get("image_style", "auto") if config_data else "auto",
+        "collection_mode": config_data.get("collection_mode", False) if config_data else False,
+        "brand_profile": config_data.get("brand_profile") if config_data else None,
+        "target_appid": config_data.get("target_appid") if config_data else None,
+        "target_account_id": config_data.get("target_account_id") if config_data else None,
     }
     if config_data and config_data.get("cancel_marker_path"):
         inputs["cancel_marker_path"] = config_data.get("cancel_marker_path")

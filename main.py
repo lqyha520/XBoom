@@ -30,32 +30,33 @@ def run():
     try:
         from src.ai_write_x.core.license_stub import check_license_and_start
 
-        # V23.0: 启动 HTTP/3 服务器 (可选 — 需要 aioquic)
-        try:
-            from src.ai_write_x.core.http3_server import HTTP3Server, HAS_AIOQUIC
-            if HAS_AIOQUIC:
-                import asyncio
-                import threading
+        # HTTP/3 默认关闭。仅在明确启用时启动，避免桌面应用额外监听公网端口。
+        if os.environ.get("AIWRITEX_ENABLE_HTTP3", "").strip().lower() in {"1", "true", "yes"}:
+            try:
+                from src.ai_write_x.core.http3_server import HTTP3Server, HAS_AIOQUIC
+                if HAS_AIOQUIC:
+                    import asyncio
+                    import threading
 
-                async def start_http3_background():
-                    try:
-                        http3_server = HTTP3Server(
-                            host='0.0.0.0',
-                            port=4433,
-                            enable_logging=True
-                        )
-                        await http3_server.start()
-                    except Exception as e:
-                        print(f"[V23.0] HTTP/3 server failed: {e}")
+                    async def start_http3_background():
+                        try:
+                            http3_server = HTTP3Server(
+                                host=os.environ.get("AIWRITEX_HTTP3_HOST", "127.0.0.1"),
+                                port=int(os.environ.get("AIWRITEX_HTTP3_PORT", "4433")),
+                                enable_logging=True
+                            )
+                            await http3_server.start()
+                        except Exception as e:
+                            print(f"[HTTP/3] server failed: {e}")
 
-                http3_thread = threading.Thread(
-                    target=lambda: asyncio.run(start_http3_background()),
-                    daemon=True,
-                    name="HTTP3_Background"
-                )
-                http3_thread.start()
-        except ImportError:
-            pass  # aioquic 未安装，跳过 HTTP/3
+                    http3_thread = threading.Thread(
+                        target=lambda: asyncio.run(start_http3_background()),
+                        daemon=True,
+                        name="HTTP3_Background"
+                    )
+                    http3_thread.start()
+            except ImportError:
+                pass  # aioquic 未安装，跳过 HTTP/3
 
         check_license_and_start()
     except KeyboardInterrupt:

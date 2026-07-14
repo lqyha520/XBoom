@@ -109,9 +109,8 @@ class DashboardManager {
             if (el) el.textContent = val;
         };
         updateText('stat-articles-count', stats.today_articles || 0);
-        updateText('stat-human-score', (stats.avg_quality_score || 0).toFixed(1));
-        updateText('stat-token-usage', this.formatNumber(stats.token_usage_estimate || 0));
-        updateText('stat-topics-count', stats.total_articles || 0);
+        updateText('stat-storage-usage', this.formatBytes(stats.total_size_bytes || 0));
+        updateText('stat-topics-count', stats.total_topics || 0);
 
         // V13.0: 动态驱动粒子引擎与共鸣核心
         if (this.particles) {
@@ -185,6 +184,13 @@ class DashboardManager {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
         return num;
+    }
+
+    formatBytes(bytes) {
+        if (!bytes) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+        return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
     }
 
     // --- V11 3D 星云引擎 ---
@@ -391,15 +397,17 @@ class DashboardManager {
 
         const nodes = [];
         const links = [];
-        const categories = [{ name: '主题' }, { name: '量子' }, { name: '意识' }];
+        const entityTypes = [...new Set((data?.nodes || []).map(node => node.type || 'unknown'))];
+        const categories = entityTypes.map(type => ({ name: this.entityTypeLabel(type) }));
+        const categoryIndex = new Map(entityTypes.map((type, index) => [type, index]));
 
         if (data && data.nodes) {
             data.nodes.forEach(node => {
                 nodes.push({
-                    name: node.id,
-                    value: node.weight || 10,
-                    category: Math.floor(Math.random() * 3),
-                    symbolSize: Math.max(12, node.weight * 2.5 || 18),
+                    name: node.name || node.id,
+                    value: node.frequency || 1,
+                    category: categoryIndex.get(node.type || 'unknown') || 0,
+                    symbolSize: Math.max(12, Math.min(42, 12 + (node.frequency || 1) * 2)),
                     label: { show: nodes.length < 20 }
                 });
             });
@@ -461,24 +469,37 @@ class DashboardManager {
         if (!chartDom || !window.echarts) return;
         if (!this.radarChart) this.radarChart = echarts.init(chartDom);
 
+        const typeCounts = data?.stats?.entity_types || {};
+        const entries = Object.entries(typeCounts);
+        const knowledgeCount = data?.stats?.total_entities || 0;
+        const knowledgeEl = document.getElementById('stat-knowledge-count');
+        if (knowledgeEl) knowledgeEl.textContent = knowledgeCount;
+
+        if (!entries.length) {
+            this.radarChart.clear();
+            this.radarChart.setOption({
+                title: {
+                    text: '暂无知识图谱数据',
+                    left: 'center',
+                    top: 'middle',
+                    textStyle: { color: '#94a3b8', fontSize: 14, fontWeight: 'normal' }
+                }
+            });
+            return;
+        }
+
+        const maxCount = Math.max(...entries.map(([, count]) => count), 1);
         const option = {
             radar: {
-                indicator: [
-                    { name: '意识觉醒度', max: 100 },
-                    { name: '量子路径稳定性', max: 100 },
-                    { name: '共生共鸣率', max: 100 },
-                    { name: '逻辑坍缩精度', max: 100 },
-                    { name: '枢纽响应时延', max: 100 },
-                    { name: '系统熵稳态', max: 100 }
-                ],
+                indicator: entries.map(([type]) => ({ name: this.entityTypeLabel(type), max: maxCount })),
                 splitArea: { show: false },
                 axisLine: { lineStyle: { color: 'rgba(217, 70, 239, 0.2)' } }
             },
             series: [{
                 type: 'radar',
                 data: [{
-                    value: [98, 95, 99, 97, 88, 92],
-                    name: 'V11.0 Universal Nexus Core',
+                    value: entries.map(([, count]) => count),
+                    name: '实体数量',
                     areaStyle: { color: 'rgba(217, 70, 239, 0.3)' },
                     lineStyle: { color: '#d946ef', width: 2 },
                     itemStyle: { color: '#d946ef' }
@@ -493,8 +514,21 @@ class DashboardManager {
         if (!chartDom || !window.echarts) return;
         if (!this.lineChart) this.lineChart = echarts.init(chartDom);
 
-        const hours = Array.from({ length: 12 }, (_, i) => `${(i * 2)}h`);
-        const counts = hours.map(() => Math.floor(Math.random() * 15 + 5));
+        const now = new Date();
+        const buckets = Array.from({ length: 12 }, (_, index) => {
+            const start = new Date(now.getTime() - (11 - index) * 2 * 60 * 60 * 1000);
+            return { start, count: 0, label: `${String(start.getHours()).padStart(2, '0')}:00` };
+        });
+        (articles || []).forEach(article => {
+            const createdAt = new Date((article.create_time || '').replace(' ', 'T'));
+            if (Number.isNaN(createdAt.getTime())) return;
+            const ageHours = (now - createdAt) / (60 * 60 * 1000);
+            if (ageHours < 0 || ageHours >= 24) return;
+            const index = Math.min(11, Math.floor((24 - ageHours) / 2));
+            buckets[index].count += 1;
+        });
+        const hours = buckets.map(bucket => bucket.label);
+        const counts = buckets.map(bucket => bucket.count);
 
         const option = {
             grid: { top: 20, bottom: 20, left: 30, right: 10 },
@@ -507,6 +541,14 @@ class DashboardManager {
             }]
         };
         this.lineChart.setOption(option);
+    }
+
+    entityTypeLabel(type) {
+        const labels = {
+            person: '人物', organization: '组织', location: '地点', event: '事件',
+            concept: '概念', product: '产品', technology: '技术', time: '时间', unknown: '其他'
+        };
+        return labels[type] || type || '其他';
     }
 
     startAutoRefresh() {

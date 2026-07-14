@@ -9,6 +9,7 @@ from typing import List, Optional
 import json
 
 from src.ai_write_x.config.config import Config
+from src.ai_write_x.core.account_profiles import AccountProfileService
 from src.ai_write_x.utils.path_manager import PathManager
 from src.ai_write_x.utils import utils
 from src.ai_write_x.utils import log
@@ -146,14 +147,21 @@ async def get_article_stats():
         for f in articles:
             if datetime.fromtimestamp(f.stat().st_ctime).strftime("%Y-%m-%d") == today:
                 today_count += 1
-                
+
+        total_size_bytes = sum(f.stat().st_size for f in articles)
+        try:
+            from src.ai_write_x.database.db_manager import db_manager
+            db_stats = db_manager.get_system_stats()
+        except Exception:
+            db_stats = {}
+
         return {
             "status": "success",
             "data": {
                 "total_articles": len(articles),
                 "today_articles": today_count,
-                "token_usage_estimate": len(articles) * 1200, # 粗略估计
-                "avg_quality_score": 88.5 # 示例值，实际可从数据库聚合
+                "total_topics": db_stats.get("total_topics", 0),
+                "total_size_bytes": total_size_bytes,
             }
         }
     except Exception as e:
@@ -506,6 +514,10 @@ async def publish_articles(request: PublishRequest):
                     continue
 
                 cred = credentials[account_index]
+                if not cred.get("enabled", True):
+                    fail_count += 1
+                    error_details.append(f"{article_path}: 账号 {cred.get('name') or cred.get('author', '未命名')} 已暂停")
+                    continue
                 try:
                     article_to_publish = content
                     if ext != ".html" and format_publish:
@@ -674,11 +686,14 @@ async def get_supported_platforms():
                 "accounts": [
                     {
                         "index": idx,
-                        "author": cred.get("author", "未命名"),
+                        "account_id": cred.get("account_id"),
+                        "author": cred.get("name") or cred.get("author", "未命名"),
                         "appid": cred["appid"],
-                        "full_info": f"{cred.get('author', '未命名')} ({cred['appid']})",
+                        "status": AccountProfileService.status_for(cred)[0],
+                        "full_info": f"{cred.get('name') or cred.get('author', '未命名')} ({cred['appid']})",
                     }
                     for idx, cred in enumerate(wechat_credentials)
+                    if cred.get("enabled", True) and cred.get("appid")
                 ],
             }
         )
@@ -838,6 +853,14 @@ class GenerateImagesRequest(BaseModel):
     path: str
 
 
+class RegenerateSingleImageRequest(BaseModel):
+    path: str
+    image_src: str = ""
+    image_index: Optional[int] = None
+    prompt: str = ""
+    image_style: str = "auto"
+
+
 class MergeOptimizedRequest(BaseModel):
     original: str
     optimized: str
@@ -922,6 +945,119 @@ async def generate_images_for_article(request: GenerateImagesRequest):
     finally:
         # 无论成功失败，都恢复原始 send_update
         _comm.send_update = _original_send_update
+
+
+@router.post("/regenerate-image")
+async def regenerate_single_article_image(request: RegenerateSingleImageRequest):
+    """重新生成文章中的指定图片，并在原位置替换。"""
+    from src.ai_write_x.core.article_polish import append_no_text_negative
+    from src.ai_write_x.core.visual_assets import VisualAssetsManager
+
+    started_at = datetime.now()
+    started_perf = _time.perf_counter()
+    file_path = _resolve_article_path(request.path)
+    if file_path.suffix.lower() not in (".html", ".htm"):
+        raise HTTPException(status_code=400, detail="单张换图仅支持 HTML 文章")
+
+    raw = file_path.read_text(encoding="utf-8")
+    soup = BeautifulSoup(raw, "html.parser")
+    images = soup.find_all("img")
+    if not images:
+        raise HTTPException(status_code=404, detail="文章中没有可替换的图片")
+
+    target = None
+    requested_src = (request.image_src or "").strip()
+    if requested_src:
+        target = next(
+            (img for img in images if (img.get("src") or "").strip() == requested_src),
+            None,
+        )
+    if target is None and request.image_index is not None:
+        if 0 <= request.image_index < len(images):
+            target = images[request.image_index]
+    if target is None:
+        raise HTTPException(status_code=404, detail="找不到要替换的图片，请刷新文章后重试")
+
+    is_cover = target.get("data-cover") == "1"
+    ratio = (target.get("data-aspect-ratio") or ("2.35:1" if is_cover else "16:9")).strip()
+    title_node = soup.find("h1") or soup.find("title")
+    title = title_node.get_text(" ", strip=True) if title_node else file_path.stem
+
+    context_parts = []
+    for sibling in list(target.previous_elements)[-30:]:
+        if getattr(sibling, "name", None) in ("p", "h2", "h3", "blockquote"):
+            text = sibling.get_text(" ", strip=True)
+            if text and text not in context_parts:
+                context_parts.append(text)
+        if len(context_parts) >= 3:
+            break
+    context = " ".join(reversed(context_parts))[:500] or title
+
+    prompt = (request.prompt or "").strip()
+    if not prompt:
+        prompt, generated_ratio = VisualAssetsManager._image_prompt_text(
+            title,
+            context,
+            is_cover=is_cover,
+            style_key=request.image_style or "auto",
+        )
+        ratio = generated_ratio
+
+    if "--no" in prompt:
+        positive, negative = prompt.split("--no", 1)
+        positive = positive.strip()
+        negative = append_no_text_negative(negative.strip())
+    else:
+        positive = prompt
+        negative = append_no_text_negative(VisualAssetsManager.UNIVERSAL_IMAGE_NEGATIVE)
+
+    marker = f"[[V-SCENE: {positive} | {negative} | {ratio}]]"
+    generated_html = VisualAssetsManager.sync_trigger_image_generation(
+        marker,
+        timeout=180,
+        force_regenerate=True,
+    )
+    generated_soup = BeautifulSoup(generated_html or "", "html.parser")
+    new_image = generated_soup.find("img")
+    new_src = (new_image.get("src") or "").strip() if new_image else ""
+    if not new_src:
+        raise HTTPException(status_code=502, detail="新图片生成失败，原文章未被修改")
+
+    target["src"] = new_src
+    target["alt"] = (new_image.get("alt") or positive)[:80]
+    target["data-img-prompt"] = new_image.get("data-img-prompt") or f"{positive} --no {negative}"
+    target["data-aspect-ratio"] = ratio
+    if is_cover:
+        target["data-cover"] = "1"
+
+    temp_path = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temp_path.write_text(soup.decode(formatter=None), encoding="utf-8")
+        temp_path.replace(file_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+    if is_cover:
+        try:
+            VisualAssetsManager.persist_cover_metadata(str(file_path), str(soup))
+        except Exception as exc:
+            log.print_log(f"单张换图后更新封面关联失败: {exc}", "warning")
+
+    completed_at = datetime.now()
+    return {
+        "status": "success",
+        "message": "图片已重新生成并原位替换",
+        "data": {
+            "src": new_src,
+            "prompt": target.get("data-img-prompt", ""),
+            "ratio": ratio,
+            "image_index": images.index(target),
+            "started_at": started_at.isoformat(timespec="seconds"),
+            "completed_at": completed_at.isoformat(timespec="seconds"),
+            "elapsed_seconds": round(_time.perf_counter() - started_perf, 2),
+        },
+    }
 
 
 

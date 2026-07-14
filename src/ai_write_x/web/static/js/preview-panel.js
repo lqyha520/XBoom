@@ -123,6 +123,11 @@ class PreviewPanelManager {
             });
         }
 
+        const regenerateImageBtn = document.getElementById('preview-regenerate-image-btn');
+        if (regenerateImageBtn) {
+            regenerateImageBtn.addEventListener('click', () => this.openSingleImageRegenerator());
+        }
+
         // 对比原稿按钮
         const compareBtn = document.getElementById('preview-compare-btn');
         if (compareBtn) {
@@ -170,6 +175,136 @@ class PreviewPanelManager {
                 }
             });
         }
+    }
+
+    openSingleImageRegenerator() {
+        if (!this.currentArticleInfo?.path) {
+            window.app?.showNotification('无法获取文章路径', 'error');
+            return;
+        }
+
+        const parsed = new DOMParser().parseFromString(this.currentHtml || '', 'text/html');
+        const images = Array.from(parsed.querySelectorAll('img')).map((img, index) => ({
+            index,
+            src: img.getAttribute('src') || '',
+            prompt: img.getAttribute('data-img-prompt') || img.getAttribute('alt') || '',
+            ratio: img.getAttribute('data-aspect-ratio') || (img.getAttribute('data-cover') === '1' ? '2.35:1' : '16:9'),
+            cover: img.getAttribute('data-cover') === '1'
+        })).filter(item => item.src);
+
+        if (!images.length) {
+            window.app?.showNotification('这篇文章里没有可重新生成的图片', 'warning');
+            return;
+        }
+
+        document.getElementById('single-image-regenerator')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'single-image-regenerator';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:24px;';
+        overlay.innerHTML = `
+            <div style="width:min(720px,96vw);max-height:92vh;overflow:auto;background:var(--bg-primary,#fff);color:var(--text-primary,#18212f);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.28);padding:22px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px;">
+                    <div><div style="font-size:18px;font-weight:700;">单张换图</div><div style="font-size:12px;color:var(--text-secondary,#64748b);margin-top:4px;">只替换选中的图片，文章其他内容不会改变</div></div>
+                    <button type="button" data-action="close" style="border:0;background:transparent;font-size:24px;cursor:pointer;color:inherit;">×</button>
+                </div>
+                <label style="display:block;font-size:13px;margin-bottom:6px;">选择图片</label>
+                <select data-field="image" style="width:100%;padding:10px 12px;border:1px solid var(--border-color,#d7dee8);border-radius:9px;background:var(--bg-secondary,#fff);color:inherit;"></select>
+                <div style="margin:14px 0;background:#0f172a;border-radius:12px;min-height:180px;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                    <img data-field="preview" alt="当前图片" style="max-width:100%;max-height:320px;object-fit:contain;">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 140px;gap:12px;">
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:6px;">图片提示词</label>
+                        <textarea data-field="prompt" rows="6" style="box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid var(--border-color,#d7dee8);border-radius:9px;resize:vertical;background:var(--bg-secondary,#fff);color:inherit;" placeholder="可直接修改；清空后将按文章内容和所选风格自动构建"></textarea>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:6px;">图片风格</label>
+                        <select data-field="style" style="width:100%;padding:10px 8px;border:1px solid var(--border-color,#d7dee8);border-radius:9px;background:var(--bg-secondary,#fff);color:inherit;">
+                            <option value="auto">智能匹配</option><option value="premium_editorial">高级杂志摄影</option>
+                            <option value="documentary">真实纪实摄影</option><option value="cinematic">电影叙事</option>
+                            <option value="soft_illustration">温暖质感插画</option><option value="minimal_3d">极简高级 3D</option>
+                            <option value="oriental">东方美学</option>
+                        </select>
+                        <button type="button" data-action="auto-prompt" style="width:100%;margin-top:10px;padding:9px;border:1px solid var(--border-color,#d7dee8);border-radius:9px;background:transparent;color:inherit;cursor:pointer;">按风格重构提示词</button>
+                    </div>
+                </div>
+                <div data-field="status" style="min-height:20px;margin-top:12px;font-size:13px;color:var(--text-secondary,#64748b);"></div>
+                <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
+                    <button type="button" data-action="cancel" style="padding:10px 18px;border:1px solid var(--border-color,#d7dee8);border-radius:9px;background:transparent;color:inherit;cursor:pointer;">取消</button>
+                    <button type="button" data-action="generate" style="padding:10px 18px;border:0;border-radius:9px;background:#2563eb;color:#fff;cursor:pointer;font-weight:600;">重新生成并替换</button>
+                </div>
+            </div>`;
+
+        const imageSelect = overlay.querySelector('[data-field="image"]');
+        const preview = overlay.querySelector('[data-field="preview"]');
+        const promptInput = overlay.querySelector('[data-field="prompt"]');
+        const styleSelect = overlay.querySelector('[data-field="style"]');
+        const status = overlay.querySelector('[data-field="status"]');
+        const generateBtn = overlay.querySelector('[data-action="generate"]');
+        images.forEach((item, position) => {
+            const option = document.createElement('option');
+            option.value = String(position);
+            option.textContent = item.cover ? `封面图 · ${item.ratio}` : `正文图 ${position + 1} · ${item.ratio}`;
+            imageSelect.appendChild(option);
+        });
+        const updateSelection = () => {
+            const item = images[Number(imageSelect.value) || 0];
+            preview.src = item.src;
+            promptInput.value = item.prompt;
+            status.textContent = '修改提示词可精确控制画面；点击“按风格重构提示词”则由系统重新构建。';
+        };
+        imageSelect.addEventListener('change', updateSelection);
+        overlay.querySelector('[data-action="auto-prompt"]').addEventListener('click', () => {
+            promptInput.value = '';
+            promptInput.placeholder = `将根据文章内容自动构建“${styleSelect.options[styleSelect.selectedIndex].text}”提示词`;
+            status.textContent = '已切换为自动构建提示词。';
+        });
+        const close = () => overlay.remove();
+        overlay.querySelector('[data-action="close"]').addEventListener('click', close);
+        overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+        overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+        generateBtn.addEventListener('click', async () => {
+            const item = images[Number(imageSelect.value) || 0];
+            generateBtn.disabled = true;
+            generateBtn.textContent = '正在生成…';
+            const started = Date.now();
+            const timer = setInterval(() => {
+                status.textContent = `正在重新生成，已耗时 ${Math.floor((Date.now() - started) / 1000)} 秒…`;
+            }, 1000);
+            try {
+                const response = await fetch('/api/articles/regenerate-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        path: this.currentArticleInfo.path,
+                        image_src: item.src,
+                        image_index: item.index,
+                        prompt: promptInput.value.trim(),
+                        image_style: styleSelect.value
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok || result.status !== 'success') {
+                    throw new Error(result.detail || result.message || `HTTP ${response.status}`);
+                }
+                const contentResponse = await fetch(`/api/articles/content?path=${encodeURIComponent(this.currentArticleInfo.path)}`);
+                if (!contentResponse.ok) throw new Error('图片已替换，但刷新预览失败');
+                const refreshedHtml = await contentResponse.text();
+                this.setContent(refreshedHtml);
+                status.textContent = `替换完成，耗时 ${result.data.elapsed_seconds} 秒。`;
+                window.app?.showNotification('图片已重新生成并原位替换', 'success');
+                setTimeout(close, 900);
+            } catch (error) {
+                status.textContent = `生成失败：${error.message}`;
+                window.app?.showNotification('单张换图失败: ' + error.message, 'error');
+                generateBtn.disabled = false;
+                generateBtn.textContent = '重新生成并替换';
+            } finally {
+                clearInterval(timer);
+            }
+        });
+        updateSelection();
+        document.body.appendChild(overlay);
     }
 
     show(content = null) {

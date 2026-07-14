@@ -40,9 +40,10 @@
 
         <main class="main-wrapper scheduler-main">
             <div class="manager-toolbar scheduler-toolbar">
-                <div>
-                    <h2 style="margin:0;font-size:20px;">定时发布</h2>
-                    <p class="text-secondary" style="margin:4px 0 0;font-size:13px;">控制台风格：任务总览 + 执行日志，删除与刷新即时生效</p>
+                <div class="scheduler-toolbar-copy">
+                    <span class="scheduler-eyebrow">AUTOMATION</span>
+                    <h2>定时创作</h2>
+                    <p>按计划自动生成文章，并保存到文章库或发送到公众号</p>
                 </div>
                 <div class="scheduler-toolbar-actions">
                     <span id="scheduler-last-refresh" class="scheduler-last-refresh text-secondary">—</span>
@@ -58,7 +59,10 @@
             <div class="scheduler-panels">
                 <section class="section-card scheduler-panel">
                     <div class="section-header">
-                        <h3>任务列表</h3>
+                        <div class="scheduler-section-title">
+                            <span class="scheduler-section-icon">⌁</span>
+                            <div><h3>任务列表</h3><p>管理执行时间、重复规则和发布动作</p></div>
+                        </div>
                         <div style="display:flex;align-items:center;gap:10px;">
                             <span id="scheduler-list-hint" class="text-secondary" style="font-size:12px;"></span>
                             <button type="button" class="btn btn-secondary btn-sm" id="scheduler-refresh-btn"
@@ -89,7 +93,10 @@
 
                 <section class="section-card scheduler-panel">
                     <div class="section-header">
-                        <h3>执行日志</h3>
+                        <div class="scheduler-section-title">
+                            <span class="scheduler-section-icon scheduler-section-icon-log">✓</span>
+                            <div><h3>执行日志</h3><p>查看最近任务的运行结果与生成文章</p></div>
+                        </div>
                     </div>
                     <div class="table-container scheduler-log-scroll">
                         <table class="data-table">
@@ -116,71 +123,98 @@
     <div id="task-edit-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content surface-card scheduler-modal">
             <div class="modal-header">
-                <h3 id="task-modal-title">新建定时任务</h3>
+                <div class="scheduler-modal-heading">
+                    <span class="scheduler-modal-icon">✦</span>
+                    <div>
+                        <h3 id="task-modal-title">新建定时任务</h3>
+                        <p>设置好时间和动作，剩下的交给 XBoom 自动完成</p>
+                    </div>
+                </div>
                 <button type="button" class="modal-close" onclick="window.schedulerManager.closeModal()">×</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label>创作话题 <span class="text-secondary">（可留空，到时自动抓热点）</span></label>
-                    <textarea id="task-topic" class="form-control" rows="3"
-                        placeholder="例如：春季护肤避坑指南"></textarea>
-                </div>
-                <div class="form-row scheduler-form-row">
+                <div class="scheduler-form-section scheduler-topic-section">
+                    <div class="scheduler-form-section-title"><span>01</span><div><strong>创作内容</strong><small>告诉系统要写什么，也可以留空自动抓取热点</small></div></div>
                     <div class="form-group">
-                        <label>发布平台</label>
-                        <select id="task-platform" class="form-control"
-                            onchange="window.schedulerManager.checkPlatformConnection(this.value)">
-                            <option value="wechat">微信公众号（支持自动发布）</option>
-                            <option value="xiaohongshu" disabled>小红书（暂不支持定时发布）</option>
-                            <option value="zhihu" disabled>知乎（暂不支持定时发布）</option>
-                            <option value="toutiao" disabled>今日头条（暂不支持定时发布）</option>
-                        </select>
-                        <div id="platform-verify-tip" class="scheduler-verify-tip" style="display: none;"></div>
-                    </div>
-                    <div class="form-group">
-                        <label>目标公众号 <span class="text-secondary">（不选则发布到全部）</span></label>
-                        <select id="task-target-appid" class="form-control">
-                            <option value="">全部公众号</option>
-                        </select>
-                    </div>
-                    <div class="form-group scheduler-count-field">
-                        <label>每次篇数</label>
-                        <input type="number" id="task-article-count" class="form-control" value="1" min="1" max="5">
+                        <label>创作话题</label>
+                        <textarea id="task-topic" class="form-control" rows="3"
+                            placeholder="例如：春季护肤避坑指南；留空则在执行时自动选择热点"></textarea>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label>首次执行时间 <span class="required">*</span></label>
-                    <div class="scheduler-time-row">
-                        <input type="datetime-local" id="task-exec-time" class="form-control" step="1">
-                        <button type="button" class="btn btn-secondary btn-sm"
-                            onclick="window.schedulerManager.setDelayTime(30)">30秒后</button>
-                        <button type="button" class="btn btn-secondary btn-sm"
-                            onclick="window.schedulerManager.setPresetDaily(9)">每天9点</button>
+                <div class="scheduler-form-columns">
+                <div class="scheduler-form-section scheduler-publish-section">
+                    <div class="scheduler-form-section-title"><span>02</span><div><strong>发布设置</strong><small>选择目标账号以及文章生成后的处理方式</small></div></div>
+                    <div class="form-row scheduler-form-row">
+                        <div class="form-group">
+                            <label>发布平台</label>
+                            <select id="task-platform" class="form-control" onchange="window.schedulerManager.checkPlatformConnection(this.value)">
+                                <option value="wechat">微信公众号（支持自动发布）</option>
+                                <option value="xiaohongshu" disabled>小红书（暂不支持定时发布）</option>
+                                <option value="zhihu" disabled>知乎（暂不支持定时发布）</option>
+                                <option value="toutiao" disabled>今日头条（暂不支持定时发布）</option>
+                            </select>
+                            <div id="platform-verify-tip" class="scheduler-verify-tip" style="display: none;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>目标公众号</label>
+                            <select id="task-target-appid" class="form-control"><option value="">全部公众号</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>图片风格</label>
+                            <select id="task-image-style" class="form-control">
+                                <option value="auto">智能匹配</option>
+                                <option value="premium_editorial">高级杂志摄影</option>
+                                <option value="documentary">真实纪实摄影</option>
+                                <option value="cinematic">电影叙事</option>
+                                <option value="soft_illustration">温暖质感插画</option>
+                                <option value="minimal_3d">极简高级 3D</option>
+                                <option value="oriental">东方美学</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>完成后动作</label>
+                            <select id="task-post-action" class="form-control">
+                                <option value="none">只生成文章</option><option value="save" selected>存入草稿箱</option><option value="publish">正式发布</option>
+                            </select>
+                        </div>
+                        <div class="form-group scheduler-count-field">
+                            <label>每次篇数</label>
+                            <input type="number" id="task-article-count" class="form-control" value="1" min="1" max="5">
+                        </div>
                     </div>
                 </div>
-                <div class="scheduler-options">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="task-beautify" checked>
-                        生成后补齐配图
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="task-recurring"
-                            onchange="window.schedulerManager.toggleInterval(this.checked)">
-                        周期重复
-                    </label>
-                    <label class="checkbox-label" title="合集模式：话题作为固定前缀，每次生成不同子话题，标题格式为「话题：子话题」">
-                        <input type="checkbox" id="task-collection-mode">
-                        合集模式
-                    </label>
+                <div class="scheduler-form-section scheduler-plan-section">
+                    <div class="scheduler-form-section-title"><span>03</span><div><strong>执行计划</strong><small>设置首次运行时间以及后续重复规则</small></div></div>
+                    <div class="scheduler-schedule-grid">
+                        <div class="form-group scheduler-date-field">
+                            <label>首次执行时间 <span class="required">*</span></label>
+                            <input type="datetime-local" id="task-exec-time" class="form-control" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label>重复方式</label>
+                            <select id="task-repeat-mode" class="form-control" onchange="window.schedulerManager.toggleRepeatMode(this.value)">
+                                <option value="once">单次执行</option><option value="daily">每天固定时间</option><option value="interval">间隔执行</option>
+                            </select>
+                        </div>
+                        <div id="task-interval-group" class="form-group" style="display: none;">
+                            <label>间隔（小时）</label><input type="number" id="task-interval" class="form-control" value="24" min="1" max="168">
+                        </div>
+                    </div>
+                    <div class="scheduler-time-presets">
+                        <span>快捷设置</span>
+                        <button type="button" class="scheduler-preset-chip" onclick="window.schedulerManager.setDelayTime(30)">30 秒后</button>
+                        <button type="button" class="scheduler-preset-chip" onclick="window.schedulerManager.setPresetDaily(9)">每天 09:00</button>
+                    </div>
+                    <div class="scheduler-options">
+                        <label class="scheduler-option-card"><input type="checkbox" id="task-beautify" checked><span><strong>自动配图</strong><small>生成后补齐文章图片</small></span></label>
+                        <label class="scheduler-option-card" title="话题作为固定前缀，每次生成不同子话题"><input type="checkbox" id="task-collection-mode"><span><strong>合集模式</strong><small>持续生成系列子话题</small></span></label>
+                    </div>
                 </div>
-                <div id="task-interval-group" class="form-group" style="display: none;">
-                    <label>间隔（小时）</label>
-                    <input type="number" id="task-interval" class="form-control" value="24" min="1" max="168">
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="window.schedulerManager.closeModal()">取消</button>
-                <button type="button" class="btn btn-primary" onclick="window.schedulerManager.saveTask()">保存</button>
+                <button type="button" class="btn btn-primary scheduler-save-btn" onclick="window.schedulerManager.saveTask()">保存任务</button>
             </div>
         </div>
     </div>

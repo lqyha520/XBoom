@@ -232,6 +232,42 @@ class MigrationManager:
                     "ALTER TABLE scheduled_tasks ADD COLUMN target_appid VARCHAR",
                 ],
             },
+            {
+                "version": "v1.4.0-account-matrix",
+                "description": "定时任务绑定账号档案 ID",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN target_account_id VARCHAR",
+                ],
+            },
+            {
+                "version": "v1.5.0-article-account-fields",
+                "description": "Article account binding fields",
+                "statements": [
+                    "ALTER TABLE articles ADD COLUMN article_path VARCHAR",
+                    "ALTER TABLE articles ADD COLUMN target_account_id VARCHAR",
+                ],
+            },
+            {
+                "version": "v1.6.0-scheduled-post-action",
+                "description": "Scheduled task post action",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN post_action VARCHAR DEFAULT 'publish'",
+                ],
+            },
+            {
+                "version": "v1.7.0-scheduled-repeat-mode",
+                "description": "Scheduled task fixed daily and interval repeat modes",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN repeat_mode VARCHAR DEFAULT 'interval'",
+                ],
+            },
+            {
+                "version": "v1.8.0-scheduled-image-style",
+                "description": "Scheduled tasks can select an image generation style",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN image_style VARCHAR DEFAULT 'auto'",
+                ],
+            },
         ]
         
         for migration in migrations:
@@ -258,7 +294,10 @@ def get_session():
     return Session(engine)
 
 # 先导入模型（无依赖）
-from .models import Topic, Article, AgentMemory, SystemSetting, TopicStatus, ScheduledTask, TaskLog, VisualAsset, SystemEntropy, ArticleAesthetic
+from .models import (
+    Topic, Article, AgentMemory, SystemSetting, TopicStatus, ScheduledTask, TaskLog,
+    VisualAsset, SystemEntropy, ArticleAesthetic,
+)
 
 # 仓储层
 from .repository import (

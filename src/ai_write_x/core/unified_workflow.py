@@ -107,6 +107,12 @@ class UnifiedContentWorkflow:
         persona_framework = prompt_loader.get_writer("persona_framework")
 
         system_parts = [persona_framework, date_context]
+        brand_profile = kwargs.get("brand_profile")
+        if brand_profile:
+            from src.ai_write_x.core.account_profiles import AccountProfileService
+            brand_prompt = AccountProfileService.brand_prompt(brand_profile)
+            if brand_prompt:
+                system_parts.append(brand_prompt)
         if memory_context:
             system_parts.append(memory_context)
         system_prompt = "\n\n".join(system_parts)
@@ -913,6 +919,7 @@ class UnifiedContentWorkflow:
                 title=pack_title,
                 fast_mode=fast_mode,
                 article_path=kwargs.get("article_path") or "",
+                image_style=kwargs.get("image_style") or "auto",
             )
             if VisualAssetsManager.article_needs_image_fix(transform_content.content):
                 yield {"type": "log", "message": "🖼️ 配图仍未完全就绪，正在执行二次补图兜底..."}
@@ -922,6 +929,7 @@ class UnifiedContentWorkflow:
                     title=pack_title,
                     fast_mode=False,
                     article_path=kwargs.get("article_path") or "",
+                    image_style=kwargs.get("image_style") or "auto",
                 )
             if VisualAssetsManager.article_needs_image_fix(transform_content.content):
                 transform_content.content = VisualAssetsManager.ensure_visible_image_fallbacks(

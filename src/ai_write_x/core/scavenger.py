@@ -47,7 +47,7 @@ class CosmicScavenger:
         # V10.0: 宇宙治理规则 (Cosmic Protocols)
         self.expiry_rules = {
             "article": 7,   # 维持在一周内
-            "image": 1,     # 图片仅保留24小时
+            "image": 30,    # 用户上传图片保留30天，不轻易删除
             "temp": 0.1,    # 2.4小时清理临时文件
             "logs": 2,      # 2天滚动日志
             "ai_models": 3   # 3天清理模型碎片
@@ -112,7 +112,13 @@ class CosmicScavenger:
             if report.disk_free_mb < 500:
                 report.emergency_triggered = True
                 log.print_log(f"🚨 空间告急 ({report.disk_free_mb:.1f}MB)，宇宙常数强行坍缩！", "error")
-                current_expiry = {k: 0.1 for k in current_expiry} # 强行全部坍缩至 2.4 小时
+                # 紧急清理时保护用户图片，仅对temp/logs/article/article加速清理
+                # image保留期不低于7天，防止用户上传的图片被误删
+                for k in current_expiry:
+                    if k == "image":
+                        current_expiry[k] = max(7, current_expiry[k] * 0.3)
+                    else:
+                        current_expiry[k] = 0.1  # 其他类型坍缩至 2.4 小时
         except Exception:
             pass
         
@@ -125,9 +131,10 @@ class CosmicScavenger:
         cleaned_files += c; freed_space += s
         report.categories["temp"] = c
         
-        # 2. 图片缓存清理
+        # 2. 图片缓存清理 — 仅清理自动生成的缓存图片(comfyui_/test_开头)，保护用户上传的图片
         img_dir = PathManager.get_image_dir()
-        c, s = self._clean_directory(img_dir, current_expiry["image"], [".png", ".jpg", ".jpeg", ".webp"])
+        c, s = self._clean_directory(img_dir, current_expiry["image"], [".png", ".jpg", ".jpeg", ".webp"],
+                                     only_prefixes=["comfyui_", "test_"])
         cleaned_files += c; freed_space += s
         report.categories["image"] = c
         
@@ -182,8 +189,17 @@ class CosmicScavenger:
             log.print_log(f"🌌 [意识枢纽警告] 系统熵值偏高 ({self.system_entropy:.1f}%)，启动星系级自动平衡协议", "warning")
             # V11: 这里可以触发更深层次的自动平衡逻辑，例如压缩旧日志或减少非核心缓存
 
-    def _clean_directory(self, directory: Path, max_age_days: int, extensions: list) -> tuple:
-        """清理指定目录中的过期文件"""
+    def _clean_directory(self, directory: Path, max_age_days: int, extensions: list,
+                         skip_patterns: list = None, only_prefixes: list = None) -> tuple:
+        """清理指定目录中的过期文件
+
+        Args:
+            directory: 要清理的目录
+            max_age_days: 文件最大保留天数
+            extensions: 要清理的文件扩展名列表
+            skip_patterns: 文件名以这些前缀开头的跳过清理（保护用户文件）
+            only_prefixes: 仅清理以这些前缀开头的文件（为空则清理所有匹配扩展名的文件）
+        """
         count = 0
         size_saved = 0
         
@@ -195,6 +211,23 @@ class CosmicScavenger:
         
         for file_path in directory.rglob("*"):
             if file_path.is_file() and file_path.suffix.lower() in extensions:
+                fname = file_path.name
+
+                # 如果指定了only_prefixes，只清理匹配前缀的文件
+                if only_prefixes:
+                    if not any(fname.startswith(p) for p in only_prefixes):
+                        continue
+
+                # 跳过受保护的文件模式
+                if skip_patterns:
+                    protected = False
+                    for pattern in skip_patterns:
+                        if fname.startswith(pattern):
+                            protected = True
+                            break
+                    if protected:
+                        continue
+
                 try:
                     stats = file_path.stat()
                     # 检查修改时间

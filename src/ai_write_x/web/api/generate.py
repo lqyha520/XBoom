@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import asyncio
 import time
@@ -15,6 +15,7 @@ _wechat_warning_shown = False
 from datetime import datetime
 
 from ..state import get_app_state
+from src.ai_write_x.core.generation_checkpoint import normalize_checkpoint
 from src.ai_write_x.core.task_manager import task_manager, TaskStatus
 
 from src.ai_write_x.config.config import Config
@@ -50,7 +51,14 @@ class GenerateRequest(BaseModel):
     ai_beautify: Optional[bool] = False
     filter_processed: Optional[bool] = False
     fast_mode: Optional[bool] = False
+    image_style: Optional[str] = "auto"
     collection_mode: Optional[bool] = False
+    target_account_id: Optional[str] = None
+    resume_checkpoint: Optional[dict] = Field(default=None, exclude=True)
+
+
+class RecoverGenerateRequest(BaseModel):
+    confirm: bool = False
 
 
 @router.get("/config/validate")
@@ -89,8 +97,6 @@ async def validate_config():
 
 @router.post("/generate")
 async def generate_content(request: GenerateRequest):
-    # 放弃上次未完成/已中断的任务，始终启动全新创作（不续跑）
-    task_manager.prepare_for_new_task("main_generate")
     global _last_generation_meta
     _last_generation_meta = {"article_paths": [], "ai_beautify": False}
 
@@ -127,7 +133,18 @@ async def generate_content(request: GenerateRequest):
         # 将 post_action 保存到 Config 以便后续执行发布
         config.post_action = request.post_action or "none"
         config.article_count = request.article_count or 1
-        config.fast_mode = request.fast_mode or False
+        # 极速模式已下线；保留请求字段仅兼容旧任务/旧客户端。
+        config.fast_mode = False
+        config.image_style = request.image_style or "auto"
+
+        account_profile = None
+        if request.target_account_id:
+            from src.ai_write_x.core.account_profiles import AccountProfileService
+            account_profile = AccountProfileService().get_raw(request.target_account_id)
+            if not account_profile:
+                raise HTTPException(status_code=404, detail="目标账号档案不存在")
+            if not account_profile.get("enabled", True):
+                raise HTTPException(status_code=409, detail="目标账号已暂停")
 
         # 我们需要一个特殊的后台任务进程，用于循环生成文章
         from multiprocessing import Process, Queue
@@ -135,7 +152,7 @@ async def generate_content(request: GenerateRequest):
         import threading
         import queue
         
-        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False, fast_mode=False, collection_mode=False):
+        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False, fast_mode=False, image_style="auto", collection_mode=False, resume_checkpoint=None, account_profile=None):
             # V11 Hotfix: 通过 log.get_process_queue() 动态获取当前线程绑定的日志队列
             # 兼容 task_manager.py 的 _worker_wrapper 注入逻辑
             import src.ai_write_x.utils.log as lg
@@ -154,8 +171,17 @@ async def generate_content(request: GenerateRequest):
                 setattr(cfg, k, v)
                 
             article_count = getattr(cfg, "article_count", 1)
-            success_count = 0
-            generated_article_paths = []
+            from src.ai_write_x.core.generation_checkpoint import (
+                mark_completed,
+                normalize_checkpoint,
+                valid_completed,
+                with_topics,
+            )
+            checkpoint = normalize_checkpoint(resume_checkpoint)
+            completed_items = valid_completed(checkpoint)
+            completed_indices = {item["index"] for item in completed_items}
+            success_count = len(completed_items)
+            generated_article_paths = [item["path"] for item in completed_items]
             
             # 设置当前线程(主进程的一个线程)的日志队列已由 task_manager 处理，无需重复调用
             # lg.set_process_queue(log_q)
@@ -171,9 +197,17 @@ async def generate_content(request: GenerateRequest):
                 deduplicator = TopicDeduplicator(dedup_days=3)
                 used_session_topics = []
                 topics_to_generate = []
+                checkpoint_topics = checkpoint.get("topics") or []
                 
                 # V12 Optimization: 预先确定所有文章的话题，显著减少重复抓取和 AI 思考耗时
-                if req_topic:
+                if checkpoint_topics:
+                    topics_to_generate = list(checkpoint_topics)
+                    article_count = len(topics_to_generate)
+                    lg.print_log(
+                        f"♻️ 已恢复原选题列表，将跳过 {len(completed_indices)} 篇已落盘文章",
+                        "info",
+                    )
+                elif req_topic:
                     if collection_mode:
                         series_name = req_topic.split("：", 1)[0] if "：" in req_topic else req_topic
                         from src.ai_write_x.utils.topic_deduplicator import TopicDeduplicator
@@ -390,6 +424,15 @@ async def generate_content(request: GenerateRequest):
                 while len(topics_to_generate) < article_count:
                     topics_to_generate.append(f"前沿趋势聚合分析 {len(topics_to_generate)+1}")
 
+                checkpoint = with_topics(checkpoint, topics_to_generate)
+                completed_items = valid_completed(checkpoint)
+                completed_indices = {item["index"] for item in completed_items}
+                success_count = len(completed_items)
+                generated_article_paths = [item["path"] for item in completed_items]
+                task_manager.update_task_metadata(
+                    "main_generate", {"checkpoint": checkpoint}
+                )
+
                 lg.print_log(f"=" * 60, "internal")
                 lg.print_log(f"🚀 准备开始批量生成，话题列表: {topics_to_generate}", "success")
                 
@@ -411,6 +454,27 @@ async def generate_content(request: GenerateRequest):
                     if task_manager.is_stop_requested("main_generate"):
                         lg.print_log("用户已停止生成，正在退出后台写作流程", "warning")
                         break
+                    if i in completed_indices:
+                        lg.print_log(
+                            f"⏭️ [断点续跑] 第 {i+1}/{article_count} 篇已成功落盘，跳过：{t}",
+                            "success",
+                        )
+                        task_manager.update_task_progress(
+                            "main_generate",
+                            i + 1,
+                            article_count,
+                            topic=t,
+                            successful=success_count,
+                            resumed=True,
+                        )
+                        continue
+                    task_manager.update_task_progress(
+                        "main_generate",
+                        i,
+                        article_count,
+                        topic=t,
+                        successful=success_count,
+                    )
                     lg.print_log(f"=====================================", "internal")
                     lg.print_log(f"🔜 [批量进度] 正在生成第 {i+1}/{article_count} 篇文章", "success")
                     lg.print_log(f"🔍 变量状态: req_platform={req_platform}, d_str={d_str}, ref_config_dict={ref_config_dict}", "debug")
@@ -427,6 +491,13 @@ async def generate_content(request: GenerateRequest):
                             task_ids = async_executor.run(distributor.distribute_article_task(t))
                             lg.print_log(f"🐝 [Swarm] 任务已成功拆解并进入蜂群执行流 (IDs: {len(task_ids)})", "success")
                             success_count += 1
+                            task_manager.update_task_progress(
+                                "main_generate",
+                                i + 1,
+                                article_count,
+                                topic=t,
+                                successful=success_count,
+                            )
                             # 蜂群模式下，顶层任务仅负责派发
                             continue
                         except Exception as se:
@@ -442,9 +513,14 @@ async def generate_content(request: GenerateRequest):
                             "platform": req_platform,
                             "reference_content": "",
                             "date_str": d_str,
-                            "fast_mode": fast_mode,
+                            "fast_mode": False,
+                            "image_style": image_style,
                             "collection_mode": collection_mode
                         }
+                        if account_profile:
+                            config_data["brand_profile"] = account_profile
+                            config_data["target_account_id"] = account_profile.get("account_id")
+                            config_data["target_appid"] = account_profile.get("appid")
                         config_data["cancel_marker_path"] = str(task_manager._cancel_marker_path("main_generate"))
                         lg.print_log(f"✅ config_data创建成功", "debug")
                     except Exception as config_e:
@@ -563,7 +639,6 @@ async def generate_content(request: GenerateRequest):
                                 lg.print_log(f"⚠ 进程异常退出，退出码: {process.exitcode}", "warning")
                                 break
                             
-                            success_count += 1
                             lg.print_log(f"🎉 第 {i+1}/{article_count} 篇文章成功生成", "success")
                             
                             # 自动化动作
@@ -577,7 +652,12 @@ async def generate_content(request: GenerateRequest):
                                     db_content = final_result.get("formatted_content", "")
                                     # V13.0.4: 使用 DataManager 实例进行保存
                                     from src.ai_write_x.database.db_manager import db_manager
-                                    db_manager.save_article(topic_title=db_title, content=db_content)
+                                    db_manager.save_article(
+                                        topic_title=db_title,
+                                        content=db_content,
+                                        article_path=final_result.get("save_result", {}).get("path"),
+                                        target_account_id=(account_profile or {}).get("account_id"),
+                                    )
                                     lg.print_log(f"💾 文章已归档到本地知识库引擎", "success")
                                 except Exception as db_e:
                                     lg.print_log(f"数据库保存异常: {db_e}", "warning")
@@ -586,7 +666,21 @@ async def generate_content(request: GenerateRequest):
                                     save_res = final_result.get("save_result", {})
                                     article_path = save_res.get("path")
                                     if article_path:
-                                        generated_article_paths.append(article_path)
+                                        checkpoint = mark_completed(checkpoint, i, t, article_path)
+                                        completed_indices.add(i)
+                                        completed_items = valid_completed(checkpoint)
+                                        success_count = len(completed_items)
+                                        generated_article_paths = [item["path"] for item in completed_items]
+                                        task_manager.update_task_metadata(
+                                            "main_generate", {"checkpoint": checkpoint}
+                                        )
+                                        task_manager.update_task_progress(
+                                            "main_generate",
+                                            i + 1,
+                                            article_count,
+                                            topic=t,
+                                            successful=success_count,
+                                        )
                                         from src.ai_write_x.core.visual_assets import VisualAssetsManager
                                         need_sync_images = (
                                             ai_beautify
@@ -657,10 +751,11 @@ async def generate_content(request: GenerateRequest):
                                                 )
                                             
                                             wechat_creds = cfg.config.get("wechat", {}).get("credentials", [{}])
-                                            if wechat_creds:
-                                                wechat_cfg = wechat_creds[0]
-                                            else:
-                                                wechat_cfg = {}
+                                            target_appid = (account_profile or {}).get("appid")
+                                            wechat_cfg = next(
+                                                (cred for cred in wechat_creds if target_appid and cred.get("appid") == target_appid),
+                                                wechat_creds[0] if wechat_creds else {},
+                                            )
                                                 
                                             appid = wechat_cfg.get("appid", "")
                                             appsecret = wechat_cfg.get("appsecret", "")
@@ -735,6 +830,22 @@ async def generate_content(request: GenerateRequest):
                     "article_paths": list(generated_article_paths),
                     "ai_beautify": bool(ai_beautify),
                 }
+                task_manager.update_task_metadata(
+                    "main_generate",
+                    {
+                        "result": {
+                            "article_paths": list(generated_article_paths),
+                            "ai_beautify": bool(ai_beautify),
+                            "success_count": success_count,
+                        }
+                    },
+                )
+                task_manager.update_task_progress(
+                    "main_generate",
+                    success_count,
+                    article_count,
+                    successful=success_count,
+                )
                 # 确保发送完成消息给前端
                 lg.print_log(f"🏁 任务执行结束，success_count={success_count}", "info")
                 log_q.put({"type": "internal", "message": "任务执行完成", "timestamp": time.time(), "success": success_count > 0})
@@ -778,7 +889,10 @@ async def generate_content(request: GenerateRequest):
             "reference_urls": request.reference.reference_urls if request.reference else "",
             "reference_ratio": request.reference.reference_ratio if request.reference else 30
         }
-        
+
+        # 直到所有配置和请求解析成功后才替换旧任务，避免启动失败时丢失恢复检查点。
+        task_manager.prepare_for_new_task("main_generate")
+
         # V7: 使用 TaskManager 启动任务
         success, res = task_manager.start_task(
             "main_generate", 
@@ -791,9 +905,20 @@ async def generate_content(request: GenerateRequest):
                 ref_dict,
                 request.ai_beautify,
                 request.filter_processed or False,
-                request.fast_mode or False,
-                request.collection_mode or False
-            )
+                False,
+                request.image_style or "auto",
+                request.collection_mode or False,
+                request.resume_checkpoint,
+                account_profile,
+            ),
+            metadata={
+                "kind": "generation",
+                "request": request.model_dump(mode="json"),
+                "topic": topic,
+                "article_count": request.article_count or 1,
+                "target_account_id": request.target_account_id,
+                "checkpoint": normalize_checkpoint(request.resume_checkpoint),
+            },
         )
         
         if not success:
@@ -837,19 +962,67 @@ async def reset_generation_state():
     return {"status": "success", "message": msg}
 
 
+@router.get("/generate/recovery")
+async def get_generation_recovery():
+    """返回异常退出后保留的生成请求和进度，不自动重新执行。"""
+    state = task_manager.get_recovery_state("main_generate")
+    metadata = state.get("metadata") or {}
+    return {
+        "status": state.get("status", TaskStatus.IDLE),
+        "recoverable": state.get("recoverable", False),
+        "error": state.get("error"),
+        "started_at": state.get("started_at"),
+        "finished_at": state.get("finished_at"),
+        "progress": state.get("progress") or {},
+        "request": metadata.get("request") if state.get("recoverable") else None,
+        "topic": metadata.get("topic", ""),
+    }
+
+
+@router.post("/generate/recovery/restart")
+async def restart_interrupted_generation(payload: RecoverGenerateRequest):
+    """经用户明确确认后，使用保存的参数重新执行中断任务。"""
+    if not payload.confirm:
+        raise HTTPException(status_code=400, detail="恢复任务需要用户明确确认")
+    state = task_manager.get_recovery_state("main_generate")
+    request_data = (state.get("metadata") or {}).get("request")
+    if not state.get("recoverable") or not isinstance(request_data, dict):
+        raise HTTPException(status_code=404, detail="没有可恢复的生成任务")
+    recovered_request = GenerateRequest.model_validate(request_data)
+    recovered_request.resume_checkpoint = (state.get("metadata") or {}).get("checkpoint")
+    return await generate_content(recovered_request)
+
+
 @router.get("/generate/status")
 async def get_generation_status():
     status = task_manager.get_task_status("main_generate")
+    persisted_result = (status.get("metadata") or {}).get("result") or {}
     if status.get("status") == TaskStatus.COMPLETED:
-        meta = dict(_last_generation_meta)
+        meta = dict(persisted_result)
+        if _last_generation_meta.get("article_paths"):
+            meta.update(_last_generation_meta)
         status["article_paths"] = meta.get("article_paths") or []
         status["ai_beautify"] = bool(meta.get("ai_beautify"))
+    status.pop("metadata", None)
     return status
 
 
 @router.websocket("/ws/generate/logs")
 async def websocket_logs(websocket: WebSocket):
     """WebSocket日志连接 - 统一处理主进程和子进程日志"""
+    from src.ai_write_x.web.auth import (
+        CLIENT_TOKEN_COOKIE,
+        CLIENT_TOKEN_HEADER,
+        client_tokens,
+    )
+
+    token = websocket.headers.get(CLIENT_TOKEN_HEADER) or websocket.cookies.get(
+        CLIENT_TOKEN_COOKIE
+    )
+    if not client_tokens.contains(token):
+        await websocket.close(code=4403, reason="Invalid client token")
+        return
+
     await websocket.accept()
 
     global _current_log_queue, _current_process

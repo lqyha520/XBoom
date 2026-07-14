@@ -1,4 +1,6 @@
 ﻿import re
+import html as html_lib
+from difflib import SequenceMatcher
 from typing import Optional, Tuple
 from src.ai_write_x.core.llm_client import LLMClient
 from src.ai_write_x.core.prompt_loader import prompt_loader
@@ -36,6 +38,66 @@ class VisualAssetsManager:
 
     DEFAULT_COMFY_WORKFLOW_FILENAME = "z-image专用nf4快速备份.json"
 
+    IMAGE_STYLE_PRESETS = {
+        "premium_editorial": {
+            "label": "高级杂志摄影",
+            "prompt": (
+                "premium editorial photography, authentic textures, restrained luxury, "
+                "sophisticated neutral color palette, subtle film grain"
+            ),
+        },
+        "documentary": {
+            "label": "真实纪实摄影",
+            "prompt": (
+                "documentary photography, candid believable moment, natural human gestures, "
+                "available light, authentic lived-in environment, muted realistic colors"
+            ),
+        },
+        "cinematic": {
+            "label": "电影叙事",
+            "prompt": (
+                "cinematic still photography, strong narrative moment, dramatic but believable "
+                "lighting, layered depth, refined 35mm film color grading"
+            ),
+        },
+        "soft_illustration": {
+            "label": "温暖质感插画",
+            "prompt": (
+                "sophisticated editorial illustration, hand-painted gouache texture, soft paper "
+                "grain, restrained warm palette, expressive shapes, elegant and not childish"
+            ),
+        },
+        "minimal_3d": {
+            "label": "极简高级 3D",
+            "prompt": (
+                "premium minimal 3D editorial render, clean sculptural forms, matte materials, "
+                "soft studio lighting, refined composition, subtle depth of field"
+            ),
+        },
+        "oriental": {
+            "label": "东方美学",
+            "prompt": (
+                "contemporary East Asian editorial art, subtle ink-wash texture, mineral colors, "
+                "generous negative space, modern restrained composition"
+            ),
+        },
+    }
+
+    UNIVERSAL_IMAGE_NEGATIVE = (
+        "cheap stock photo, generic corporate handshake, fake smile, plastic skin, waxy face, "
+        "oversaturated colors, excessive HDR, cluttered composition, collage, split screen, "
+        "duplicate subject, extra fingers, malformed hands, bad anatomy, blurry, low quality"
+    )
+
+    SCENE_ROLE_PLANS = (
+        {"key": "cover", "prompt": "hero image focused on one decisive subject and the article's central tension", "avoid": "group meeting, presentation screen, generic team portrait"},
+        {"key": "problem", "prompt": "problem scene showing a concrete obstacle, interruption, or visible consequence", "avoid": "hero portrait, smiling group, presentation pose"},
+        {"key": "process", "prompt": "process scene centered on hands, tools, and one specific action in progress", "avoid": "meeting around a table, posed team, wide office panorama"},
+        {"key": "detail", "prompt": "tight detail shot of a meaningful object, gesture, material, or physical trace", "avoid": "full-body portrait, conference room, large group"},
+        {"key": "evidence", "prompt": "evidence scene built around observable artifacts, comparison, or real-world proof", "avoid": "motivational portrait, handshake, generic laptop scene"},
+        {"key": "outcome", "prompt": "outcome scene showing a changed environment or a believable result after action", "avoid": "problem reenactment, meeting table, presentation board"},
+    )
+
     _visual_translation_cache = {}
     _paragraph_scene_cache = {}
     _visual_translation_lock = threading.Lock()
@@ -67,7 +129,37 @@ class VisualAssetsManager:
         return result
 
     @classmethod
-    def _translate_to_visual_english(cls, chinese_text: str, max_retries: int = 1) -> str:
+    def resolve_image_style(cls, style_key: str, topic: str = "", context: str = "") -> str:
+        """Resolve the user-selected style, or infer a restrained style from the article."""
+        if style_key in cls.IMAGE_STYLE_PRESETS:
+            return style_key
+        text = f"{topic} {context}".lower()
+        rules = (
+            ("oriental", ("历史", "传统", "文化", "古典", "国风", "诗词", "非遗")),
+            ("minimal_3d", ("科技", "ai", "芯片", "机器人", "数据", "互联网", "金融", "投资")),
+            ("soft_illustration", ("情感", "家庭", "亲子", "治愈", "成长故事", "回忆")),
+            ("documentary", ("新闻", "社会", "现场", "医疗", "健康", "人物", "调查")),
+            ("cinematic", ("故事", "悬疑", "战争", "冒险", "旅行")),
+        )
+        for candidate, keywords in rules:
+            if any(keyword in text for keyword in keywords):
+                return candidate
+        return "premium_editorial"
+
+    @classmethod
+    def _style_prompt(cls, style_key: str, topic: str = "", context: str = "") -> tuple[str, str]:
+        resolved = cls.resolve_image_style(style_key, topic, context)
+        preset = cls.IMAGE_STYLE_PRESETS[resolved]
+        return resolved, preset["prompt"]
+
+    @classmethod
+    def _translate_to_visual_english(
+        cls,
+        chinese_text: str,
+        max_retries: int = 1,
+        style_key: str = "auto",
+        is_cover: bool = False,
+    ) -> str:
         """将中文片段转为英文画面描述句（质量优先，约 25~50 词）。"""
         if not chinese_text or not chinese_text.strip():
             return ""
@@ -75,18 +167,24 @@ class VisualAssetsManager:
         if not has_chinese:
             return chinese_text.strip()
         min_words, max_words = cls._get_scene_word_bounds()
-        cache_key = f"desc:{chinese_text.strip()[:400]}:{min_words}:{max_words}"
+        resolved_style, style_prompt = cls._style_prompt(style_key, chinese_text, chinese_text)
+        cache_key = f"desc:{resolved_style}:{is_cover}:{chinese_text.strip()[:400]}:{min_words}:{max_words}"
         with cls._visual_translation_lock:
             if cache_key in cls._visual_translation_cache:
                 return cls._visual_translation_cache[cache_key]
         try:
             llm = LLMClient()
+            usage = "公众号横幅封面" if is_cover else "公众号正文配图"
             prompt = (
-                f"将以下中文内容转换为适合 AI 绘画的英文画面描述。\n"
-                f"要求：输出恰好 1 句英文，{min_words}~{max_words} 个英文词；"
-                f"包含主体、环境、构图/镜头、光线；photorealistic editorial 风格；"
-                f"不要列表、不要解释、不要中文、不要引号。\n\n"
-                f"{chinese_text[:400]}"
+                f"把下面内容改写成一幅可直接拍摄或绘制的具体画面，用于{usage}。\n"
+                f"输出恰好 1 句英文，{min_words}~{max_words} 个英文词。\n"
+                "必须包含：一个明确主体、正在发生的具体动作、真实环境、镜头景别或焦段、"
+                "光线方向、克制的色彩和前中后景关系。只设计一个连贯瞬间。\n"
+                "禁止抽象概念堆砌、企业握手照、假笑摆拍、拼贴、分屏、海报、界面、悬浮图标、"
+                "夸张霓虹、廉价图库感；不要出现可读文字。\n"
+                f"风格必须遵循：{style_prompt}。\n"
+                "不要列表、不要解释、不要中文、不要引号。\n\n"
+                f"{chinese_text[:500]}"
             )
             settings = cls._get_runtime_settings()
             timeout = cls._coerce_int(
@@ -104,9 +202,8 @@ class VisualAssetsManager:
             result = cls._sanitize_english_visual_text(result)
             if cls._count_english_words(result) < 8:
                 result = (
-                    "editorial photography, medium wide shot, "
-                    "professional editorial concept inspired by the article theme, "
-                    "natural soft lighting, detailed environment, photorealistic, 8k"
+                    f"{style_prompt}, medium wide shot, one clear subject performing a natural "
+                    "action in a believable environment, directional soft light, layered depth"
                 )
             with cls._visual_translation_lock:
                 cls._visual_translation_cache[cache_key] = result
@@ -114,8 +211,8 @@ class VisualAssetsManager:
         except Exception as e:
             lg.print_log(f"[VisualAssets] 画面描述生成失败: {e}, 使用通用描述", "warning")
             fallback = (
-                "editorial photography, medium wide shot, professional editorial scene, "
-                "natural lighting, detailed environment, photorealistic, 8k, detailed"
+                f"{style_prompt}, medium wide shot, one clear subject in a believable environment, "
+                "natural directional light, restrained colors, layered depth"
             )
             with cls._visual_translation_lock:
                 cls._visual_translation_cache[cache_key] = fallback
@@ -138,16 +235,26 @@ class VisualAssetsManager:
         return None
 
     @classmethod
-    def _normalize_vscene_line(cls, line: str, is_cover: bool) -> str:
+    def _normalize_vscene_line(
+        cls,
+        line: str,
+        is_cover: bool,
+        style_key: str = "auto",
+        topic: str = "",
+        context: str = "",
+    ) -> str:
         from src.ai_write_x.core.article_polish import append_no_text_negative
 
         match = cls._VSCENE_LINE_RE.search(line)
         if not match:
             return line
         pos = cls._sanitize_english_visual_text(match.group(1).strip())
+        _, style_prompt = cls._style_prompt(style_key, topic, context)
+        if style_prompt.lower() not in pos.lower():
+            pos = f"{style_prompt}, {pos}"
         neg = append_no_text_negative(
             cls._sanitize_english_visual_text((match.group(3) or "").strip())
-            or "bad anatomy, blurry, low quality, duplicate subject"
+            or cls.UNIVERSAL_IMAGE_NEGATIVE
         )
         ratio = (match.group(4) or "").strip() or ("2.35:1" if is_cover else "16:9")
         if is_cover and ratio in ("16:9", "4:3", "3:4"):
@@ -165,26 +272,33 @@ class VisualAssetsManager:
         return f"[[V-SCENE: {pos} | {neg} | {ratio}]]"
 
     @classmethod
-    def _build_vscene_fallback(cls, snippet: str, is_cover: bool = False) -> str:
+    def _build_vscene_fallback(
+        cls,
+        snippet: str,
+        is_cover: bool = False,
+        style_key: str = "auto",
+        title_hint: str = "",
+    ) -> str:
         """LLM 不可用时的模板兜底（仍使用完整英文描述句，而非 3~8 关键词）。"""
         cleaned = cls._clean_visual_text(snippet)
         if not cleaned:
             cleaned = "article theme scene"
-        scene_desc = cls._translate_to_visual_english(cleaned[:400])
+        resolved_style, style_prompt = cls._style_prompt(style_key, title_hint, cleaned)
+        scene_desc = cls._translate_to_visual_english(
+            f"主题：{title_hint or cleaned[:100]}。内容：{cleaned[:400]}",
+            style_key=resolved_style,
+            is_cover=is_cover,
+        )
         ratio = "2.35:1" if is_cover else "16:9"
         composition = (
-            "cinematic hero cover, wide environmental composition, strong focal subject"
+            "wide hero composition, one strong focal subject, generous clean copy space"
             if is_cover
-            else "editorial photography, medium wide shot, clear single-subject composition"
+            else "medium wide shot, clear single-subject composition, layered foreground and background"
         )
         pos_prompt = (
-            f"{composition}, {scene_desc}, natural lighting, detailed environment, "
-            "coherent perspective, professional color grading, photorealistic, 8k, detailed"
+            f"{style_prompt}, {composition}, {scene_desc}, coherent perspective, authentic textures"
         )
-        neg_prompt = (
-            "text, words, letters, typography, Chinese characters, watermark, logo, "
-            "subtitle, bad anatomy, blurry face, duplicate features, low detail"
-        )
+        neg_prompt = cls.UNIVERSAL_IMAGE_NEGATIVE
         return f"[[V-SCENE: {pos_prompt} | {neg_prompt} | {ratio}]]"
 
     @classmethod
@@ -193,11 +307,14 @@ class VisualAssetsManager:
         paragraph: str,
         is_cover: bool = False,
         title_hint: str = "",
+        style_key: str = "auto",
     ) -> str:
         """按段落调用 LLM 生成单条 V-SCENE（质量优先）。"""
         cleaned = cls._clean_visual_text(paragraph)
         if len(cleaned) < 12:
-            return cls._build_vscene_fallback(paragraph, is_cover=is_cover)
+            return cls._build_vscene_fallback(
+                paragraph, is_cover=is_cover, style_key=style_key, title_hint=title_hint
+            )
 
         min_words, max_words = cls._get_scene_word_bounds()
         settings = cls._get_runtime_settings()
@@ -207,7 +324,8 @@ class VisualAssetsManager:
             minimum=8,
             maximum=60,
         )
-        cache_key = f"vscene:{is_cover}:{title_hint[:80]}:{cleaned[:500]}:{min_words}:{max_words}"
+        resolved_style, style_prompt = cls._style_prompt(style_key, title_hint, cleaned)
+        cache_key = f"vscene:{resolved_style}:{is_cover}:{title_hint[:80]}:{cleaned[:500]}:{min_words}:{max_words}"
         with cls._visual_translation_lock:
             if cache_key in cls._paragraph_scene_cache:
                 return cls._paragraph_scene_cache[cache_key]
@@ -223,6 +341,11 @@ class VisualAssetsManager:
             max_words=max_words,
             cover_ratio=cover_ratio,
             body_ratio=body_ratio,
+        )
+        system_prompt += (
+            "\n\n本次固定视觉模板："
+            f"{style_prompt}。只允许一个连贯、可信、可拍摄的场景；"
+            "禁止企业握手照、假笑摆拍、拼贴、分屏、海报、界面、悬浮符号和廉价图库感。"
         )
         user_prompt = prompt_loader.get_visual("paragraph_scene", "user_prompt").format(
             role_hint=role_hint,
@@ -243,7 +366,13 @@ class VisualAssetsManager:
             ).strip()
             line = cls._extract_vscene_line(raw)
             if line:
-                normalized = cls._normalize_vscene_line(line, is_cover=is_cover)
+                normalized = cls._normalize_vscene_line(
+                    line,
+                    is_cover=is_cover,
+                    style_key=resolved_style,
+                    topic=title_hint,
+                    context=cleaned,
+                )
                 with cls._visual_translation_lock:
                     cls._paragraph_scene_cache[cache_key] = normalized
                 return normalized
@@ -251,7 +380,12 @@ class VisualAssetsManager:
         except Exception as e:
             lg.print_log(f"[VisualAssets] 段落分镜 LLM 失败: {e}，使用模板兜底", "warning")
 
-        fallback = cls._build_vscene_fallback(paragraph, is_cover=is_cover)
+        fallback = cls._build_vscene_fallback(
+            paragraph,
+            is_cover=is_cover,
+            style_key=resolved_style,
+            title_hint=title_hint,
+        )
         with cls._visual_translation_lock:
             cls._paragraph_scene_cache[cache_key] = fallback
         return fallback
@@ -405,9 +539,11 @@ class VisualAssetsManager:
         return found, workflow_filename, candidates
 
     @classmethod
-    def _build_fast_scene_prompt(cls, snippet: str, is_cover: bool = False, title_hint: str = "") -> str:
+    def _build_fast_scene_prompt(cls, snippet: str, is_cover: bool = False, title_hint: str = "", style_key: str = "auto") -> str:
         """生成单条配图占位符（质量优先：按段落 LLM 分镜）。"""
-        return cls._generate_vscene_from_paragraph(snippet, is_cover=is_cover, title_hint=title_hint)
+        return cls._generate_vscene_from_paragraph(
+            snippet, is_cover=is_cover, title_hint=title_hint, style_key=style_key
+        )
 
     @classmethod
     def _extract_article_title_hint(cls, markdown_text: str) -> str:
@@ -418,7 +554,7 @@ class VisualAssetsManager:
         return ""
 
     @classmethod
-    def inject_image_prompts_fast(cls, markdown_text: str) -> str:
+    def inject_image_prompts_fast(cls, markdown_text: str, style_key: str = "auto") -> str:
         """轻量注入：按段落 LLM 分镜（质量优先，不做全文重写）。"""
         if not markdown_text.strip():
             return markdown_text
@@ -464,7 +600,7 @@ class VisualAssetsManager:
         )
 
         cover_prompt = cls._generate_vscene_from_paragraph(
-            chosen_blocks[0], is_cover=True, title_hint=title_hint
+            chosen_blocks[0], is_cover=True, title_hint=title_hint, style_key=style_key
         )
         updated_text = markdown_text
         first_non_heading = re.search(r'\n(?!#)(.+)', markdown_text)
@@ -476,7 +612,7 @@ class VisualAssetsManager:
 
         for block in chosen_blocks[1:]:
             marker = cls._generate_vscene_from_paragraph(
-                block, is_cover=False, title_hint=title_hint
+                block, is_cover=False, title_hint=title_hint, style_key=style_key
             )
             updated_text = updated_text.replace(block, f"{block}\n\n{marker}", 1)
 
@@ -487,7 +623,7 @@ class VisualAssetsManager:
         return updated_text
 
     @classmethod
-    def inject_image_prompts(cls, markdown_text: str) -> str:
+    def inject_image_prompts(cls, markdown_text: str, style_key: str = "auto") -> str:
         """根据正文内容，自动分析并在适当位置插入 [IMG_PROMPT: prompt | ratio] 标签"""
         client = LLMClient()
         
@@ -510,6 +646,15 @@ class VisualAssetsManager:
         safe_max = target_count
         
         system_prompt = prompt_loader.get_visual("visual_engineer", "system_prompt").format(safe_min=safe_min)
+        resolved_style, style_prompt = cls._style_prompt(
+            style_key, cls._extract_article_title_hint(markdown_text), processing_text[:500]
+        )
+        system_prompt += (
+            "\n\n本次整篇文章统一视觉模板："
+            f"{style_prompt}。所有图片必须保持同一媒介、色彩体系和质感；"
+            "每张图只表达一个具体瞬间，禁止企业握手照、假笑摆拍、拼贴、分屏、海报、"
+            "界面、悬浮图标、夸张霓虹和廉价图库感。"
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -588,15 +733,21 @@ class VisualAssetsManager:
                 f"[Warning] 视觉资产提示词植入失败：{str(e)}，已降级为极速注入占位符",
                 "warning",
             )
-            return cls.inject_image_prompts_fast(markdown_text)
+            return cls.inject_image_prompts_fast(markdown_text, style_key=resolved_style)
 
     @classmethod
-    def sync_trigger_image_generation(cls, text_with_prompts: str, timeout: Optional[int] = None) -> str:
+    def sync_trigger_image_generation(
+        cls,
+        text_with_prompts: str,
+        timeout: Optional[int] = None,
+        force_regenerate: bool = False,
+    ) -> str:
         """扫描文本中的提示词标记（Markdown 或 HTML 占位符），调用图像 API 生成图片并替换
 
         Args:
             text_with_prompts: 包含图片占位符的文本
             timeout: 单张图片生成超时时间（秒），未传时读取配置
+            force_regenerate: 是否跳过图片缓存，强制生成一张新图
         """
         from bs4 import BeautifulSoup
         all_tasks = []
@@ -790,7 +941,7 @@ class VisualAssetsManager:
             img_path = None
             image_cache_key = f"{img_api_type}|{size}|{prompt}"
             try:
-                if img_api_type != "picsum":
+                if img_api_type != "picsum" and not force_regenerate:
                     try:
                         from src.ai_write_x.utils.cache_manager import cache_manager
                         cached_img_path = cache_manager.get_image_cache(image_cache_key)
@@ -1447,8 +1598,17 @@ class VisualAssetsManager:
                 extra_attrs += ' data-cover="1"'
             ratio_val = (task.get("ratio") or ("2.35:1" if is_cover else "16:9")).strip()
             extra_attrs += f' data-aspect-ratio="{ratio_val}"'
+            if task.get("original_element") is not None:
+                scene_role = (task["original_element"].get("data-scene-role") or "").strip()
+                similarity = (task["original_element"].get("data-prompt-similarity") or "").strip()
+                if scene_role:
+                    extra_attrs += f' data-scene-role="{html_lib.escape(scene_role, quote=True)}"'
+                if similarity:
+                    extra_attrs += f' data-prompt-similarity="{html_lib.escape(similarity, quote=True)}"'
+            safe_prompt = html_lib.escape(prompt, quote=True)
             img_tag = (
-                f'<img src="/images/{os.path.basename(img_path)}" alt="{prompt[:50]}"'
+                f'<img src="/images/{os.path.basename(img_path)}" alt="{html_lib.escape(prompt[:50], quote=True)}"'
+                f' data-img-prompt="{safe_prompt}"'
                 f'{extra_attrs} style="max-width:100%;border-radius:12px;margin:16px 0;'
                 f'box-shadow:0 10px 30px rgba(0,0,0,0.1);display:block;">'
             )
@@ -1634,50 +1794,104 @@ class VisualAssetsManager:
         return html
 
     @classmethod
-    def _image_prompt_text(cls, topic: str, context: str = "", is_cover: bool = False) -> tuple:
+    def _scene_role_plan(cls, index: int, is_cover: bool = False) -> dict:
+        if is_cover:
+            return cls.SCENE_ROLE_PLANS[0]
+        body_roles = cls.SCENE_ROLE_PLANS[1:]
+        return body_roles[index % len(body_roles)]
+
+    @staticmethod
+    def _scene_prompt_similarity(left: str, right: str) -> float:
+        """Compare scene substance while discounting repeated style boilerplate."""
+        boilerplate = (
+            "premium editorial photography", "authentic textures", "restrained luxury",
+            "documentary photography", "cinematic still photography", "editorial illustration",
+            "absolutely no text", "no words", "no letters", "no chinese characters",
+            "coherent perspective", "watermark", "natural lighting",
+        )
+
+        def normalize(value: str) -> str:
+            clean = (value or "").lower()
+            for phrase in boilerplate:
+                clean = clean.replace(phrase, " ")
+            clean = re.sub(r"[^a-z0-9]+", " ", clean)
+            return re.sub(r"\s+", " ", clean).strip()
+
+        a, b = normalize(left), normalize(right)
+        if not a or not b:
+            return 0.0
+        return SequenceMatcher(None, a, b).ratio()
+
+    @classmethod
+    def _image_prompt_text(
+        cls,
+        topic: str,
+        context: str = "",
+        is_cover: bool = False,
+        style_key: str = "auto",
+        scene_role: dict | None = None,
+        used_role_keys: tuple[str, ...] = (),
+    ) -> tuple:
         raw_subject = (topic or "article theme").strip()[:60]
-        raw_context = (context or topic or "article illustration").strip()[:120]
+        raw_context = (context or topic or "article illustration").strip()[:300]
 
-        subject_en = cls._translate_to_visual_english(raw_subject)
-        context_en = cls._translate_to_visual_english(raw_context)
+        resolved_style, style_prompt = cls._style_prompt(style_key, raw_subject, raw_context)
+        role = scene_role or cls._scene_role_plan(0, is_cover=is_cover)
+        prior_roles = "、".join(used_role_keys) if used_role_keys else "无"
+        scene_en = cls._translate_to_visual_english(
+            f"文章主题：{raw_subject}。对应段落：{raw_context}。"
+            f"本图分镜职责：{role['prompt']}。必须避开：{role['avoid']}。"
+            f"前面图片已使用的分镜类型：{prior_roles}；本图必须更换主体、环境和动作。",
+            style_key=resolved_style,
+            is_cover=is_cover,
+        )
 
-        if not subject_en or len(subject_en) < 3:
-            subject_en = "professional editorial concept"
-        if not context_en or len(context_en) < 3:
-            context_en = "editorial scene"
+        if not scene_en or len(scene_en) < 8:
+            scene_en = "one clear subject performing a natural action in a believable environment"
 
         ratio = "2.35:1" if is_cover else "16:9"
         if is_cover:
             pos = (
-                f"photo realistic cover image, {subject_en}, inspired by {context_en}, "
-                "natural lighting, single clear subject, cinematic composition, "
+                f"{scene_en}, {role['prompt']}, wide editorial cover, {style_prompt}, "
+                "single clear focal subject, generous uncluttered negative space, authentic textures, "
+                f"avoid {role['avoid']}, "
                 "absolutely no text no words no letters no Chinese characters"
             )
         else:
-            import random
-            # 为正文图添加随机视角，避免相同topic导致重复构图
+            import hashlib
             variations = [
-                ", close-up detail", ", wide establishing shot", ", unique angle",
-                ", mid-range framing", ", intimate perspective", ", environmental context"
+                "close-up detail with shallow depth of field",
+                "wide environmental composition with layered depth",
+                "eye-level medium shot with natural perspective",
+                "intimate over-the-shoulder perspective",
+                "clean side-angle composition with foreground framing",
             ]
-            varied_suffix = random.choice(variations)
+            digest = hashlib.sha256(f"{raw_subject}|{raw_context}".encode("utf-8")).digest()
+            composition = variations[digest[0] % len(variations)]
             pos = (
-                f"photo realistic scene, {subject_en}, inspired by {context_en}{varied_suffix}, "
-                "editorial photography, coherent perspective, "
+                f"{scene_en}, {role['prompt']}, {composition}, {style_prompt}, "
+                f"avoid {role['avoid']}, coherent perspective, authentic textures, "
                 "absolutely no text no words no letters no Chinese characters no watermark"
             )
         return pos, ratio
 
     @classmethod
-    def _build_scene_prompt(cls, topic: str, context: str = "", is_cover: bool = False) -> str:
+    def _build_scene_prompt(cls, topic: str, context: str = "", is_cover: bool = False, style_key: str = "auto") -> str:
         from src.ai_write_x.core.article_polish import append_no_text_negative
 
-        pos, ratio = cls._image_prompt_text(topic, context, is_cover)
-        neg = append_no_text_negative("bad anatomy, blurry, low quality, duplicate subject")
+        pos, ratio = cls._image_prompt_text(topic, context, is_cover, style_key=style_key)
+        neg = append_no_text_negative(cls.UNIVERSAL_IMAGE_NEGATIVE)
         return f"[[V-SCENE: {pos} | {neg} | {ratio}]]"
 
     @classmethod
-    def inject_html_image_placeholders(cls, html: str, topic: str, title: str, min_count: int = 2) -> str:
+    def inject_html_image_placeholders(
+        cls,
+        html: str,
+        topic: str,
+        title: str,
+        min_count: int = 2,
+        style_key: str = "auto",
+    ) -> str:
         """在 HTML 中插入可生图的占位符（HTML 包装后兜底）"""
         from bs4 import BeautifulSoup
 
@@ -1744,14 +1958,60 @@ class VisualAssetsManager:
             if sec_p:
                 insert_targets.append((sec_p, True))
 
+        used_prompts = []
+        used_role_keys = []
+        body_index = 0
         for anchor, is_cover in insert_targets:
-            ctx = title if is_cover else anchor.get_text(strip=True)[:80]
-            prompt_text, ratio = cls._image_prompt_text(topic, ctx, is_cover=is_cover)
+            role = cls._scene_role_plan(body_index, is_cover=is_cover)
+            if not is_cover:
+                body_index += 1
+            if is_cover:
+                ctx = title
+            else:
+                heading = anchor.find_previous(["h2", "h3"])
+                next_paragraph = anchor.find_next_sibling("p")
+                context_parts = [
+                    heading.get_text(" ", strip=True) if heading else "",
+                    anchor.get_text(" ", strip=True),
+                    next_paragraph.get_text(" ", strip=True) if next_paragraph else "",
+                ]
+                ctx = " ".join(part for part in context_parts if part)[:320]
+            prompt_text, ratio = cls._image_prompt_text(
+                topic,
+                ctx,
+                is_cover=is_cover,
+                style_key=style_key,
+                scene_role=role,
+                used_role_keys=tuple(used_role_keys),
+            )
+            similarity_score = max(
+                (cls._scene_prompt_similarity(prompt_text, previous) for previous in used_prompts),
+                default=0.0,
+            )
+            if similarity_score >= 0.72:
+                retry_context = (
+                    f"{ctx}。第一次分镜与前图过于相似，必须改用不同人物或物体、不同地点、"
+                    f"不同动作与不同景别；禁止复刻前图。前图摘要：{used_prompts[-1][:180]}"
+                )
+                prompt_text, ratio = cls._image_prompt_text(
+                    topic,
+                    retry_context,
+                    is_cover=is_cover,
+                    style_key=style_key,
+                    scene_role=role,
+                    used_role_keys=tuple(used_role_keys),
+                )
+                similarity_score = max(
+                    (cls._scene_prompt_similarity(prompt_text, previous) for previous in used_prompts),
+                    default=0.0,
+                )
             # BeautifulSoup 处理带连字符的属性：使用 **{} 展开字典
             attrs = {
                 "class": "img-placeholder",
                 "data-img-prompt": prompt_text,
                 "data-aspect-ratio": ratio,
+                "data-scene-role": role["key"],
+                "data-prompt-similarity": f"{similarity_score:.3f}",
             }
             if is_cover:
                 attrs["data-cover"] = "1"
@@ -1759,6 +2019,8 @@ class VisualAssetsManager:
             ph = soup.new_tag("div", **attrs)
             ph.string = "配图生成中"
             anchor.insert_after(ph)
+            used_prompts.append(prompt_text)
+            used_role_keys.append(role["key"])
 
         return soup.decode(formatter=None)
 
@@ -1880,6 +2142,7 @@ class VisualAssetsManager:
         title: str,
         fast_mode: bool = False,
         article_path: str = "",
+        image_style: str = "auto",
     ) -> str:
         """HTML 定稿后统一生图（避免排版阶段冲掉 Markdown 阶段的配图）"""
         if not html or not html.strip():
@@ -1895,7 +2158,6 @@ class VisualAssetsManager:
         has_pending = bool(
             re.search(r"\[\[V-SCENE:", html)
             or "img-placeholder" in html
-            or re.search(r"data-img-prompt=", html)
         )
 
         lg.print_log(
@@ -1903,10 +2165,34 @@ class VisualAssetsManager:
             "info",
         )
 
-        if valid < min_images and not has_pending:
+        if valid == 0 and has_pending:
+            # Earlier writing stages may have produced repetitive independent prompts.
+            # Rebuild all pending slots here with one article-level storyboard plan.
+            from bs4 import BeautifulSoup
+
+            pending_soup = BeautifulSoup(html, "html.parser")
+            for placeholder in pending_soup.select(".img-placeholder"):
+                placeholder.decompose()
+            html = pending_soup.decode(formatter=None)
+            html = re.sub(r"\[\[V-SCENE:[\s\S]*?\]\]", "", html)
+            html = re.sub(r"\[IMG_PROMPT:[\s\S]*?\]", "", html)
+            html = cls.inject_html_image_placeholders(
+                html,
+                topic,
+                title,
+                min_count=max(1, body_slots),
+                style_key=image_style,
+            )
+            has_pending = True
+            lg.print_log("[VisualAssets] 已按整篇分镜重新规划待生成图片", "info")
+        elif valid < min_images and not has_pending:
             lg.print_log("[VisualAssets] 正文缺少配图，正在注入 HTML 占位符...", "info")
             html = cls.inject_html_image_placeholders(
-                html, topic, title, min_count=max(1, body_slots)
+                html,
+                topic,
+                title,
+                min_count=max(1, body_slots),
+                style_key=image_style,
             )
 
         settings = cls._get_runtime_settings()

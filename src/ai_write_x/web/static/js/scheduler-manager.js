@@ -166,19 +166,21 @@ class SchedulerManager {
         const current = select.value;
         select.innerHTML = '<option value="">全部公众号</option>';
         for (const cred of this.wechatCredentials) {
-            const label = cred.author ? `${cred.author} (${cred.appid})` : cred.appid;
+            const label = cred.name ? `${cred.name} (${cred.appid})` : (cred.author || cred.appid);
             const opt = document.createElement('option');
-            opt.value = cred.appid;
+            opt.value = cred.account_id || cred.appid;
+            opt.dataset.appid = cred.appid;
+            opt.disabled = cred.enabled === false;
             opt.textContent = label;
             select.appendChild(opt);
         }
         if (current) select.value = current;
     }
 
-    _getCredentialLabel(appid) {
-        if (!appid) return '全部';
-        const cred = this.wechatCredentials.find(c => c.appid === appid);
-        return cred ? (cred.author || cred.appid) : appid;
+    _getCredentialLabel(accountRef) {
+        if (!accountRef) return '全部';
+        const cred = this.wechatCredentials.find(c => c.account_id === accountRef || c.appid === accountRef);
+        return cred ? (cred.name || cred.author || cred.appid) : accountRef;
     }
 
     _shortId(id) {
@@ -253,9 +255,9 @@ class SchedulerManager {
             <tr${rowClass} data-task-id="${id}">
                 <td class="scheduler-id-cell" title="${this.escapeAttr(task.id)}">#${this.escapeHtml(this._shortId(task.id))}</td>
                 <td class="font-medium" title="${this.escapeAttr(this._taskLabel(task))}">${this.escapeHtml(this.truncate(this._taskLabel(task), 36))}</td>
-                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span>${task.target_appid ? `<br><span class="text-secondary" style="font-size:11px;">→ ${this.escapeHtml(this._getCredentialLabel(task.target_appid))}</span>` : ''}</td>
+                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span><br><span class="text-secondary" style="font-size:11px;">${this.escapeHtml(({none:'只生成文章',save:'存草稿',publish:'正式发布'})[task.post_action] || '正式发布')}</span>${task.target_account_id || task.target_appid ? `<br><span class="text-secondary" style="font-size:11px;">→ ${this.escapeHtml(this._getCredentialLabel(task.target_account_id || task.target_appid))}</span>` : ''}</td>
                 <td style="white-space:nowrap;font-size:13px;">${this.escapeHtml(task.execution_time || '-')}</td>
-                <td>${task.is_recurring ? `每 ${this.escapeHtml(task.interval_hours)} 小时` : '单次'}</td>
+                <td>${this.getRepeatText(task)}</td>
                 <td><span class="status-badge status-${this.escapeAttr(task.status)}">${this.getStatusText(task.status)}</span></td>
                 <td>
                     <div class="table-actions">
@@ -355,8 +357,10 @@ class SchedulerManager {
         document.getElementById('task-topic').value = '';
         document.getElementById('task-platform').value = 'wechat';
         document.getElementById('task-target-appid').value = '';
+        document.getElementById('task-post-action').value = 'save';
+        document.getElementById('task-image-style').value = 'auto';
         document.getElementById('task-exec-time').value = this.getDefaultExecTime();
-        document.getElementById('task-recurring').checked = false;
+        document.getElementById('task-repeat-mode').value = 'once';
         document.getElementById('task-beautify').checked = true;
         document.getElementById('task-article-count').value = '1';
         document.getElementById('task-collection-mode').checked = false;
@@ -365,6 +369,7 @@ class SchedulerManager {
         const tip = document.getElementById('platform-verify-tip');
         if (tip) tip.style.display = 'none';
         document.getElementById('task-edit-modal').style.display = 'flex';
+        document.querySelector('#task-edit-modal .modal-body')?.scrollTo(0, 0);
         this.checkPlatformConnection('wechat');
         this.renderWechatCredentials();
         this.fetchWechatCredentials();
@@ -381,19 +386,23 @@ class SchedulerManager {
         document.getElementById('task-modal-title').innerText = '编辑定时任务';
         document.getElementById('task-topic').value = task.topic || '';
         document.getElementById('task-platform').value = task.platform || 'wechat';
-        document.getElementById('task-target-appid').value = task.target_appid || '';
+        document.getElementById('task-target-appid').value = task.target_account_id || task.target_appid || '';
+        document.getElementById('task-post-action').value = task.post_action || 'publish';
+        document.getElementById('task-image-style').value = task.image_style || 'auto';
         // execution_time 格式: "2026-06-24 08:00:00" -> "2026-06-24T08:00:00"
         const execTime = (task.execution_time || '').replace(' ', 'T');
         document.getElementById('task-exec-time').value = execTime;
-        document.getElementById('task-recurring').checked = !!task.is_recurring;
+        const repeatMode = task.repeat_mode || (task.is_recurring ? 'interval' : 'once');
+        document.getElementById('task-repeat-mode').value = repeatMode;
         document.getElementById('task-beautify').checked = task.use_ai_beautify !== false;
         document.getElementById('task-article-count').value = task.article_count || 1;
         document.getElementById('task-collection-mode').checked = !!task.collection_mode;
         document.getElementById('task-interval').value = task.interval_hours || 24;
-        document.getElementById('task-interval-group').style.display = task.is_recurring ? 'block' : 'none';
+        this.toggleRepeatMode(repeatMode);
         const tip = document.getElementById('platform-verify-tip');
         if (tip) tip.style.display = 'none';
         document.getElementById('task-edit-modal').style.display = 'flex';
+        document.querySelector('#task-edit-modal .modal-body')?.scrollTo(0, 0);
         this.checkPlatformConnection(task.platform || 'wechat');
         this.renderWechatCredentials();
         this.fetchWechatCredentials();
@@ -403,8 +412,8 @@ class SchedulerManager {
         document.getElementById('task-edit-modal').style.display = 'none';
     }
 
-    toggleInterval(checked) {
-        document.getElementById('task-interval-group').style.display = checked ? 'block' : 'none';
+    toggleRepeatMode(mode) {
+        document.getElementById('task-interval-group').style.display = mode === 'interval' ? 'block' : 'none';
     }
 
     setDelayTime(seconds) {
@@ -417,6 +426,18 @@ class SchedulerManager {
         target.setHours(hour, 0, 0, 0);
         if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
         document.getElementById('task-exec-time').value = this.toLocalDatetimeInput(target);
+        document.getElementById('task-repeat-mode').value = 'daily';
+        this.toggleRepeatMode('daily');
+    }
+
+    getRepeatText(task) {
+        const mode = task.repeat_mode || (task.is_recurring ? 'interval' : 'once');
+        if (mode === 'daily') {
+            const match = String(task.execution_time || '').match(/\b(\d{2}:\d{2})/);
+            return `每天 ${this.escapeHtml(match ? match[1] : '--:--')}`;
+        }
+        if (mode === 'interval') return `每 ${this.escapeHtml(task.interval_hours || 24)} 小时`;
+        return '单次';
     }
 
     toLocalDatetimeInput(date) {
@@ -465,12 +486,15 @@ class SchedulerManager {
         const topic = document.getElementById('task-topic').value.trim();
         const execTime = document.getElementById('task-exec-time').value;
         const platform = document.getElementById('task-platform').value;
-        const targetAppid = document.getElementById('task-target-appid').value;
-        const isRecurring = document.getElementById('task-recurring').checked;
+        const targetAccountId = document.getElementById('task-target-appid').value;
+        const targetCredential = this.wechatCredentials.find(c => (c.account_id || c.appid) === targetAccountId);
+        const repeatMode = document.getElementById('task-repeat-mode').value;
         const interval = document.getElementById('task-interval').value;
         const articleCount = document.getElementById('task-article-count').value;
         const useAIBeautify = document.getElementById('task-beautify').checked;
+        const imageStyle = document.getElementById('task-image-style').value;
         const collectionMode = document.getElementById('task-collection-mode').checked;
+        const postAction = document.getElementById('task-post-action').value;
 
         if (!execTime) {
             this._notify('请选择执行时间', 'warning');
@@ -486,13 +510,17 @@ class SchedulerManager {
                 topic,
                 execution_time: this.formatExecTimeForApi(execTime),
                 platform,
-                is_recurring: isRecurring,
-                interval_hours: parseInt(interval, 10) || 24,
+                is_recurring: repeatMode !== 'once',
+                repeat_mode: repeatMode,
+                interval_hours: repeatMode === 'daily' ? 24 : (parseInt(interval, 10) || 24),
                 article_count: parseInt(articleCount, 10) || 1,
                 use_ai_beautify: useAIBeautify,
+                image_style: imageStyle,
                 collection_mode: collectionMode,
+                post_action: postAction,
             };
-            if (targetAppid) body.target_appid = targetAppid;
+            body.target_account_id = targetAccountId || null;
+            body.target_appid = targetCredential?.appid || null;
 
             let result;
             if (this.selectedTaskId) {

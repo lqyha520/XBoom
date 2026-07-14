@@ -21,6 +21,15 @@ from src.ai_write_x.version import get_version
 
 router = APIRouter(prefix="/api/system", tags=["System Update"])
 
+UPDATE_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36 XBoom-Updater/1.0"
+    ),
+    "Accept": "*/*",
+}
+
 DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "enabled": True,
     "startup_check": True,
@@ -32,7 +41,7 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "install_mode": "on_exit",
     "update_level": "normal",
     "rollout_percent": 100,
-    "manifest_url": "https://updates.bcxtech.cn/updates/version-policy.json",
+    "manifest_url": "https://updates.bcxtech.ccwu.cc/updates/xboom/version-policy.json",
     "manifest_asset_name": "version-policy.json",
     "installer_asset_name": INSTALLER_NAME,
     "installer_silent_args": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /FORCECLOSEAPPLICATIONS",
@@ -42,7 +51,7 @@ DEFAULT_UPDATE_CONFIG: Dict[str, Any] = {
     "min_supported_version": "",
     "latest_version": "",
     "manual_download_url": "",
-    "update_mirror_base": "https://updates.bcxtech.cn/updates",
+    "update_mirror_base": "https://updates.bcxtech.ccwu.cc/updates/xboom",
 }
 
 _update_progress: Dict[str, Any] = {
@@ -121,8 +130,8 @@ def _merge_update_config() -> Dict[str, Any]:
 
 
 async def _fetch_json(url: str, timeout_seconds: int, headers: Optional[dict] = None) -> dict:
-    request_headers = dict(headers or {})
-    request_headers.setdefault("User-Agent", "AIWriteX-Updater")
+    request_headers = dict(UPDATE_HTTP_HEADERS)
+    request_headers.update(headers or {})
     async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
         response = await client.get(url, headers=request_headers)
         response.raise_for_status()
@@ -470,7 +479,7 @@ async def _stream_download_with_fallback(
                         temp_path.unlink(missing_ok=True)
                     except Exception:
                         pass
-                    async with client.stream("GET", url) as response:
+                    async with client.stream("GET", url, headers=UPDATE_HTTP_HEADERS) as response:
                         response.raise_for_status()
                         total_size = int(response.headers.get("content-length", 0))
                         downloaded = 0

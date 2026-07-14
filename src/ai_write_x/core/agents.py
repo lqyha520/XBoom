@@ -147,12 +147,17 @@ class FormatterAgent(BaseAgent):
 
         publish_platform = kwargs.get("publish_platform", "wechat")
         fast_mode = kwargs.get("fast_mode", False)
+        image_style = kwargs.get("image_style", "auto")
 
         try:
             if fast_mode:
-                content = VisualAssetsManager.inject_image_prompts_fast(content)
+                content = VisualAssetsManager.inject_image_prompts_fast(
+                    content, style_key=image_style
+                )
             else:
-                content = VisualAssetsManager.inject_image_prompts(content)
+                content = VisualAssetsManager.inject_image_prompts(
+                    content, style_key=image_style
+                )
 
             return AgentResult(
                 content=content,

@@ -7,8 +7,37 @@ class FooterMarqueeManager {
         this.container = null;  
         this.animationDuration = 15;  // 每条消息15秒  
         this.rotationInterval = null;  
+        this.exclusiveMessage = null;
         this.init();  
-    }  
+    }
+
+    // 独占消息用于下载等持续任务：保留原消息队列，但任务结束前只显示这一条。
+    setExclusiveMessage(key, text, type = 'info') {
+        const normalizedKey = String(key || 'exclusive');
+        const isSameMessage = this.exclusiveMessage?.key === normalizedKey;
+        this.exclusiveMessage = {
+            key: normalizedKey,
+            text: String(text || ''),
+            type,
+        };
+
+        if (isSameMessage) {
+            const item = this.container?.querySelector('.marquee-item');
+            if (item) {
+                item.className = `marquee-item ${type}`;
+                item.textContent = this.exclusiveMessage.text;
+                return;
+            }
+        }
+        this.showCurrentMessage();
+    }
+
+    clearExclusiveMessage(key = null) {
+        if (!this.exclusiveMessage) return;
+        if (key !== null && this.exclusiveMessage.key !== String(key)) return;
+        this.exclusiveMessage = null;
+        this.showCurrentMessage();
+    }
       
     init() {  
         this.container = document.getElementById('footer-marquee');  
@@ -91,12 +120,12 @@ class FooterMarqueeManager {
       
     // 显示当前消息  
     showCurrentMessage() {      
-        if (this.messages.length === 0) {      
+        if (!this.exclusiveMessage && this.messages.length === 0) {
             this.container.innerHTML = '';      
             return;      
         }      
             
-        const message = this.messages[this.currentIndex];      
+        const message = this.exclusiveMessage || this.messages[this.currentIndex];
             
         this.container.innerHTML = `      
             <span class="marquee-item ${message.type}">      
@@ -138,6 +167,10 @@ class FooterMarqueeManager {
       
     // 切换到下一条消息  
     nextMessage() {  
+        if (this.exclusiveMessage) {
+            this.showCurrentMessage();
+            return;
+        }
         if (this.messages.length === 0) return;  
           
         const currentMessage = this.messages[this.currentIndex];  
@@ -213,4 +246,4 @@ class FooterMarqueeManager {
     }  
 }  
 
-window.footerMarquee = new FooterMarqueeManager(); 
+window.footerMarquee = new FooterMarqueeManager();

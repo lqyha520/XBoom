@@ -95,6 +95,20 @@ class SchedulerService:
         with self._state_lock:
             self._running_task_ids.discard(task_id)
 
+    @staticmethod
+    def _repeat_mode(task) -> str:
+        if not getattr(task, "is_recurring", False):
+            return "once"
+        mode = getattr(task, "repeat_mode", "interval") or "interval"
+        return mode if mode in {"daily", "interval"} else "interval"
+
+    @staticmethod
+    def _next_daily_execution(planned: datetime, now: datetime) -> datetime:
+        candidate = datetime.combine(now.date(), planned.time())
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate
+
     def _run_loop(self):
         """Poll due scheduled tasks once per minute."""
         while self.is_running:
@@ -116,6 +130,23 @@ class SchedulerService:
 
         for task in active_tasks:
             task_id = str(task.id)
+            if self._repeat_mode(task) == "daily":
+                overdue = datetime.now() - task.execution_time
+                if overdue > timedelta(minutes=5):
+                    task.execution_time = self._next_daily_execution(task.execution_time, datetime.now())
+                    task.updated_at = datetime.now()
+                    task.status = task_status.ENABLED
+                    task.save()
+                    db_manager.log_task_execution(
+                        task_id,
+                        "skipped",
+                        "Missed fixed daily execution; scheduled the next daily run",
+                    )
+                    log.print_log(
+                        f"[Scheduler] Missed daily task {task_id[:8]}; next run {task.execution_time}",
+                        "info",
+                    )
+                    continue
             if not self._mark_task_thread_started(task_id):
                 log.print_log(f"[Scheduler] Task {task_id[:8]} is already running; skipped duplicate launch", "warning")
                 continue
@@ -165,10 +196,25 @@ class SchedulerService:
             generated_articles = []
             kwargs = {
                 "publish_platform": task.platform,
-                "auto_publish": True,
+                "auto_publish": False,
                 "use_ai_beautify": task.use_ai_beautify,
+                "image_style": getattr(task, "image_style", "auto") or "auto",
             }
+            target_account_id = getattr(task, "target_account_id", None)
             target_appid = getattr(task, "target_appid", None)
+            post_action = getattr(task, "post_action", "publish") or "publish"
+            if post_action not in {"none", "save", "publish"}:
+                post_action = "publish"
+            kwargs["auto_publish"] = post_action != "none"
+            kwargs["post_mode"] = "draft" if post_action == "save" else "publish"
+            if target_account_id:
+                from src.ai_write_x.core.account_profiles import AccountProfileService
+                profile = AccountProfileService().get_raw(target_account_id)
+                if not profile or not profile.get("enabled", True):
+                    raise RuntimeError("绑定的账号档案不存在或已暂停")
+                target_appid = profile.get("appid") or target_appid
+                kwargs["target_account_id"] = target_account_id
+                kwargs["brand_profile"] = profile
             if target_appid:
                 kwargs["target_appid"] = target_appid
             kwargs["cancel_check"] = lambda task_id=task_id: self.is_cancel_requested(task_id)
@@ -220,16 +266,18 @@ class SchedulerService:
                     success_count += 1
                     generated_articles.append(current_topic)
                     message = f"Article {article_no}/{count} generated successfully"
-                    publish_result = results.get("publish_result")
-                    if publish_result:
-                        message += f": {publish_result.get('message', '')}"
-
+                    article_path = results.get("save_result", {}).get("path")
                     self._sync_visual_assets_if_needed(results, kwargs)
+                    if post_action == "save":
+                        message += "; sent to WeChat draft box"
+                    elif post_action == "publish":
+                        message += "; direct publish requested"
+
                     db_manager.log_task_execution(
                         task_id=task_id,
                         status="success",
                         message=message,
-                        article_id=results.get("save_result", {}).get("path"),
+                        article_id=article_path,
                     )
                 else:
                     db_manager.log_task_execution(task_id, task_status.FAILED, f"Article {article_no}/{count} failed")
@@ -364,7 +412,13 @@ class SchedulerService:
             task.last_run_at = now
             was_cancelled = outcome == task_status.CANCELLED or task.status == task_status.CANCEL_REQUESTED
 
-            if task.is_recurring and task.interval_hours > 0:
+            repeat_mode = self._repeat_mode(task)
+            if repeat_mode == "daily":
+                task.execution_time = self._next_daily_execution(task.execution_time, now)
+                task.status = task_status.ENABLED
+                if was_cancelled:
+                    db_manager.log_task_execution(task_id, task_status.CANCELLED, "Daily task cancelled for this run; next fixed run was scheduled")
+            elif repeat_mode == "interval" and task.interval_hours > 0:
                 task.execution_time = now + timedelta(hours=task.interval_hours)
                 task.status = task_status.ENABLED
                 if was_cancelled:

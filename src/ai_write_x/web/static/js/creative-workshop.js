@@ -16,6 +16,7 @@ class CreativeWorkshopManager {
         this.generationHistory = [];
         this.templateCategories = [];
         this.templates = [];
+        this.accountTargets = [];
         this.logWebSocket = null;
         this.statusPollInterval = null;
         this.bottomProgress = new BottomProgressManager();
@@ -61,8 +62,10 @@ class CreativeWorkshopManager {
             this.loadHistory();
             this.initKeyboardShortcuts();
             await this.loadTemplateCategories();
+            await this.loadAccountTargets();
             await this.loadArticleList();  // 加载文章列表
-            await this.resetStaleGenerationState();
+            this.resetLocalGenerationState();
+            await this.checkRecoveryState();
             this.initialized = true;
         } catch (error) {
             console.error('CreativeWorkshopManager 初始化失败:', error);
@@ -125,6 +128,27 @@ class CreativeWorkshopManager {
     }
 
     // ========== 模板数据加载 ==========      
+
+    async loadAccountTargets() {
+        const select = document.getElementById('target-account-id');
+        if (!select) return;
+        try {
+            const response = await fetch('/api/accounts');
+            const result = await response.json();
+            this.accountTargets = (result.data || []).filter(account => account.enabled !== false);
+            const current = select.value;
+            select.innerHTML = '<option value="">不绑定账号</option>';
+            for (const account of this.accountTargets) {
+                const option = document.createElement('option');
+                option.value = account.account_id;
+                option.textContent = `${account.name}${account.status === 'healthy' ? ' · 正常' : ''}`;
+                select.appendChild(option);
+            }
+            if (current) select.value = current;
+        } catch (error) {
+            console.error('加载公众号账号失败:', error);
+        }
+    }
 
     async loadTemplateCategories() {
         try {
@@ -428,27 +452,12 @@ class CreativeWorkshopManager {
             });
         }
 
-        const workshopFastMode = document.getElementById('workshop-fast-mode');
-        if (workshopFastMode && autoReTemplateSwitch) {
-            const syncBeautifyWithFastMode = () => {
-                if (workshopFastMode.checked) {
-                    autoReTemplateSwitch.checked = false;
-                    autoReTemplateSwitch.disabled = true;
-                    const node = document.getElementById('wf-node-retemplate');
-                    const line = document.getElementById('wf-line-retemplate');
-                    if (node) node.style.display = 'none';
-                    if (line) line.style.display = 'none';
-                } else {
-                    autoReTemplateSwitch.disabled = false;
-                    const show = autoReTemplateSwitch.checked ? '' : 'none';
-                    const node = document.getElementById('wf-node-retemplate');
-                    const line = document.getElementById('wf-line-retemplate');
-                    if (node) node.style.display = show;
-                    if (line) line.style.display = show;
-                }
-            };
-            workshopFastMode.addEventListener('change', syncBeautifyWithFastMode);
-            syncBeautifyWithFastMode();
+        const imageStyleSelect = document.getElementById('workshop-image-style');
+        if (imageStyleSelect) {
+            imageStyleSelect.value = localStorage.getItem('aiwritex_image_style') || 'auto';
+            imageStyleSelect.addEventListener('change', (e) => {
+                localStorage.setItem('aiwritex_image_style', e.target.value);
+            });
         }
 
         // V15.2: 过滤已处理话题开关持久化
@@ -555,18 +564,7 @@ class CreativeWorkshopManager {
         };
     }
 
-    /** 放弃上次未完成/残留的生成任务，清空前端缓存态（不续跑旧稿） */
-    async resetStaleGenerationState() {
-        try {
-            await fetch('/api/generate/reset', { method: 'POST' });
-        } catch (error) {
-            try {
-                await fetch('/api/generate/stop', { method: 'POST' });
-            } catch (e) {
-                console.error('清理中断任务状态失败:', e);
-            }
-        }
-
+    resetLocalGenerationState() {
         this.isGenerating = false;
         this._generationCompleteHandled = false;
         this.livePreviewContent = '';
@@ -598,6 +596,94 @@ class CreativeWorkshopManager {
         this._stopGenerationTimer();
     }
 
+    /** 清除服务端残留任务并重置本地界面。 */
+    async resetStaleGenerationState() {
+        try {
+            await fetch('/api/generate/reset', { method: 'POST' });
+        } catch (error) {
+            console.error('清理中断任务状态失败:', error);
+        }
+        this.resetLocalGenerationState();
+        this.hideRecoveryBanner();
+    }
+
+    async checkRecoveryState() {
+        try {
+            const response = await fetch('/api/generate/recovery');
+            if (!response.ok) return;
+            const recovery = await response.json();
+            if (recovery.status === 'running') {
+                this.currentTopic = recovery.topic || '';
+                this.isGenerating = true;
+                this._generationCompleteHandled = false;
+                this.updateGenerationUI(true);
+                this.connectLogWebSocket();
+                this.startStatusPolling();
+                window.app?.showNotification('已重新连接正在运行的生成任务', 'info');
+                return;
+            }
+            if (!recovery.recoverable) return;
+
+            const banner = document.getElementById('generation-recovery-banner');
+            const message = document.getElementById('generation-recovery-message');
+            const restartBtn = document.getElementById('generation-recovery-restart');
+            const discardBtn = document.getElementById('generation-recovery-discard');
+            const progress = recovery.progress || {};
+            const topic = recovery.topic || recovery.request?.topic || '自动选题任务';
+            if (message) {
+                const current = Number(progress.current || 0);
+                const total = Number(progress.total || recovery.request?.article_count || 0);
+                message.textContent = total > 0
+                    ? `“${topic}”已可靠落盘 ${current}/${total}，继续后会跳过已有文章。`
+                    : `“${topic}”未正常结束，可以使用保存的参数继续执行。`;
+            }
+            if (restartBtn) restartBtn.onclick = () => this.restartRecoveredGeneration(recovery);
+            if (discardBtn) discardBtn.onclick = () => this.discardRecoveredGeneration();
+            banner?.classList.remove('hidden');
+        } catch (error) {
+            console.error('检查任务恢复状态失败:', error);
+        }
+    }
+
+    hideRecoveryBanner() {
+        document.getElementById('generation-recovery-banner')?.classList.add('hidden');
+    }
+
+    async restartRecoveredGeneration(recovery) {
+        if (this.isGenerating) return;
+        const restartBtn = document.getElementById('generation-recovery-restart');
+        if (restartBtn) restartBtn.disabled = true;
+        try {
+            const response = await fetch('/api/generate/recovery/restart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: true })
+            });
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || '恢复任务失败');
+            }
+            const result = await response.json();
+            this.currentTopic = result.topic || recovery.topic || '';
+            this.isGenerating = true;
+            this._generationCompleteHandled = false;
+            this.hideRecoveryBanner();
+            this.updateGenerationUI(true);
+            this.connectLogWebSocket();
+            this.startStatusPolling();
+            window.app?.showNotification('中断任务已从检查点继续执行', 'success');
+        } catch (error) {
+            window.app?.showNotification(error.message || '恢复任务失败', 'error');
+        } finally {
+            if (restartBtn) restartBtn.disabled = false;
+        }
+    }
+
+    async discardRecoveredGeneration() {
+        await this.resetStaleGenerationState();
+        window.app?.showNotification('已清除中断任务记录', 'info');
+    }
+
     // ========== 内容生成流程 ==========      
 
     async startGeneration() {
@@ -608,12 +694,12 @@ class CreativeWorkshopManager {
             return;
         }
         
-        // 立即设置状态，防止配置验证期间的重复点击
-        this.isGenerating = true;
-        this.updateGenerationUI(true);
-
         // 每次点击「开始生成」都放弃上次未完成任务，从零开始
         await this.resetStaleGenerationState();
+
+        // 清理完成后锁定按钮，防止配置验证期间重复点击
+        this.isGenerating = true;
+        this.updateGenerationUI(true);
 
         // ========== 阶段 2: 系统配置校验 ==========  
         // 显示配置验证提示
@@ -745,19 +831,9 @@ class CreativeWorkshopManager {
             const postAction = document.getElementById('post-action')?.value || 'none';
 
             const autoReTemplateSwitch = document.getElementById('auto-retemplate-switch');
-            const fastModeSwitch = document.getElementById('workshop-fast-mode');
-            const isFastModeOn = fastModeSwitch ? fastModeSwitch.checked : false;
-            let isBeautifyOn = autoReTemplateSwitch ? autoReTemplateSwitch.checked : false;
-            if (isFastModeOn && isBeautifyOn) {
-                isBeautifyOn = false;
-                this.appendLog('⚡ 极速模式已开启，已跳过「自动换模板」', 'info', false, Date.now() / 1000);
-            }
+            const isBeautifyOn = autoReTemplateSwitch ? autoReTemplateSwitch.checked : false;
 
             const workshopFilterProcessed = document.getElementById('workshop-filter-processed');
-
-            if (isFastModeOn) {
-                this.appendLog('⚡ 极速模式已开启：将跳过深度审计、预览截图与标题优化；正文会走轻量配图提示词并继续调用生图。', 'info', false, Date.now() / 1000);
-            }
 
             const response = await fetch('/api/generate', {
                 method: 'POST',
@@ -772,8 +848,9 @@ class CreativeWorkshopManager {
                     post_action: postAction,
                     ai_beautify: isBeautifyOn,
                     filter_processed: workshopFilterProcessed?.checked || false,
-                    fast_mode: isFastModeOn,
-                    collection_mode: document.getElementById('workshop-collection-mode')?.checked || false
+                    image_style: document.getElementById('workshop-image-style')?.value || 'auto',
+                    collection_mode: document.getElementById('workshop-collection-mode')?.checked || false,
+                    target_account_id: document.getElementById('target-account-id')?.value || null
                 })
             });
 
@@ -1476,7 +1553,7 @@ class CreativeWorkshopManager {
                 // ===== 生成后自动换模板（延迟启动，不阻塞文章库显示） =====
                 const shouldBeautify = data.ai_beautify
                     || document.getElementById('auto-retemplate-switch')?.checked;
-                if (shouldBeautify && !document.getElementById('workshop-fast-mode')?.checked) {
+                if (shouldBeautify) {
                     const paths = data.article_paths || this._lastGeneratedArticlePaths || [];
                     // 延迟2秒启动换模板，确保文章库先完成渲染
                     setTimeout(() => this.runAutoBeautifyAfterGenerate(paths), 2000);

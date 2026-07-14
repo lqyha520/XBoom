@@ -13,6 +13,17 @@
             </div>
         </header>
 
+        <div id="generation-recovery-banner" class="generation-recovery-banner hidden" role="status">
+            <div>
+                <strong>检测到上次异常中断的生成任务</strong>
+                <p id="generation-recovery-message">可以使用保存的参数重新执行，系统不会自动产生 API 消耗。</p>
+            </div>
+            <div class="generation-recovery-actions">
+                <button type="button" id="generation-recovery-discard" class="btn btn-secondary btn-sm">清除记录</button>
+                <button type="button" id="generation-recovery-restart" class="btn btn-primary btn-sm">继续剩余任务</button>
+            </div>
+        </div>
+
         <div class="workshop-layout">
             <!-- 主创作区 -->
             <section class="workshop-main">
@@ -281,6 +292,13 @@
                     </div>
 
                     <div class="options-field">
+                        <label class="options-label" for="target-account-id">目标账号</label>
+                        <select id="target-account-id" class="options-input options-select">
+                            <option value="">不绑定账号</option>
+                        </select>
+                    </div>
+
+                    <div class="options-field">
                         <label class="options-label" for="post-action">完成后</label>
                         <select id="post-action" class="options-input options-select">
                             <option value="none">不操作</option>
@@ -289,18 +307,26 @@
                         </select>
                     </div>
 
+                    <div class="options-field">
+                        <label class="options-label" for="workshop-image-style">图片风格</label>
+                        <select id="workshop-image-style" class="options-input options-select">
+                            <option value="auto" selected>智能匹配</option>
+                            <option value="premium_editorial">高级杂志摄影</option>
+                            <option value="documentary">真实纪实摄影</option>
+                            <option value="cinematic">电影叙事</option>
+                            <option value="soft_illustration">温暖质感插画</option>
+                            <option value="minimal_3d">极简高级 3D</option>
+                            <option value="oriental">东方美学</option>
+                        </select>
+                    </div>
+
                     <div class="options-toggles">
-                        <label class="auto-retemplate-toggle options-toggle" title="跳过深度审计与标题优化，加快生成">
-                            <input type="checkbox" id="workshop-fast-mode">
-                            <span class="toggle-slider"></span>
-                            <span class="toggle-label">极速模式</span>
-                        </label>
                         <label class="auto-retemplate-toggle options-toggle" title="过滤最近30天内已处理过的话题">
                             <input type="checkbox" id="workshop-filter-processed">
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">过滤已写</span>
                         </label>
-                        <label class="auto-retemplate-toggle options-toggle" title="生成后自动换模板并保存（保留配图；极速模式下不可用）">
+                        <label class="auto-retemplate-toggle options-toggle" title="生成后自动换模板并保存（保留配图）">
                             <input type="checkbox" id="auto-retemplate-switch">
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">自动换模板</span>

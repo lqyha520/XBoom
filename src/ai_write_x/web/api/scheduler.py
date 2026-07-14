@@ -11,6 +11,11 @@ from src.ai_write_x.utils import log
 
 router = APIRouter(prefix="/api/scheduler", tags=["Scheduler"])
 
+IMAGE_STYLES = {
+    "auto", "premium_editorial", "documentary", "cinematic",
+    "soft_illustration", "minimal_3d", "oriental",
+}
+
 class TaskCreate(BaseModel):
     topic: str
     execution_time: str # ISO format or YYYY-MM-DD HH:MM:SS
@@ -19,8 +24,12 @@ class TaskCreate(BaseModel):
     interval_hours: int = 0
     article_count: int = 1
     use_ai_beautify: bool = True
+    image_style: str = "auto"
     collection_mode: bool = False
     target_appid: Optional[str] = None
+    target_account_id: Optional[str] = None
+    post_action: str = "save"
+    repeat_mode: Optional[str] = None
 
 class TaskUpdate(BaseModel):
     status: Optional[str] = None
@@ -30,9 +39,13 @@ class TaskUpdate(BaseModel):
     is_recurring: Optional[bool] = None
     interval_hours: Optional[int] = None
     target_appid: Optional[str] = None
+    target_account_id: Optional[str] = None
     article_count: Optional[int] = None
     use_ai_beautify: Optional[bool] = None
+    image_style: Optional[str] = None
     collection_mode: Optional[bool] = None
+    post_action: Optional[str] = None
+    repeat_mode: Optional[str] = None
 
 @router.get("/tasks")
 async def get_tasks():
@@ -44,10 +57,14 @@ async def get_tasks():
         "execution_time": t.execution_time.strftime("%Y-%m-%d %H:%M:%S"),
         "is_recurring": t.is_recurring,
         "interval_hours": t.interval_hours,
+        "repeat_mode": getattr(t, "repeat_mode", "interval") if t.is_recurring else "once",
         "article_count": t.article_count,
         "use_ai_beautify": t.use_ai_beautify,
+        "image_style": getattr(t, "image_style", "auto"),
         "collection_mode": getattr(t, "collection_mode", False),
         "target_appid": getattr(t, "target_appid", None),
+        "target_account_id": getattr(t, "target_account_id", None),
+        "post_action": getattr(t, "post_action", "publish"),
         "status": t.status,
         "last_run_at": t.last_run_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(t, "last_run_at", None) else None,
         "created_at": t.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -62,16 +79,25 @@ async def create_task(data: TaskCreate):
         except:
             exec_time = datetime.strptime(data.execution_time, "%Y-%m-%d %H:%M:%S")
         
+        repeat_mode = data.repeat_mode or ("interval" if data.is_recurring else "once")
+        if repeat_mode not in {"once", "daily", "interval"}:
+            raise HTTPException(status_code=400, detail="Invalid repeat mode")
+        if data.image_style not in IMAGE_STYLES:
+            raise HTTPException(status_code=400, detail="Invalid image style")
         task = db_manager.add_scheduled_task(
             topic=data.topic,
             execution_time=exec_time,
             platform=data.platform,
-            is_recurring=data.is_recurring,
-            interval_hours=data.interval_hours,
+            is_recurring=repeat_mode != "once",
+            interval_hours=24 if repeat_mode == "daily" else data.interval_hours,
             article_count=data.article_count,
             use_ai_beautify=data.use_ai_beautify,
+            image_style=data.image_style,
             collection_mode=data.collection_mode,
             target_appid=data.target_appid,
+            target_account_id=data.target_account_id,
+            post_action=data.post_action,
+            repeat_mode=repeat_mode,
         )
         if task:
             return {"status": "success", "id": str(task.id)}
@@ -99,14 +125,31 @@ async def update_task(task_id: str, data: TaskUpdate):
             task.is_recurring = data.is_recurring
         if data.interval_hours is not None:
             task.interval_hours = data.interval_hours
-        if data.target_appid is not None:
+        if data.repeat_mode is not None:
+            if data.repeat_mode not in {"once", "daily", "interval"}:
+                raise HTTPException(status_code=400, detail="Invalid repeat mode")
+            task.repeat_mode = data.repeat_mode
+            task.is_recurring = data.repeat_mode != "once"
+            if data.repeat_mode == "daily":
+                task.interval_hours = 24
+        if "target_appid" in data.model_fields_set:
             task.target_appid = data.target_appid
+        if "target_account_id" in data.model_fields_set:
+            task.target_account_id = data.target_account_id
         if data.article_count is not None:
             task.article_count = data.article_count
         if data.use_ai_beautify is not None:
             task.use_ai_beautify = data.use_ai_beautify
+        if data.image_style is not None:
+            if data.image_style not in IMAGE_STYLES:
+                raise HTTPException(status_code=400, detail="Invalid image style")
+            task.image_style = data.image_style
         if data.collection_mode is not None:
             task.collection_mode = data.collection_mode
+        if data.post_action is not None:
+            if data.post_action not in {"none", "save", "publish"}:
+                raise HTTPException(status_code=400, detail="Invalid post action")
+            task.post_action = data.post_action
         if data.execution_time:
             try:
                 task.execution_time = datetime.fromisoformat(data.execution_time.replace("Z", "+00:00"))
@@ -191,20 +234,20 @@ async def verify_platform(platform: str):
 async def get_wechat_credentials():
     """获取已配置的微信公众号凭证列表（脱敏）"""
     try:
-        from src.ai_write_x.config.config import Config
-        config = Config.get_instance()
-        creds = config.wechat_credentials or []
-        result = []
-        for c in creds:
-            appid = (c.get("appid") or "").strip()
-            if not appid:
-                continue
-            result.append({
-                "appid": appid,
-                "author": c.get("author", ""),
-                "draft_only": c.get("draft_only", False),
-            })
-        return result
+        from src.ai_write_x.core.account_profiles import AccountProfileService
+        return [
+            {
+                "account_id": item.get("account_id"),
+                "appid": item.get("appid", ""),
+                "author": item.get("author") or item.get("name") or "",
+                "name": item.get("name") or item.get("author") or "",
+                "draft_only": item.get("draft_only", False),
+                "status": item.get("status"),
+                "enabled": item.get("enabled", True),
+            }
+            for item in AccountProfileService().list_public()
+            if item.get("appid")
+        ]
     except Exception as e:
         log.print_log(f"[Scheduler] 获取凭证列表失败: {e}", "error")
         return []

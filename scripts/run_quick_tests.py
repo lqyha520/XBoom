@@ -17,6 +17,9 @@ CORE_TESTS = [
     "tests/test_database.py",
     "tests/test_runtime_paths.py",
     "tests/test_web_security.py",
+    "tests/test_startup_profile.py",
+    "tests/test_task_recovery.py",
+    "tests/test_account_profiles.py",
 ]
 
 

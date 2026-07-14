@@ -270,6 +270,8 @@ class AIWriteXApp {
                 // 确保初始化被调用
                 if (window.creativeWorkshopManager && !window.creativeWorkshopManager.initialized) {
                     window.creativeWorkshopManager.init();
+                } else if (window.creativeWorkshopManager?.loadAccountTargets) {
+                    window.creativeWorkshopManager.loadAccountTargets();
                 }
                 break;
             case 'template-manager':

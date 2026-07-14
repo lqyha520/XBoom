@@ -76,6 +76,17 @@ $env:AIWRITEX_SKIP_STARTUP_TASKS = "newshub,usage_stats,scheduler"
 python main.py
 ```
 
+默认使用 `lean` 启动档：保留定时任务、菜单权限和已配置的使用统计，将工具注册、NewsHub、批处理器、独立 WebSocket 管理器和控制台仪表盘改为按需加载。
+
+```powershell
+$env:AIWRITEX_STARTUP_PROFILE = "full"     # 兼容旧版：启动全部后台组件
+$env:AIWRITEX_STARTUP_PROFILE = "lean"     # 默认：保留核心后台服务
+$env:AIWRITEX_STARTUP_PROFILE = "minimal"  # 排障：不启动后台服务
+python main.py
+```
+
+生成任务状态会原子写入应用数据目录下的 `cache/task_state/`。批量生成确定选题后会保存完整选题列表，每篇文章只有在文件成功落盘后才写入完成检查点。如果应用异常退出，下次启动会将任务标记为 `interrupted` 并在内容生成页显示恢复提示；用户点击“继续剩余任务”后会复用原选题并跳过仍然存在的已落盘文件。系统不会自动重新调用模型，页面刷新但后台仍在运行时会自动重新连接现有任务。
+
 发布前检查：
 
 ```powershell
@@ -130,4 +141,4 @@ python -m compileall -q main.py src\ai_write_x
 
 ## 当前版本
 
-运行时版本以 `src/ai_write_x/version.py` 为准。当前包版本为 `1.2.37`。
+运行时版本以 `src/ai_write_x/version.py` 为准。当前包版本为 `1.3.0`。

@@ -118,7 +118,10 @@ class DBManager:
             return []
 
     # --- Article Operations ---
-    def save_article(self, topic_title: str, content: str, fmt: str = "HTML", version: int = 1) -> Optional[Article]:
+    def save_article(
+        self, topic_title: str, content: str, fmt: str = "HTML", version: int = 1,
+        article_path: str = None, target_account_id: str = None,
+    ) -> Optional[Article]:
         try:
             topic = self.get_topic(topic_title)
             if not topic:
@@ -127,9 +130,12 @@ class DBManager:
             with get_session() as session:
                 article = Article(
                     topic_id=topic.id,
+                    title=topic_title,
                     content=content,
                     format=fmt,
                     version=version,
+                    article_path=article_path,
+                    target_account_id=target_account_id,
                     human_rating=None  # 显式设置默认值
                 )
                 session.add(article)
@@ -262,7 +268,11 @@ class DBManager:
     def add_scheduled_task(self, topic: str, execution_time: datetime, platform: str = "wechat", 
                            is_recurring: bool = False, interval_hours: int = 0,
                            article_count: int = 1, use_ai_beautify: bool = True,
-                           collection_mode: bool = False, target_appid: str = None) -> Optional[ScheduledTask]:
+                           image_style: str = "auto",
+                           collection_mode: bool = False, target_appid: str = None,
+                           target_account_id: str = None,
+                           post_action: str = "publish",
+                           repeat_mode: str = "once") -> Optional[ScheduledTask]:
         try:
             with get_session() as session:
                 task = ScheduledTask(
@@ -271,10 +281,14 @@ class DBManager:
                     execution_time=execution_time,
                     is_recurring=is_recurring,
                     interval_hours=interval_hours,
+                    repeat_mode=repeat_mode if repeat_mode in {"once", "daily", "interval"} else "once",
                     article_count=article_count,
                     use_ai_beautify=use_ai_beautify,
+                    image_style=image_style,
                     collection_mode=collection_mode,
                     target_appid=target_appid,
+                    target_account_id=target_account_id,
+                    post_action=post_action if post_action in {"none", "save", "publish"} else "publish",
                 )
                 session.add(task)
                 session.commit()

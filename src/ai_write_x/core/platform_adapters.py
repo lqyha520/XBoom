@@ -224,6 +224,7 @@ class WeChatAdapter(PlatformAdapter):
                     appsecret,
                     author,
                     cover_path=kwargs.get("cover_path", None),
+                    post_mode=kwargs.get("post_mode"),
                 )
 
                 publish_results.append(

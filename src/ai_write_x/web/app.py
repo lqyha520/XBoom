@@ -2,7 +2,6 @@
 # -*- coding: UTF-8 -*-
 
 import os
-import secrets
 import time
 import asyncio
 from pathlib import Path
@@ -10,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.exceptions import HTTPException
@@ -25,6 +24,14 @@ from src.ai_write_x.version import get_version
 from src.ai_write_x.version import get_version_with_prefix 
 from src.ai_write_x.utils.path_manager import PathManager
 from src.ai_write_x.utils import utils
+from src.ai_write_x.web.auth import (
+    CLIENT_TOKEN_COOKIE,
+    CLIENT_TOKEN_HEADER,
+    client_tokens,
+    is_development_local_request,
+    is_public_http_path,
+)
+from src.ai_write_x.web.startup import get_startup_profile, should_skip_startup_task
 
 # 导入状态管理
 from .state import app_state
@@ -44,37 +51,16 @@ from .api.updater import router as updater_router
 from .api.menu_ip_whitelist import router as menu_ip_whitelist_router
 from .api.batch import router as batch_router
 from .api.feedback import router as feedback_router
+from .api.accounts import router as accounts_router
 
 # 添加全局状态
 app_shutdown_event = asyncio.Event()
 
-OPTIONAL_STARTUP_ENV = "AIWRITEX_SKIP_STARTUP_TASKS"
-OPTIONAL_STARTUP_GROUPS = {
-    "network": {"usage_stats", "menu_ip_access", "newshub"},
-    "heavy": {"global_tools", "scavenger", "dashboard_render", "newshub"},
-    "background": {
-        "global_tools",
-        "scavenger",
-        "scheduler",
-        "usage_stats",
-        "menu_ip_access",
-        "periodic_cleanup",
-        "batch_processor",
-        "websocket_manager",
-        "dashboard_render",
-        "newshub",
-    },
-}
 _optional_startup_tasks: set[asyncio.Task] = set()
 
 
 def _skip_optional_startup_task(name: str) -> bool:
-    raw = os.environ.get(OPTIONAL_STARTUP_ENV, "")
-    skipped = {item.strip().lower() for item in raw.split(",") if item.strip()}
-    task_name = name.lower()
-    if "all" in skipped or task_name in skipped:
-        return True
-    return any(task_name in OPTIONAL_STARTUP_GROUPS.get(group, set()) for group in skipped)
+    return should_skip_startup_task(name)
 
 
 def _schedule_optional_startup_task(name: str, coro):
@@ -131,6 +117,7 @@ async def lifespan(app: FastAPI):
         app_state.config = Config.get_instance()
         if not app_state.config.load_config():
             log.print_log("配置加载失败，使用默认配置", "warning")
+        log.print_log(f"[Startup] profile={get_startup_profile()}", "info")
 
         # 注册 CrewAI 工具（含 news_hub_tool），自动化任务与内容生成共用
         async def warmup_global_tools():
@@ -144,17 +131,18 @@ async def lifespan(app: FastAPI):
 
         _schedule_optional_startup_task("global_tools", warmup_global_tools())
 
-        # 服务启动时清掉上次未跑完的生成任务登记（不自动续跑）
+        # 服务启动时保留上次未完成任务的参数，并标记为 interrupted。
         try:
             from src.ai_write_x.core.task_manager import task_manager
-            task_manager.prepare_for_new_task("main_generate")
+            task_manager.mark_interrupted_tasks()
         except Exception:
             pass
             
         # 启动宇宙清道夫 (V10.0 Cosmic Scavenger)
-        from src.ai_write_x.core.scavenger import CosmicScavenger
-        app_state.scavenger = CosmicScavenger()
-        _schedule_optional_startup_task("scavenger", app_state.scavenger.start_daemon())
+        if not _skip_optional_startup_task("scavenger"):
+            from src.ai_write_x.core.scavenger import CosmicScavenger
+            app_state.scavenger = CosmicScavenger()
+            _schedule_optional_startup_task("scavenger", app_state.scavenger.start_daemon())
         
         # 启动定时任务调度服务 (V6 Scheduler)
         from src.ai_write_x.core.scheduler import scheduler_service
@@ -177,44 +165,37 @@ async def lifespan(app: FastAPI):
         except Exception as menu_ip_err:
             log.print_log(f"[菜单白名单] 初始化跳过: {menu_ip_err}", "warning")
         
-        # V15.0: 初始化量子优化组件
-        try:
-            from src.ai_write_x.core.batch_processor import get_batch_processor
-            from src.ai_write_x.core.semantic_cache_v2 import get_semantic_cache
-            from src.ai_write_x.web.websocket_manager import get_websocket_manager
-            
-            # 初始化新的优化组件
-            from src.ai_write_x.utils.cache_manager import cache_manager
-            from src.ai_write_x.utils.cleanup_manager import cleanup_manager
-            
-            # 启动定期清理任务（每24小时）
-            async def periodic_cleanup():
-                while True:
-                    await asyncio.sleep(86400)  # 24小时
-                    try:
-                        cleanup_manager.full_cleanup()
-                        log.print_log('[清理] 定期清理完成', 'info')
-                    except Exception as e:
-                        log.print_log(f'[清理] 定期清理失败: {e}', 'warning')
-            
-            _schedule_optional_startup_task("periodic_cleanup", periodic_cleanup())
-            
-            # 启动批处理器
-            batch_processor = get_batch_processor()
-            _schedule_optional_startup_task("batch_processor", batch_processor.start())
-            log.print_log("[V15.0] [START] 智能批处理引擎已启动", "success")
-            
-            # 初始化语义缓存
-            semantic_cache = get_semantic_cache()
-            log.print_log("[V15.0] [MEM] 语义缓存 V2 已初始化", "success")
-            
-            # 启动 WebSocket 管理器
-            ws_manager = get_websocket_manager()
-            _schedule_optional_startup_task("websocket_manager", ws_manager.start())
-            log.print_log("[V15.0] [WS] WebSocket 连接治理已启动", "success")
-            
-        except Exception as v15_err:
-            log.print_log(f"[V15.0] [WARN] 组件初始化警告: {v15_err}", "warning")
+        # 增强后台组件仅在 full 档启动；核心调用方会按需初始化语义缓存和工具。
+        if get_startup_profile() == "full":
+            try:
+                from src.ai_write_x.core.batch_processor import get_batch_processor
+                from src.ai_write_x.core.semantic_cache_v2 import get_semantic_cache
+                from src.ai_write_x.web.websocket_manager import get_websocket_manager
+                from src.ai_write_x.utils.cleanup_manager import cleanup_manager
+
+                async def periodic_cleanup():
+                    while True:
+                        await asyncio.sleep(86400)
+                        try:
+                            cleanup_manager.full_cleanup()
+                            log.print_log('[清理] 定期清理完成', 'info')
+                        except Exception as e:
+                            log.print_log(f'[清理] 定期清理失败: {e}', 'warning')
+
+                _schedule_optional_startup_task("periodic_cleanup", periodic_cleanup())
+
+                batch_processor = get_batch_processor()
+                _schedule_optional_startup_task("batch_processor", batch_processor.start())
+                log.print_log("[Startup] 智能批处理引擎已启动", "success")
+
+                get_semantic_cache()
+                log.print_log("[Startup] 语义缓存已初始化", "success")
+
+                ws_manager = get_websocket_manager()
+                _schedule_optional_startup_task("websocket_manager", ws_manager.start())
+                log.print_log("[Startup] WebSocket 连接治理已启动", "success")
+            except Exception as component_err:
+                log.print_log(f"[Startup] 增强组件初始化警告: {component_err}", "warning")
         
         # V13.0 Optimization: 将控制台大盘渲染和统计逻辑移至后台异步任务，防止阻塞服务器由于“就绪”检测导致的启动延迟
         async def render_dashboard_background():
@@ -279,21 +260,23 @@ async def lifespan(app: FastAPI):
     
     if hasattr(app_state, 'scavenger') and app_state.scavenger:
         app_state.scavenger.stop_daemon()
-    
-    # V15.0: 停止量子优化组件
+
     try:
-        from src.ai_write_x.core.batch_processor import get_batch_processor
-        from src.ai_write_x.web.websocket_manager import get_websocket_manager
-        
-        batch_processor = get_batch_processor()
-        await batch_processor.stop()
-        
-        ws_manager = get_websocket_manager()
-        await ws_manager.stop()
-        
-        log.print_log("[V15.0] 量子优化组件已停止", "info")
+        from src.ai_write_x.core.scheduler import scheduler_service
+        scheduler_service.stop()
     except Exception:
         pass
+
+    if get_startup_profile() == "full":
+        try:
+            from src.ai_write_x.core.batch_processor import get_batch_processor
+            from src.ai_write_x.web.websocket_manager import get_websocket_manager
+
+            await get_batch_processor().stop()
+            await get_websocket_manager().stop()
+            log.print_log("[Startup] 增强后台组件已停止", "info")
+        except Exception:
+            pass
         
     log.print_log("AIWriteX Web服务正在关闭", "info")
 
@@ -358,19 +341,15 @@ app.mount("/static", SafeStaticFiles(directory=str(static_path)), name="static")
 app.mount("/images", SafeStaticFiles(directory=str(image_dir)), name="images")
 app.mount("/output", SafeStaticFiles(directory=str(PathManager.get_output_dir())), name="output")
 
-# 注入 Swarm 拓扑 API (V18.0)
-@app.get('/api/swarm/topology') # Use app.get for FastAPI
+# Swarm 拓扑 API：只返回真实注册状态，不注入演示 Agent。
+@app.get('/api/swarm/topology')
 async def get_swarm_topology():
-    """获取蜂群实时拓扑数据 (V18.0)"""
+    """获取蜂群实时拓扑数据。"""
+    from src.ai_write_x.core.swarm_state_manager import SwarmStateManager
+    from src.ai_write_x.core.swarm_visualizer import SwarmVisualizer
+
     state_manager = SwarmStateManager()
     visualizer = SwarmVisualizer(state_manager)
-    # 注入一些模拟 Agent 以供预览展示 (真实运行时由 AgentFactory 注册)
-    hub = get_collaboration_hub()
-    if not hub.allocator.agent_registry:
-        hub.allocator.register_agent("量子研究员-01", [SwarmCapabilities.RESEARCH, SwarmCapabilities.REASONING])
-        hub.allocator.register_agent("内容架构师-02", [SwarmCapabilities.CREATIVE_WRITING])
-        hub.allocator.register_agent("流量优化师-03", [SwarmCapabilities.SEO_OPTIMIZATION])
-        
     data = await visualizer.get_topology_data()
     return JSONResponse(content=data)
 
@@ -452,14 +431,7 @@ app.include_router(updater_router)
 app.include_router(menu_ip_whitelist_router)
 app.include_router(batch_router)
 app.include_router(feedback_router)
-
-
-# 全局允许的客户端令牌集合
-allowed_tokens = {
-    token.strip()
-    for token in os.environ.get("AIWRITEX_CLIENT_TOKEN", "").split(",")
-    if token.strip()
-}
+app.include_router(accounts_router)
 
 
 def _is_restricted_menu_visible(request: Request) -> bool:
@@ -520,46 +492,37 @@ async def structured_request_logging(request: Request, call_next):
 
 @app.middleware("http")
 async def verify_client_token(request: Request, call_next):
-    # 静态资源、健康检查和主页（带Token进入）跳过验证
-    # V14.1: 加强本地访问认证，添加环境判断，只在开发环境允许免密访问
+    # 静态资源和基础健康检查公开；其余 HTTP 接口默认都需要客户端令牌。
     path = request.url.path
-    import os
-    is_dev_mode = os.environ.get("APP_ENV", "production") != "production"
-    is_localhost = request.client.host in ["127.0.0.1", "::1", "localhost"]
-    
-    if (
-        path.startswith("/static")
-        or path.startswith("/images")
-        or path == "/health"
-        or path.startswith("/api/system/update")
-        or (is_dev_mode and is_localhost)
+    client_host = request.client.host if request.client else None
+    if is_public_http_path(path) or is_development_local_request(
+        os.environ.get("APP_ENV", "production"), client_host
     ):
         return await call_next(request)
-    
-    # 获取查询参数中的token（用于首次加载同步到allowed_tokens）
+
+    # 首次访问只接受已配置的令牌。写入 HttpOnly Cookie 后立即清理 URL 参数。
     url_token = request.query_params.get("token")
     if path == "/" and url_token:
-        if allowed_tokens and url_token not in allowed_tokens:
+        if not client_tokens.register_bootstrap_token(url_token):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Access Denied: invalid client token."}
             )
-        allowed_tokens.add(url_token)
-        # 将token存入cookie，方便后续JS读取或通过JS设置到全局
-        response = await call_next(request)
+        response = RedirectResponse(url="/", status_code=303)
         response.set_cookie(
-            key="app_client_token",
+            key=CLIENT_TOKEN_COOKIE,
             value=url_token,
-            httponly=False, # JS需要读取
+            httponly=True,
+            secure=request.url.scheme == "https",
             samesite="strict",
+            path="/",
         )
         return response
 
-    # 验证 header / cookie 中的 token（服务重启后 allowed_tokens 会清空，需从 cookie 恢复）
-    header_token = request.headers.get("X-App-Client-Token")
-    cookie_token = request.cookies.get("app_client_token")
+    header_token = request.headers.get(CLIENT_TOKEN_HEADER)
+    cookie_token = request.cookies.get(CLIENT_TOKEN_COOKIE)
     effective_token = header_token or cookie_token
-    if effective_token and any(secrets.compare_digest(effective_token, token) for token in allowed_tokens):
+    if client_tokens.contains(effective_token):
         return await call_next(request)
 
     # 如果是访问主页但没带token，或者接口没带token且不在白名单，拒绝
@@ -597,6 +560,7 @@ async def health_check():
         "version": get_version(),
         "memory_mb": memory_mb,
         "active_threads": threading.active_count(),
+        "startup_profile": get_startup_profile(),
         "components": {
             "config_loaded": hasattr(app_state, 'config') and app_state.config is not None,
             "scavenger_running": hasattr(app_state, 'scavenger') and getattr(app_state.scavenger, 'is_running', False),
