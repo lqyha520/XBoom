@@ -58,7 +58,12 @@ jobs:
           install -d -m 700 ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "$SSH_PORT" -t ed25519 -H "$SSH_HOST" >> ~/.ssh/known_hosts || true
+          : > ~/.ssh/known_hosts
+          for attempt in 1 2 3 4 5; do
+            ssh-keyscan -T 10 -p "$SSH_PORT" -t ed25519 -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+            test -s ~/.ssh/known_hosts && break
+            sleep $((attempt * 5))
+          done
           test -s ~/.ssh/known_hosts
 
       - name: Prepare incremental staging directory

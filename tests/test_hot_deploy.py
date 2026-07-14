@@ -38,6 +38,7 @@ def test_github_workflow_deploys_only_after_verification():
     assert "xboom-deploy.sh deploy" in workflow
     assert "rsync -azc --delete --partial" in workflow
     assert "ServerAliveInterval=30" in workflow
+    assert "for attempt in 1 2 3 4 5" in workflow
     assert "scp -P" not in workflow
     assert "git -C" not in workflow
     assert "deployment_id" in workflow
