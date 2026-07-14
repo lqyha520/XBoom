@@ -25,7 +25,8 @@ jobs:
       - name: Install test dependencies
         run: >-
           python -m pip install pytest sqlmodel pydantic fastapi beautifulsoup4
-          pyyaml requests pillow python-multipart jinja2 aiohttp
+          pyyaml requests pillow python-multipart jinja2 aiohttp tomlkit markdown
+          openai httpx
       - name: Compile Python sources
         run: python -m compileall -q main.py server.py src/ai_write_x
       - name: Run core tests
