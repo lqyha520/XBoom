@@ -18,6 +18,7 @@ def test_llm_api_page_uses_compact_gateway_layout():
     assert "grid-template-columns: minmax(0, 1.08fr)" in styles
     assert "api-section-config" in styles
     assert "api-config-step-url" in styles
+    assert "grid-template-columns: minmax(0, 1.55fr)" in styles
 
 
 def test_llm_api_key_display_is_masked_by_default():
@@ -39,3 +40,4 @@ def test_llm_model_config_uses_url_key_model_order_without_key_name():
     assert "configSec.body.appendChild(keyOnlyRow)" in compact_branch
     assert "configSec.body.appendChild(modelRow)" in compact_branch
     assert "configSec.body.appendChild(row1)" not in compact_branch
+    assert "api-url-hint" in script

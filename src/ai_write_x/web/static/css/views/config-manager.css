@@ -595,6 +595,40 @@
     gap: 14px;
 }
 
+.wechat-credentials-empty {
+    display: grid;
+    place-items: center;
+    gap: 7px;
+    min-height: 190px;
+    padding: 24px;
+    border: 1px dashed rgba(13, 143, 186, 0.28);
+    border-radius: 14px;
+    background: rgba(13, 143, 186, 0.045);
+    text-align: center;
+}
+
+.wechat-credentials-empty-icon {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    color: var(--primary-color);
+    background: rgba(13, 143, 186, 0.1);
+    font-size: 24px;
+}
+
+.wechat-credentials-empty strong {
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.wechat-credentials-empty p {
+    margin: 0 0 5px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
 #config-wechat .server-ip-info {
     display: grid;
     grid-template-columns: minmax(240px, 0.75fr) minmax(320px, 1.25fr);
@@ -1176,7 +1210,7 @@
 
 #config-api .api-section-config .api-form-section-body {
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.85fr) minmax(0, 1fr);
     gap: 12px;
 }
 
@@ -1218,6 +1252,20 @@
 #config-api .api-section-config .api-config-step label {
     margin-bottom: 7px;
     font-size: 11px;
+}
+
+#config-api .api-config-step-url input {
+    width: 100%;
+    min-height: 44px;
+}
+
+#config-api .api-url-hint {
+    display: block;
+    margin-top: 8px;
+    color: #68798c;
+    font-size: 10px;
+    line-height: 1.45;
+    white-space: normal;
 }
 
 #config-api .api-endpoint-meta {
@@ -4003,7 +4051,7 @@ select.form-control {
 
 #config-img-api .img-api-section-config .api-form-section-body {
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 1fr);
     gap: 12px;
 }
 
@@ -4045,13 +4093,13 @@ select.form-control {
 #config-img-api .img-config-step input,
 #config-img-api .img-config-step select,
 #config-img-api .img-config-step .form-control {
-    min-height: 38px;
+    min-height: 44px;
     font-size: 12px;
 }
 
 #config-img-api .img-config-step .api-key-input {
-    min-height: 40px;
-    height: 40px;
+    min-height: 44px;
+    height: 44px;
     resize: none;
 }
 
@@ -4093,6 +4141,14 @@ select.form-control {
 
 #config-img-api .img-config-step-model input:not([hidden]) {
     margin-top: 8px;
+}
+
+#config-img-api .img-api-url-resolved {
+    margin: 8px 0 0;
+    color: #68798c;
+    font-size: 10px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
 }
 
 #config-img-api .model-dropdown-btn,

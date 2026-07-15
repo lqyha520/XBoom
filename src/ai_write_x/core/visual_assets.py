@@ -919,6 +919,9 @@ class VisualAssetsManager:
             agnes_model = img_type_cfg.get("model", "")
             if agnes_model:
                 img_api_model = agnes_model
+
+        from src.ai_write_x.utils.api_url import build_image_generation_url, normalize_openai_base_url
+        sdk_api_base = normalize_openai_base_url(actual_api_base) if actual_api_base else ""
             
         result_text = text_with_prompts
         generated_count = 0
@@ -985,10 +988,7 @@ class VisualAssetsManager:
                         if is_ali:
                             headers["X-DashScope-Async"] = "enable"
                         
-                        endpoint = actual_api_base.rstrip('/')
-                        if not endpoint.endswith('images/generations') and not endpoint.endswith('image-synthesis'):
-                            # append standard openai path
-                            endpoint = f"{endpoint}/images/generations"
+                        endpoint = build_image_generation_url(actual_api_base)
                             
                         payload = {
                             "model": img_api_model,
@@ -1126,7 +1126,7 @@ class VisualAssetsManager:
                             import httpx
                             http_client = httpx.Client(proxy=proxy)
                             
-                            client = OpenAI(api_key=img_api_key, base_url=actual_api_base, http_client=http_client)
+                            client = OpenAI(api_key=img_api_key, base_url=sdk_api_base, http_client=http_client)
                             try:
                                 response = client.images.generate(
                                     model=img_api_model,
@@ -1140,7 +1140,7 @@ class VisualAssetsManager:
                                     current_img_key_idx = (current_img_key_idx + 1) % len(img_api_keys)
                                     img_api_key = img_api_keys[current_img_key_idx]
                                     lg.print_log(f"  [Failover] OpenAI 图像接口故障，切换 Key {current_img_key_idx}...", "warning")
-                                    client = OpenAI(api_key=img_api_key, base_url=actual_api_base, http_client=http_client)
+                                    client = OpenAI(api_key=img_api_key, base_url=sdk_api_base, http_client=http_client)
                                     response = client.images.generate(
                                         model=img_api_model,
                                         prompt=prompt,
@@ -1185,7 +1185,7 @@ class VisualAssetsManager:
                     if proxy:
                         import httpx
                         http_client = httpx.Client(proxy=proxy)
-                    client = OpenAI(api_key=img_api_key, base_url=actual_api_base, http_client=http_client)
+                    client = OpenAI(api_key=img_api_key, base_url=sdk_api_base, http_client=http_client)
                     try:
                         lg.print_log(f"  [Agnes] 正在调用 agnes-image API (size={agnes_size})...")
                         response = client.images.generate(
@@ -1212,7 +1212,7 @@ class VisualAssetsManager:
                             current_img_key_idx = (current_img_key_idx + 1) % len(img_api_keys)
                             img_api_key = img_api_keys[current_img_key_idx]
                             lg.print_log(f"  [Failover] Agnes 图像接口故障，切换 Key {current_img_key_idx}...", "warning")
-                            client = OpenAI(api_key=img_api_key, base_url=actual_api_base, http_client=http_client)
+                            client = OpenAI(api_key=img_api_key, base_url=sdk_api_base, http_client=http_client)
                             response = client.images.generate(
                                 model=img_api_model or "agnes-image-2.1-flash",
                                 prompt=prompt,

@@ -36,8 +36,8 @@ publish_platform: wechat
 wechat:
   credentials:
     - platform: wechat
-      name: 布草芯
-      author: 布草芯
+      name: 公众号 1
+      author: 公众号 1
       enabled: true
       niche: ''
       audience: ''
@@ -49,44 +49,11 @@ wechat:
       health_status: unchecked
       health_message: 尚未检测
       last_checked_at: ''
-      draft_only: true
-      call_sendall: false
-      sendall: false
-      tag_id: 0
-      daily_publish_limit: 0
-      approval_policy: required
-      dedup_days: 30
-      cross_account_duplicate_policy: warn
-      default_voice_preset_id: ''
-      appid: wxeb2287b51819a501
-      appsecret: ''
-      account_id: 8456971b-1b5b-5a18-a225-8adc26f7d80e
-    - platform: wechat
-      name: 香蕉巴拿拿
-      author: 香蕉巴拿拿
-      enabled: true
-      niche: ''
-      audience: ''
-      brand_voice: ''
-      forbidden_words: []
-      signature: ''
-      default_template_category: ''
-      default_template: ''
-      health_status: unchecked
-      health_message: 尚未检测
-      last_checked_at: ''
-      draft_only: true
+      draft_only: false
       call_sendall: false
       sendall: true
       tag_id: 0
-      daily_publish_limit: 0
-      approval_policy: required
-      dedup_days: 30
-      cross_account_duplicate_policy: warn
-      default_voice_preset_id: ''
-      appid: wx769757c8a05e5fdc
-      appsecret: ''
-      account_id: 9760e329-745e-5b27-9e52-efe03d8ad373
+      account_id: 96f5dace-9422-5a0b-a43a-75e0a95d7a82
 api:
   api_type: agnes
   OpenRouter:
@@ -225,6 +192,8 @@ api:
     - CustomAPI_1779876098336
     - CustomAPI_1779640319374
     - CustomAPI_1779406666087
+    - CustomAPI_1779395566797
+    - CustomAPI_1779879095949
   custom:
     - name: agnes
       provider: openai
@@ -239,6 +208,14 @@ api:
         - agnes-image-2.0-flash
       tested: true
       isCurrent: true
+    - name: ''
+      provider: openai
+      api_base: ''
+      api_key: ''
+      model: ''
+      models: []
+      tested: false
+      isCurrent: false
   gpt:
     key: OPENAI_API_KEY
     api_key: []

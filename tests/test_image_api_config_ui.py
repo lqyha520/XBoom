@@ -44,3 +44,14 @@ def test_manual_model_input_is_collapsed_and_select_stays_in_sync():
     assert "手动填写模型名" in script
     assert "hidden id=\"img-api-${providerKey}-model-input\"" in script
     assert "document.getElementById('img-api-${providerKey}-model-input').value = this.value" in script
+
+
+def test_image_api_url_preview_matches_v1_normalization():
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+
+    assert "normalizeImgAPIBaseURL" in script
+    assert "buildImgAPIEndpoint" in script
+    assert "attachImgAPIURLPreview" in script
+    assert "已自动补 /v1" in script
+    assert "grid-template-columns: minmax(0, 1.5fr)" in styles

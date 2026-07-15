@@ -1315,6 +1315,19 @@ class AIWriteXConfigManager {
         // 清空现有内容  
         container.innerHTML = '';
 
+        if (credentials.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'wechat-credentials-empty';
+            empty.innerHTML = `
+                <div class="wechat-credentials-empty-icon">＋</div>
+                <strong>暂未配置公众号</strong>
+                <p>可以先删除全部凭证，之后再按需添加新的公众号。</p>
+                <button type="button" class="btn btn-primary btn-sm" id="empty-add-wechat-credential">添加公众号</button>
+            `;
+            empty.querySelector('#empty-add-wechat-credential')?.addEventListener('click', () => this.addWeChatCredential());
+            container.appendChild(empty);
+        }
+
         // 生成凭证卡片  
         credentials.forEach((credential, index) => {
             const card = this.createWeChatCredentialCard(credential, index);
@@ -1623,7 +1636,6 @@ class AIWriteXConfigManager {
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'credential-delete-btn';
         deleteBtn.textContent = '删除';
-        deleteBtn.disabled = index === 0; // 第一个凭证不能删除  
         deleteBtn.addEventListener('click', () => {
             this.deleteWeChatCredential(index);
         });
@@ -4084,9 +4096,9 @@ class AIWriteXConfigManager {
         const baseGroup = document.createElement('div');
         baseGroup.className = 'form-group form-group-full';
         baseGroup.innerHTML = `
-            <label>API BASE</label>
+            <label>API URL</label>
             <input type="text" value="${api.api_base || ''}" placeholder="例如: https://api.openai.com/v1 (末尾加#强制使用原始地址)" onchange="window.configManager.updateCustomAPI(${index}, 'api_base', this.value)">
-            <small style="color:#888;font-size:11px;">💡 提示：系统会自动补全/v1路径，如需强制使用原始地址请在末尾添加#</small>
+            <small class="api-url-hint">💡 系统会自动补全 /v1；如需强制使用原始地址，请在末尾添加 #</small>
         `;
 
         const keyGroup = this.createCustomApiKeyField(index, api);
@@ -5147,8 +5159,8 @@ class AIWriteXConfigManager {
         baseGroup.innerHTML = `
             <label>API URL</label>
             <input type="text" value="${api.api_base || ''}" placeholder="https://api.openai.com/v1" onchange="window.configManager.updateCustomImgAPI(${index}, 'api_base', this.value)">
-            <p class="field-help">末尾加 # 可强制使用原始地址，不自动补全路径</p>
         `;
+        this.attachImgAPIURLPreview(baseGroup, baseGroup.querySelector('input'));
         const keyGroup = document.createElement('div');
         keyGroup.className = 'form-group form-group-full';
         keyGroup.innerHTML = `
@@ -5399,12 +5411,45 @@ class AIWriteXConfigManager {
 
     // 获取完整 API 调用预览地址
     getImgAPIPullURL(api) {
-        if (!api.api_base) return '等待配置地址...';
-        let base = api.api_base.trim().replace(/\/+$/, '');
-        if (!base.endsWith('images/generations') && !base.endsWith('image-synthesis')) {
-            return `${base}/images/generations`;
-        }
-        return base;
+        return this.buildImgAPIEndpoint(api.api_base) || '等待配置地址...';
+    }
+
+    normalizeImgAPIBaseURL(rawURL) {
+        let value = String(rawURL || '').trim();
+        const forceRaw = value.endsWith('#');
+        if (forceRaw) value = value.slice(0, -1).trim();
+        value = value.replace(/\/+$/, '');
+        if (!value || forceRaw || /\/v\d+(?:\.\d+)?$/i.test(value)) return value;
+        return `${value}/v1`;
+    }
+
+    buildImgAPIEndpoint(rawURL) {
+        let value = String(rawURL || '').trim();
+        const forceRaw = value.endsWith('#');
+        if (forceRaw) value = value.slice(0, -1).trim();
+        value = value.replace(/\/+$/, '');
+        if (!value) return '';
+        const lower = value.toLowerCase();
+        if (lower.endsWith('/images/generations') || lower.endsWith('/image-synthesis')) return value;
+        const base = forceRaw ? value : this.normalizeImgAPIBaseURL(value);
+        return `${base}/images/generations`;
+    }
+
+    attachImgAPIURLPreview(group, input) {
+        if (!group || !input) return;
+        const preview = document.createElement('p');
+        preview.className = 'img-api-url-resolved';
+        group.appendChild(preview);
+        const update = () => {
+            const raw = input.value.trim();
+            const endpoint = this.buildImgAPIEndpoint(raw);
+            const forced = raw.endsWith('#');
+            const hasVersion = /\/v\d+(?:\.\d+)?\/?(?:images\/generations)?#?$/i.test(raw);
+            const mode = forced ? '使用原始路径' : (hasVersion ? '已识别版本路径' : '已自动补 /v1');
+            preview.textContent = endpoint ? `实际请求：${endpoint}（${mode}）` : '请输入图片 API 地址';
+        };
+        input.addEventListener('input', update);
+        update();
     }
 
     // 创建图片API提供商卡片
@@ -5450,6 +5495,7 @@ class AIWriteXConfigManager {
                 );
                 baseUrlGroup.classList.add('form-group-full');
                 baseUrlGroup.classList.add('img-config-step', 'img-config-step-url');
+                this.attachImgAPIURLPreview(baseUrlGroup, baseUrlGroup.querySelector('input'));
                 configBody.appendChild(baseUrlGroup);
             }
 

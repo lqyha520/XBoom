@@ -16,6 +16,12 @@ from src.ai_write_x.version import get_version
 from src.ai_write_x.config.config import Config
 from src.ai_write_x.utils import log
 from src.ai_write_x.utils.path_manager import PathManager
+from src.ai_write_x.utils.api_url import (
+    build_image_generation_url,
+    build_openai_endpoint,
+    normalize_openai_base_url,
+    split_force_raw_marker,
+)
 
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -348,7 +354,7 @@ async def test_custom_api(config: CustomAPIConfig):
         import aiohttp
         
         # 构建请求
-        url = config.api_base.rstrip('/') + "/chat/completions"
+        url = build_openai_endpoint(config.api_base, "chat/completions")
         headers = {
             "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
@@ -400,9 +406,7 @@ async def test_custom_img_api(config: CustomAPIConfig):
         from src.ai_write_x.utils import utils as u
         
         # 构建请求 (OpenAI 格式: images/generations)
-        url = config.api_base.rstrip('/')
-        if not url.endswith('images/generations') and not url.endswith('image-synthesis'):
-             url = url + "/images/generations"
+        url = build_image_generation_url(config.api_base)
         
         log.print_log(f"[ImageTest] 开始测试连接: {config.name or '未命名'}, URL: {url}", "info")
         log.print_log(f"[ImageTest] 使用模型: {config.model or '默认'}", "info")
@@ -464,7 +468,7 @@ async def test_custom_img_api(config: CustomAPIConfig):
                 # 如果有任务ID，进行简单的轮询 (最多轮询 45 秒)
                 if task_id and not img_url:
                     log.print_log(f"[ImageTest] 检测到异步任务 ID: {task_id}, 开始轮询...", "info")
-                    base_task_url = config.api_base.rstrip('/')
+                    base_task_url = url.rstrip('/')
                     if "/images/generations" in base_task_url:
                         base_task_url = base_task_url.replace("/images/generations", "")
                     
@@ -572,14 +576,8 @@ async def list_models(config: CustomAPIConfig):
         
         # 处理URL：支持#号强制使用原始地址
         raw_url = config.api_base.strip()
-        if raw_url.endswith('#'):
-            # 强制使用原始地址
-            url = raw_url[:-1].rstrip('/')
-        else:
-            # 自动补全/v1后缀
-            url = raw_url.rstrip('/')
-            if not url.endswith('/v1') and not url.endswith('/v1/models'):
-                url = url + "/v1"
+        clean_url, force_raw = split_force_raw_marker(raw_url)
+        url = clean_url if force_raw else normalize_openai_base_url(clean_url)
         
         headers = {
             "Authorization": f"Bearer {config.api_key}",
@@ -588,11 +586,7 @@ async def list_models(config: CustomAPIConfig):
         }
         
         # 尝试不同的模型列表端点
-        endpoints = [
-            "/models",
-            "/v1/models",
-            "/api/models"
-        ]
+        endpoints = ["/models", "/api/models"]
         
         async with aiohttp.ClientSession() as session:
             for endpoint in endpoints:
