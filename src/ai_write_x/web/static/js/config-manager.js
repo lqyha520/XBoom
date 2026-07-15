@@ -1581,6 +1581,7 @@ class AIWriteXConfigManager {
                 saveBtn.classList.remove('has-changes');
                 saveBtn.innerHTML = '保存配置';
             }
+            document.dispatchEvent(new CustomEvent('wechat-credentials-updated'));
         }
 
         window.app?.showNotification(

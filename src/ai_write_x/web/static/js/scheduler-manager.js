@@ -14,6 +14,10 @@ class SchedulerManager {
         this._loading = false;
         this._pendingRefresh = false;
         this._lastError = '';
+        this._onWechatCredentialsUpdated = () => {
+            this.fetchWechatCredentials();
+            this.refreshData(false, true);
+        };
         this.platformLabels = {
             wechat: '微信公众号',
             xiaohongshu: '小红书',
@@ -25,8 +29,8 @@ class SchedulerManager {
     init() {
         if (this._initialized) return;
         this._initialized = true;
+        document.addEventListener('wechat-credentials-updated', this._onWechatCredentialsUpdated);
         this.refreshData(true);
-        this.fetchWechatCredentials();
         if (this.refreshInterval) clearInterval(this.refreshInterval);
         this.refreshInterval = setInterval(() => {
             const view = document.getElementById('scheduler-view');
@@ -45,7 +49,7 @@ class SchedulerManager {
         this._setRefreshButtonState(true);
 
         try {
-            await Promise.all([this.fetchTasks(), this.fetchLogs()]);
+            await Promise.all([this.fetchTasks(), this.fetchLogs(), this.fetchWechatCredentials()]);
             this._lastError = '';
             this.renderTasks();
             this.renderSidebarTasks();
@@ -175,11 +179,21 @@ class SchedulerManager {
             select.appendChild(opt);
         }
         if (current) select.value = current;
+        if (current && select.value !== current) {
+            const task = this.selectedTaskId && this.tasks.find(item => String(item.id) === String(this.selectedTaskId));
+            const match = task && this.wechatCredentials.find((cred) =>
+                cred.account_id === task.target_account_id ||
+                (task.target_appid && cred.appid === task.target_appid)
+            );
+            if (match) select.value = match.account_id || match.appid;
+        }
     }
 
-    _getCredentialLabel(accountRef) {
+    _getCredentialLabel(accountRef, appid = '') {
         if (!accountRef) return '全部';
-        const cred = this.wechatCredentials.find(c => c.account_id === accountRef || c.appid === accountRef);
+        const cred = this.wechatCredentials.find(c =>
+            c.account_id === accountRef || c.appid === accountRef || (appid && c.appid === appid)
+        );
         return cred ? (cred.name || cred.author || cred.appid) : accountRef;
     }
 
@@ -255,7 +269,7 @@ class SchedulerManager {
             <tr${rowClass} data-task-id="${id}">
                 <td class="scheduler-id-cell" title="${this.escapeAttr(task.id)}">#${this.escapeHtml(this._shortId(task.id))}</td>
                 <td class="font-medium" title="${this.escapeAttr(this._taskLabel(task))}">${this.escapeHtml(this.truncate(this._taskLabel(task), 36))}</td>
-                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span><br><span class="text-secondary" style="font-size:11px;">${this.escapeHtml(({none:'只生成文章',save:'存草稿',publish:'正式发布'})[task.post_action] || '正式发布')}</span>${task.target_account_id || task.target_appid ? `<br><span class="text-secondary" style="font-size:11px;">→ ${this.escapeHtml(this._getCredentialLabel(task.target_account_id || task.target_appid))}</span>` : ''}</td>
+                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span><br><span class="text-secondary" style="font-size:11px;">${this.escapeHtml(({none:'只生成文章',save:'存草稿',publish:'正式发布'})[task.post_action] || '正式发布')}</span>${task.target_account_id || task.target_appid ? `<br><span class="text-secondary" style="font-size:11px;">→ ${this.escapeHtml(this._getCredentialLabel(task.target_account_id || task.target_appid, task.target_appid))}</span>` : ''}</td>
                 <td style="white-space:nowrap;font-size:13px;">${this.escapeHtml(task.execution_time || '-')}</td>
                 <td>${this.getRepeatText(task)}</td>
                 <td><span class="status-badge status-${this.escapeAttr(task.status)}">${this.getStatusText(task.status)}</span></td>

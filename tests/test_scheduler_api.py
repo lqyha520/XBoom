@@ -115,3 +115,15 @@ def test_scheduler_exposes_and_submits_image_style():
     assert 'task.image_style = data.image_style' in api_source
     scheduler_source = (root / "src/ai_write_x/core/scheduler.py").read_text(encoding="utf-8")
     assert '"image_style": getattr(task, "image_style", "auto") or "auto"' in scheduler_source
+
+
+def test_scheduler_refreshes_and_repairs_wechat_account_bindings():
+    root = SCHEDULER_API.parents[4]
+    script = (root / "src/ai_write_x/web/static/js/scheduler-manager.js").read_text(encoding="utf-8")
+    config_script = (root / "src/ai_write_x/web/static/js/config-manager.js").read_text(encoding="utf-8")
+    scheduler_source = (root / "src/ai_write_x/core/scheduler.py").read_text(encoding="utf-8")
+    assert "fetchWechatCredentials()" in script
+    assert "wechat-credentials-updated" in script
+    assert "get_by_appid(target_appid)" in scheduler_source
+    assert "Repaired stale account binding" in scheduler_source
+    assert "wechat-credentials-updated" in config_script

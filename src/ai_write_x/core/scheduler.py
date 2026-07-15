@@ -223,10 +223,31 @@ class SchedulerService:
             kwargs["post_mode"] = "draft" if post_action == "save" else "publish"
             if target_account_id:
                 from src.ai_write_x.core.account_profiles import AccountProfileService
-                profile = AccountProfileService().get_raw(target_account_id)
+                profile_service = AccountProfileService()
+                profile = profile_service.get_raw(target_account_id)
+                # 公众号被删除后重新添加时，账号 ID 可能变化；优先用任务保存的
+                # AppID 找回账号，单账号场景再安全地回退到唯一账号并自动修复绑定。
+                if not profile and target_appid:
+                    profile = profile_service.get_by_appid(target_appid)
+                if not profile:
+                    candidates = profile_service.list_raw()
+                    if len(candidates) == 1:
+                        profile = candidates[0]
+                        log.print_log(
+                            f"[Scheduler] Repaired stale account binding for task {task_id[:8]}",
+                            "warning",
+                        )
                 if not profile or not profile.get("enabled", True):
-                    raise RuntimeError("绑定的账号档案不存在或已暂停")
+                    raise RuntimeError("绑定的公众号不存在或已暂停，请在定时任务中重新选择公众号")
+                resolved_account_id = profile.get("account_id")
+                resolved_appid = profile.get("appid") or target_appid
+                if target_account_id != resolved_account_id or target_appid != resolved_appid:
+                    task.target_account_id = resolved_account_id
+                    task.target_appid = resolved_appid
+                    task.updated_at = datetime.now()
+                    task.save()
                 target_appid = profile.get("appid") or target_appid
+                target_account_id = resolved_account_id
                 kwargs["target_account_id"] = target_account_id
                 kwargs["brand_profile"] = profile
             if target_appid:
