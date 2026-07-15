@@ -77,3 +77,32 @@ def test_config_save_persists_normalized_url_and_runtime_has_a_fallback(tmp_path
 
     config.config["api"]["my-gateway"]["api_base"] = "https://legacy.example.com"
     assert config.api_apibase == "https://legacy.example.com/v1"
+
+
+def test_config_load_migrates_legacy_url_on_disk(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "api": {
+                    "api_type": "my-gateway",
+                    "my-gateway": {"api_base": "https://legacy.example.com"},
+                }
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    config = object.__new__(Config)
+    config.config_path = str(config_path)
+    config.config_aiforge_path = str(tmp_path / "missing-aiforge.toml")
+    config.default_config = {}
+    config.default_aiforge_config = {}
+    config.error_message = None
+    config._load_env_variables = lambda: None
+    config._load_secrets = lambda: None
+
+    assert config.load_config()
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert saved["api"]["my-gateway"]["api_base"] == "https://legacy.example.com/v1"

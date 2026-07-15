@@ -2197,6 +2197,21 @@ class Config:
                         self.config = yaml.safe_load(f)
                         if not self.config:
                             self.config = self.default_config
+                    api_config = self.config.get("api", {})
+                    api_before = yaml.safe_dump(api_config, allow_unicode=True, sort_keys=True)
+                    normalize_openai_provider_urls(api_config)
+                    api_after = yaml.safe_dump(api_config, allow_unicode=True, sort_keys=True)
+                    if api_before != api_after:
+                        with open(self.config_path, "w", encoding="utf-8") as f:
+                            yaml.dump(
+                                self.config,
+                                f,
+                                Dumper=IndentedDumper,
+                                allow_unicode=True,
+                                sort_keys=False,
+                                default_flow_style=False,
+                                indent=2,
+                            )
                 except Exception as e:
                     self.error_message = f"加载 config.yaml 失败: {e}"
                     log.print_log(self.error_message, "error")
