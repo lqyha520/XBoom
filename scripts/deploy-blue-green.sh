@@ -5,6 +5,7 @@ BASE_DIR="${XBOOM_BASE_DIR:-/www/wwwroot/xboom}"
 RELEASES_DIR="${XBOOM_RELEASES_DIR:-/www/wwwroot/xboom-releases}"
 CURRENT_LINK="${XBOOM_CURRENT_LINK:-/www/wwwroot/xboom-current}"
 RUNTIME_DIR="${XBOOM_RUNTIME_DIR:-/www/wwwroot/xboom-runtime}"
+CONFIG_RUNTIME_DIR="${XBOOM_CONFIG_RUNTIME_DIR:-$BASE_DIR/config-runtime}"
 VENV_DIR="${XBOOM_VENV_DIR:-$BASE_DIR/venv}"
 NGINX_CONF="${XBOOM_NGINX_CONF:-/www/server/panel/vhost/nginx/xboom.conf}"
 NGINX_BIN="${XBOOM_NGINX_BIN:-/www/server/nginx/sbin/nginx}"
@@ -125,7 +126,7 @@ wait_for_scheduler_idle() {
 }
 
 prepare_runtime_links() {
-    local release_dir="$1" path
+    local release_dir="$1" path source_path
     for path in data logs output secrets cache temp image; do
         mkdir -p "$BASE_DIR/$path"
         rm -rf -- "$release_dir/$path"
@@ -134,6 +135,36 @@ prepare_runtime_links() {
     rm -rf -- "$release_dir/venv" "$release_dir/.env.server"
     ln -s "$VENV_DIR" "$release_dir/venv"
     ln -s "$BASE_DIR/.env.server" "$release_dir/.env.server"
+
+    # The server runs from source, so PathManager normally writes user settings
+    # inside src/ai_write_x/config. Keep every writable settings file outside the
+    # versioned release and link it back into each new release.
+    install -d -m 0700 "$CONFIG_RUNTIME_DIR"
+    for path in \
+        config.yaml \
+        aiforge.toml \
+        dimensional_creative_config.yaml \
+        ui_config.json \
+        mcp_services.json \
+        install_id.txt \
+        aesthetic_profile.json
+    do
+        if [[ ! -e "$CONFIG_RUNTIME_DIR/$path" ]]; then
+            source_path=""
+            if [[ -f "$CURRENT_LINK/src/ai_write_x/config/$path" ]]; then
+                source_path="$CURRENT_LINK/src/ai_write_x/config/$path"
+            elif [[ -f "$release_dir/src/ai_write_x/config/$path" ]]; then
+                source_path="$release_dir/src/ai_write_x/config/$path"
+            fi
+            if [[ -n "$source_path" ]]; then
+                cp -aL -- "$source_path" "$CONFIG_RUNTIME_DIR/$path"
+                chmod 0600 "$CONFIG_RUNTIME_DIR/$path"
+                log "preserved runtime setting: $path"
+            fi
+        fi
+        rm -f -- "$release_dir/src/ai_write_x/config/$path"
+        ln -s "$CONFIG_RUNTIME_DIR/$path" "$release_dir/src/ai_write_x/config/$path"
+    done
 
     mkdir -p "$release_dir/knowledge"
     for path in newshub_cache.json; do
