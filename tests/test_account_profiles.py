@@ -118,30 +118,93 @@ def test_account_matrix_ui_is_removed_and_profile_fields_live_in_wechat_settings
     assert ".publish-section .publishing-controls-row" in config_css
 
 
-def test_single_configured_account_rebinds_stale_scheduled_tasks(monkeypatch):
+def test_default_and_fixed_task_bindings_are_resolved_explicitly():
     service = AccountProfileService(FakeConfig([
         {"account_id": "new-account", "name": "new", "appid": "wxnew", "appsecret": "secret"}
     ]))
-    task = SimpleNamespace(
+    default_task = SimpleNamespace(
+        account_binding_mode="default",
+        target_account_id=None,
+        target_appid=None,
+    )
+    fixed_task = SimpleNamespace(
+        account_binding_mode="fixed",
         target_account_id="old-account",
         target_appid="wxold",
+    )
+
+    profile, status, _ = service.resolve_task_account(default_task)
+    assert profile["account_id"] == "new-account"
+    assert status == "following_default"
+    profile, status, _ = service.resolve_task_account(fixed_task)
+    assert profile is None
+    assert status == "missing_account"
+
+
+def test_safe_delete_pauses_affected_tasks_and_moves_default(monkeypatch):
+    config = FakeConfig([
+        {"account_id": "account-a", "name": "A", "appid": "wxa", "appsecret": "secret-a"},
+        {"account_id": "account-b", "name": "B", "appid": "wxb", "appsecret": "secret-b"},
+    ])
+    service = AccountProfileService(config)
+    service.migrate()
+    assert service.get_default_account_id() == "account-a"
+
+    tasks = [
+        SimpleNamespace(id="fixed-a", account_binding_mode="fixed", target_account_id="account-a", target_appid="wxa", status="enabled", saved=0),
+        SimpleNamespace(id="follow-default", account_binding_mode="default", target_account_id=None, target_appid=None, status="enabled", saved=0),
+        SimpleNamespace(id="fixed-b", account_binding_mode="fixed", target_account_id="account-b", target_appid="wxb", status="enabled", saved=0),
+    ]
+    for task in tasks:
+        task.save = lambda task=task: setattr(task, "saved", task.saved + 1)
+
+    monkeypatch.setattr(db_manager, "get_all_tasks", lambda: tasks)
+    from src.ai_write_x.database.models import ScheduledTask
+    monkeypatch.setattr(ScheduledTask, "get_by_id", staticmethod(lambda task_id: next((t for t in tasks if t.id == task_id), None)))
+
+    result = service.safe_delete("account-a")
+
+    assert result["paused_tasks"] == 2
+    assert service.get_default_account_id() == "account-b"
+    assert tasks[0].status == "disabled"
+    assert tasks[1].status == "disabled"
+    assert tasks[2].status == "enabled"
+    assert "绑定公众号已删除" in tasks[0].preflight_message
+
+
+def test_safe_delete_does_not_pause_tasks_when_config_save_fails(monkeypatch):
+    config = FakeConfig([
+        {"account_id": "account-a", "name": "A", "appid": "wxa", "appsecret": "secret-a"},
+        {"account_id": "account-b", "name": "B", "appid": "wxb", "appsecret": "secret-b"},
+    ])
+    service = AccountProfileService(config)
+    service.migrate()
+
+    task = SimpleNamespace(
+        id="fixed-a",
+        account_binding_mode="fixed",
+        target_account_id="account-a",
+        target_appid="wxa",
+        status="enabled",
+        preflight_status="unchecked",
+        preflight_message=None,
+        preflight_checked_at=None,
         updated_at=None,
         saved=0,
     )
     task.save = lambda: setattr(task, "saved", task.saved + 1)
-    unbound_task = SimpleNamespace(
-        target_account_id=None,
-        target_appid=None,
-        updated_at=None,
-        saved=0,
-    )
-    unbound_task.save = lambda: setattr(unbound_task, "saved", unbound_task.saved + 1)
-    monkeypatch.setattr(db_manager, "get_all_tasks", lambda: [task, unbound_task])
+    monkeypatch.setattr(db_manager, "get_all_tasks", lambda: [task])
+    from src.ai_write_x.database.models import ScheduledTask
+    monkeypatch.setattr(ScheduledTask, "get_by_id", staticmethod(lambda _task_id: task))
+    config.save_config = lambda _config: False
 
-    assert service.rebind_all_tasks_to_single_account() == 2
-    assert task.target_account_id == "new-account"
-    assert task.target_appid == "wxnew"
-    assert task.saved == 1
-    assert unbound_task.target_account_id == "new-account"
-    assert unbound_task.target_appid == "wxnew"
-    assert unbound_task.saved == 1
+    try:
+        service.safe_delete("account-a")
+        assert False, "expected save failure"
+    except RuntimeError:
+        pass
+
+    assert task.status == "enabled"
+    assert task.saved == 0
+    assert service._wechat_root()["default_account_id"] == "account-a"
+    assert [item["account_id"] for item in service._wechat_root()["credentials"]] == ["account-a", "account-b"]

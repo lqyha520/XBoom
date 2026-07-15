@@ -28,6 +28,7 @@ class TaskCreate(BaseModel):
     collection_mode: bool = False
     target_appid: Optional[str] = None
     target_account_id: Optional[str] = None
+    account_binding_mode: str = "default"
     post_action: str = "save"
     repeat_mode: Optional[str] = None
 
@@ -40,6 +41,7 @@ class TaskUpdate(BaseModel):
     interval_hours: Optional[int] = None
     target_appid: Optional[str] = None
     target_account_id: Optional[str] = None
+    account_binding_mode: Optional[str] = None
     article_count: Optional[int] = None
     use_ai_beautify: Optional[bool] = None
     image_style: Optional[str] = None
@@ -47,10 +49,11 @@ class TaskUpdate(BaseModel):
     post_action: Optional[str] = None
     repeat_mode: Optional[str] = None
 
-@router.get("/tasks")
-async def get_tasks():
-    tasks = db_manager.get_all_tasks()
-    return [{
+def _serialize_task(t):
+    from src.ai_write_x.core.account_profiles import AccountProfileService
+
+    profile, binding_status, binding_message = AccountProfileService().resolve_task_account(t)
+    return {
         "id": str(t.id),
         "topic": t.topic or "",
         "platform": t.platform,
@@ -64,11 +67,24 @@ async def get_tasks():
         "collection_mode": getattr(t, "collection_mode", False),
         "target_appid": getattr(t, "target_appid", None),
         "target_account_id": getattr(t, "target_account_id", None),
+        "account_binding_mode": getattr(t, "account_binding_mode", "fixed"),
+        "resolved_account_id": (profile or {}).get("account_id"),
+        "resolved_account_name": (profile or {}).get("name") or (profile or {}).get("author") or "",
+        "binding_status": binding_status,
+        "binding_message": binding_message,
+        "preflight_status": getattr(t, "preflight_status", "unchecked"),
+        "preflight_message": getattr(t, "preflight_message", None),
+        "preflight_checked_at": t.preflight_checked_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(t, "preflight_checked_at", None) else None,
         "post_action": getattr(t, "post_action", "publish"),
         "status": t.status,
         "last_run_at": t.last_run_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(t, "last_run_at", None) else None,
         "created_at": t.created_at.strftime("%Y-%m-%d %H:%M:%S")
-    } for t in tasks]
+    }
+
+
+@router.get("/tasks")
+async def get_tasks():
+    return [_serialize_task(t) for t in db_manager.get_all_tasks()]
 
 @router.post("/tasks")
 async def create_task(data: TaskCreate):
@@ -84,6 +100,23 @@ async def create_task(data: TaskCreate):
             raise HTTPException(status_code=400, detail="Invalid repeat mode")
         if data.image_style not in IMAGE_STYLES:
             raise HTTPException(status_code=400, detail="Invalid image style")
+        if data.account_binding_mode not in {"default", "fixed", "none"}:
+            raise HTTPException(status_code=400, detail="Invalid account binding mode")
+        if data.account_binding_mode == "none" and data.post_action != "none":
+            raise HTTPException(status_code=400, detail="不绑定公众号时只能选择只生成文章")
+        if data.account_binding_mode == "fixed" and not (data.target_account_id or data.target_appid):
+            raise HTTPException(status_code=400, detail="固定绑定必须选择公众号")
+        if data.account_binding_mode == "fixed":
+            from src.ai_write_x.core.account_profiles import AccountProfileService
+            profile_service = AccountProfileService()
+            profile = profile_service.get_raw(data.target_account_id) if data.target_account_id else None
+            if not profile and data.target_appid:
+                profile = profile_service.get_by_appid(data.target_appid)
+            if not profile:
+                raise HTTPException(status_code=400, detail="选择的公众号不存在，请刷新列表后重试")
+            profile_status, profile_message = profile_service.status_for(profile)
+            if profile_status in {"disabled", "unconfigured"}:
+                raise HTTPException(status_code=400, detail=profile_message)
         task = db_manager.add_scheduled_task(
             topic=data.topic,
             execution_time=exec_time,
@@ -94,8 +127,9 @@ async def create_task(data: TaskCreate):
             use_ai_beautify=data.use_ai_beautify,
             image_style=data.image_style,
             collection_mode=data.collection_mode,
-            target_appid=data.target_appid,
-            target_account_id=data.target_account_id,
+            target_appid=data.target_appid if data.account_binding_mode == "fixed" else None,
+            target_account_id=data.target_account_id if data.account_binding_mode == "fixed" else None,
+            account_binding_mode=data.account_binding_mode,
             post_action=data.post_action,
             repeat_mode=repeat_mode,
         )
@@ -115,6 +149,9 @@ async def update_task(task_id: str, data: TaskUpdate):
             raise HTTPException(status_code=404, detail="Task not found")
         if task.status in task_status.ACTIVE_STATUSES and data.status and data.status != task.status:
             raise HTTPException(status_code=409, detail="Task is running; cancel this run before changing status")
+        binding_fields_changed = bool(
+            {"account_binding_mode", "target_account_id", "target_appid"} & data.model_fields_set
+        )
         if data.status:
             task.status = data.status
         if data.topic is not None:
@@ -136,6 +173,13 @@ async def update_task(task_id: str, data: TaskUpdate):
             task.target_appid = data.target_appid
         if "target_account_id" in data.model_fields_set:
             task.target_account_id = data.target_account_id
+        if data.account_binding_mode is not None:
+            if data.account_binding_mode not in {"default", "fixed", "none"}:
+                raise HTTPException(status_code=400, detail="Invalid account binding mode")
+            task.account_binding_mode = data.account_binding_mode
+            if data.account_binding_mode in {"default", "none"}:
+                task.target_account_id = None
+                task.target_appid = None
         if data.article_count is not None:
             task.article_count = data.article_count
         if data.use_ai_beautify is not None:
@@ -150,6 +194,15 @@ async def update_task(task_id: str, data: TaskUpdate):
             if data.post_action not in {"none", "save", "publish"}:
                 raise HTTPException(status_code=400, detail="Invalid post action")
             task.post_action = data.post_action
+        if getattr(task, "account_binding_mode", "fixed") == "none" and getattr(task, "post_action", "publish") != "none":
+            raise HTTPException(status_code=400, detail="不绑定公众号时只能选择只生成文章")
+        if binding_fields_changed and getattr(task, "account_binding_mode", "fixed") == "fixed" and not (task.target_account_id or task.target_appid):
+            raise HTTPException(status_code=400, detail="固定绑定必须选择公众号")
+        if binding_fields_changed and getattr(task, "account_binding_mode", "fixed") == "fixed":
+            from src.ai_write_x.core.account_profiles import AccountProfileService
+            profile, binding_status, binding_message = AccountProfileService().resolve_task_account(task)
+            if not profile or binding_status in {"missing_account", "unconfigured", "disabled"}:
+                raise HTTPException(status_code=400, detail=binding_message)
         if data.execution_time:
             try:
                 task.execution_time = datetime.fromisoformat(data.execution_time.replace("Z", "+00:00"))
@@ -157,8 +210,11 @@ async def update_task(task_id: str, data: TaskUpdate):
                 task.execution_time = datetime.strptime(data.execution_time, "%Y-%m-%d %H:%M:%S")
         
         task.updated_at = datetime.now()
+        task.preflight_status = "unchecked"
+        task.preflight_message = None
+        task.preflight_checked_at = None
         task.save()
-        return {"status": "success"}
+        return {"status": "success", "task": _serialize_task(task)}
     except HTTPException:
         raise
     except Exception as e:
@@ -174,6 +230,30 @@ async def delete_task(task_id: str):
     if db_manager.delete_task(task_id):
         return {"status": "success"}
     raise HTTPException(status_code=404, detail="Task not found")
+
+
+@router.post("/tasks/{task_id}/preflight")
+async def preflight_task(task_id: str):
+    from src.ai_write_x.core.scheduler_preflight import run_task_preflight, save_preflight_result
+    from src.ai_write_x.database.models import ScheduledTask
+
+    task = ScheduledTask.get_by_id(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status in task_status.ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="Task is running")
+
+    result = await run_task_preflight(task, live_wechat=True)
+    save_preflight_result(task, result, pause_on_error=True)
+    if result.get("ok") and task.status == task_status.DISABLED:
+        task.status = task_status.ENABLED
+        task.updated_at = datetime.now()
+        task.save()
+    return {
+        "status": "success" if result.get("ok") else "error",
+        "message": result.get("message"),
+        "task": _serialize_task(task),
+    }
 
 @router.post("/tasks/{task_id}/cancel")
 async def cancel_task(task_id: str):
@@ -204,12 +284,13 @@ async def verify_platform(platform: str):
 
     try:
         from src.ai_write_x.config.config import Config
+        from src.ai_write_x.core.account_profiles import AccountProfileService
         from src.ai_write_x.web.api.config import WechatCredentialTest, test_wechat_credential
 
         config = Config.get_instance()
-        creds = config.wechat_credentials or []
-        cred = next(
-            (c for c in creds if (c.get("appid") or "").strip() and (c.get("appsecret") or "").strip()),
+        profile_service = AccountProfileService(config)
+        cred = profile_service.get_default() or next(
+            (c for c in profile_service.list_raw() if (c.get("appid") or "").strip() and (c.get("appsecret") or "").strip()),
             None,
         )
         if not cred:
@@ -248,6 +329,7 @@ async def get_wechat_credentials():
                 "status": item.get("status"),
                 "enabled": item.get("enabled", True),
                 "configured": bool(item.get("appid") and item.get("has_secret")),
+                "is_default": item.get("is_default", False),
             })
         return result
     except Exception as e:

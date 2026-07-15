@@ -271,6 +271,7 @@ class DBManager:
                            image_style: str = "auto",
                            collection_mode: bool = False, target_appid: str = None,
                            target_account_id: str = None,
+                           account_binding_mode: str = "default",
                            post_action: str = "publish",
                            repeat_mode: str = "once") -> Optional[ScheduledTask]:
         try:
@@ -288,6 +289,7 @@ class DBManager:
                     collection_mode=collection_mode,
                     target_appid=target_appid,
                     target_account_id=target_account_id,
+                    account_binding_mode=account_binding_mode if account_binding_mode in {"default", "fixed", "none"} else "default",
                     post_action=post_action if post_action in {"none", "save", "publish"} else "publish",
                 )
                 session.add(task)

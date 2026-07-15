@@ -81,6 +81,8 @@ async def get_config():
     """获取当前配置"""
     try:
         config = Config.get_instance()
+        from src.ai_write_x.core.account_profiles import AccountProfileService
+        AccountProfileService(config).migrate()
         config_dict = config.config
 
         config_data = {
@@ -163,16 +165,36 @@ async def save_config_to_file():
         config = Config.get_instance()
         # 调用核心配置类的保存方法，传递当前内存中的配置
         if config.save_config(config.config, config.aiforge_config):
-            rebound_tasks = 0
-            try:
-                from src.ai_write_x.core.account_profiles import AccountProfileService
-                rebound_tasks = AccountProfileService(config).rebind_all_tasks_to_single_account()
-            except Exception as rebind_error:
-                log.print_log(f"公众号更新后迁移定时任务绑定失败: {rebind_error}", "warning")
+            from src.ai_write_x.core.account_profiles import AccountProfileService
+            from src.ai_write_x.database.db_manager import db_manager
+
+            profile_service = AccountProfileService(config)
+            profile_service.migrate()
+            default_profile = profile_service.get_default()
+            tasks = db_manager.get_all_tasks()
+            following_default = sum(
+                1 for task in tasks
+                if getattr(task, "account_binding_mode", "fixed") == "default"
+            )
+            binding_error_statuses = {"missing_default", "missing_account", "unconfigured", "disabled"}
+            binding_errors = 0
+            paused_or_error_tasks = 0
+            for task in tasks:
+                has_binding_error = profile_service.resolve_task_account(task)[1] in binding_error_statuses
+                binding_errors += int(has_binding_error)
+                paused_or_error_tasks += int(
+                    getattr(task, "status", "") == "disabled"
+                    or getattr(task, "preflight_status", "") == "error"
+                    or has_binding_error
+                )
             return {
                 "status": "success",
                 "message": "所有配置文件已持久化到磁盘",
-                "rebound_tasks": rebound_tasks,
+                "default_account_id": (default_profile or {}).get("account_id", ""),
+                "default_account_name": (default_profile or {}).get("name") or (default_profile or {}).get("author", ""),
+                "following_default_tasks": following_default,
+                "binding_error_tasks": binding_errors,
+                "paused_or_error_tasks": paused_or_error_tasks,
             }
         else:
             return {"status": "error", "message": "物理保存失败，请检查文件权限"}
@@ -196,6 +218,50 @@ async def get_default_config():
     except Exception as e:
         log.print_log(f"获取默认配置失败: {str(e)}", "error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/wechat/accounts/{account_id}/set-default")
+async def set_default_wechat_account(account_id: str):
+    try:
+        from src.ai_write_x.core.account_profiles import AccountProfileService
+
+        profile = AccountProfileService().set_default(account_id)
+        return {
+            "status": "success",
+            "default_account_id": profile.get("account_id"),
+            "default_account_name": profile.get("name") or profile.get("author") or "",
+        }
+    except KeyError:
+        raise HTTPException(status_code=404, detail="公众号不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/wechat/accounts/{account_id}/delete-impact")
+async def get_wechat_delete_impact(account_id: str):
+    try:
+        from src.ai_write_x.core.account_profiles import AccountProfileService
+
+        return AccountProfileService().delete_impact(account_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="公众号不存在")
+
+
+@router.delete("/wechat/accounts/{account_id}")
+async def safely_delete_wechat_account(account_id: str):
+    try:
+        from src.ai_write_x.core.account_profiles import AccountProfileService
+
+        result = AccountProfileService().safe_delete(account_id)
+        return {"status": "success", **result}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="公众号不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 def get_ui_config_path():

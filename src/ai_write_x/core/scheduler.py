@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import time
 import traceback
@@ -214,52 +215,33 @@ class SchedulerService:
                 "use_ai_beautify": task.use_ai_beautify,
                 "image_style": getattr(task, "image_style", "auto") or "auto",
             }
-            target_account_id = getattr(task, "target_account_id", None)
-            target_appid = getattr(task, "target_appid", None)
             post_action = getattr(task, "post_action", "publish") or "publish"
             if post_action not in {"none", "save", "publish"}:
                 post_action = "publish"
             kwargs["auto_publish"] = post_action != "none"
             kwargs["post_mode"] = "draft" if post_action == "save" else "publish"
-            if target_account_id:
-                from src.ai_write_x.core.account_profiles import AccountProfileService
-                profile_service = AccountProfileService()
-                profile = profile_service.get_raw(target_account_id)
-                # 公众号被删除后重新添加时，账号 ID 可能变化；只允许按同一个
-                # AppID 找回账号。若当前只有一个已配置账号，则视为“更换公众号”
-                # 场景自动迁移旧任务绑定，避免历史任务持续失败。
-                if not profile and target_appid:
-                    profile = profile_service.get_by_appid(target_appid)
-                if not profile:
-                    candidates = [item for item in profile_service.list_raw()
-                                  if item.get("enabled", True)
-                                  and item.get("appid")
-                                  and item.get("appsecret")]
-                    if len(candidates) == 1:
-                        profile = candidates[0]
-                        log.print_log(
-                            f"[Scheduler] Auto-migrating task {task_id[:8]} to the only configured WeChat account",
-                            "warning",
-                        )
-                if not profile or not profile.get("enabled", True):
-                    raise RuntimeError("绑定的公众号不存在或已暂停，请在定时任务中重新选择公众号")
-                resolved_account_id = profile.get("account_id")
-                resolved_appid = profile.get("appid") or target_appid
-                if target_account_id != resolved_account_id or target_appid != resolved_appid:
-                    task.target_account_id = resolved_account_id
-                    task.target_appid = resolved_appid
-                    task.updated_at = datetime.now()
-                    task.save()
-                    log.print_log(
-                        f"[Scheduler] Repaired stale account binding for task {task_id[:8]} by AppID",
-                        "warning",
-                    )
-                target_appid = profile.get("appid") or target_appid
-                target_account_id = resolved_account_id
-                kwargs["target_account_id"] = target_account_id
+            from src.ai_write_x.core.scheduler_preflight import run_task_preflight, save_preflight_result
+
+            preflight = asyncio.run(run_task_preflight(task, live_wechat=True))
+            save_preflight_result(task, preflight, pause_on_error=True)
+            if not preflight.get("ok"):
+                outcome = task_status.DISABLED
+                db_manager.log_task_execution(
+                    task_id,
+                    task_status.DISABLED,
+                    f"Preflight failed; task paused: {preflight.get('message')}",
+                )
+                log.print_log(
+                    f"[Scheduler] Task {task_id[:8]} preflight failed and was paused: {preflight.get('message')}",
+                    "error",
+                )
+                return
+
+            profile = preflight.get("profile")
+            if profile:
+                kwargs["target_account_id"] = profile.get("account_id")
+                kwargs["target_appid"] = profile.get("appid")
                 kwargs["brand_profile"] = profile
-            if target_appid:
-                kwargs["target_appid"] = target_appid
             kwargs["cancel_check"] = lambda task_id=task_id: self.is_cancel_requested(task_id)
             if is_collection:
                 kwargs["collection_mode"] = True
@@ -454,6 +436,12 @@ class SchedulerService:
             now = datetime.now()
             task.last_run_at = now
             was_cancelled = outcome == task_status.CANCELLED or task.status == task_status.CANCEL_REQUESTED
+
+            if outcome == task_status.DISABLED or task.status == task_status.DISABLED:
+                task.status = task_status.DISABLED
+                task.updated_at = now
+                task.save()
+                return
 
             repeat_mode = self._repeat_mode(task)
             if repeat_mode == "daily":

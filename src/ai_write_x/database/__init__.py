@@ -268,6 +268,18 @@ class MigrationManager:
                     "ALTER TABLE scheduled_tasks ADD COLUMN image_style VARCHAR DEFAULT 'auto'",
                 ],
             },
+            {
+                "version": "v1.9.0-scheduled-account-binding",
+                "description": "Scheduled task account binding mode and preflight status",
+                "statements": [
+                    "ALTER TABLE scheduled_tasks ADD COLUMN account_binding_mode VARCHAR DEFAULT 'fixed'",
+                    "ALTER TABLE scheduled_tasks ADD COLUMN preflight_status VARCHAR DEFAULT 'unchecked'",
+                    "ALTER TABLE scheduled_tasks ADD COLUMN preflight_message VARCHAR",
+                    "ALTER TABLE scheduled_tasks ADD COLUMN preflight_checked_at TIMESTAMP",
+                    "UPDATE scheduled_tasks SET account_binding_mode = 'none' WHERE target_account_id IS NULL AND target_appid IS NULL",
+                    "UPDATE scheduled_tasks SET account_binding_mode = 'fixed' WHERE target_account_id IS NOT NULL OR target_appid IS NOT NULL",
+                ],
+            },
         ]
         
         for migration in migrations:

@@ -80,6 +80,7 @@ class Config:
             ],
             "publish_platform": "wechat",
             "wechat": {
+                "default_account_id": "",
                 "credentials": [
                     {
                         "account_id": "",

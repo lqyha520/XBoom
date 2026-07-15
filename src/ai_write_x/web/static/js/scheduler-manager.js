@@ -152,18 +152,85 @@ class SchedulerManager {
         }
     }
 
+    _normalizeWechatCredential(credential, index = 0, defaultAccountId = '') {
+        if (!credential || typeof credential !== 'object') return null;
+        const accountId = String(credential.account_id || '').trim();
+        const appid = String(credential.appid || '').trim();
+        const name = String(credential.name || credential.author || `公众号 ${index + 1}`).trim() || `公众号 ${index + 1}`;
+        const hasSecret = credential.has_secret === true || Boolean(String(credential.appsecret || '').trim());
+        return {
+            account_id: accountId,
+            appid,
+            author: String(credential.author || name).trim() || name,
+            name,
+            draft_only: credential.draft_only === true,
+            status: credential.status || 'unchecked',
+            enabled: credential.enabled !== false,
+            configured: credential.configured === true || Boolean(appid && hasSecret),
+            is_default: credential.is_default === true || Boolean(accountId && accountId === defaultAccountId),
+        };
+    }
+
+    _credentialsFromConfig(configPayload) {
+        const config = configPayload?.data || configPayload || {};
+        const wechat = config.wechat || {};
+        const defaultAccountId = String(wechat.default_account_id || '').trim();
+        const credentials = Array.isArray(wechat.credentials) ? wechat.credentials : [];
+        return credentials
+            .map((credential, index) => this._normalizeWechatCredential(credential, index, defaultAccountId))
+            .filter(Boolean);
+    }
+
+    _mergeWechatCredentials(...sources) {
+        const merged = [];
+        for (const source of sources) {
+            for (const credential of (Array.isArray(source) ? source : [])) {
+                const existing = merged.find((item) =>
+                    (item.account_id && credential.account_id && item.account_id === credential.account_id)
+                    || (item.appid && credential.appid && item.appid === credential.appid)
+                );
+                if (!existing) {
+                    merged.push({ ...credential });
+                    continue;
+                }
+                const wasConfigured = existing.configured === true;
+                const wasDefault = existing.is_default === true;
+                Object.assign(existing, credential);
+                existing.configured = wasConfigured || credential.configured === true;
+                existing.is_default = wasDefault || credential.is_default === true;
+            }
+        }
+        return merged;
+    }
+
     async fetchWechatCredentials() {
+        let endpointCredentials = [];
+        let endpointError = null;
         try {
-            this.wechatCredentials = await this._fetchJson('/api/scheduler/wechat-credentials', { cache: 'no-store' });
-            if (!Array.isArray(this.wechatCredentials)) this.wechatCredentials = [];
-            this.renderWechatCredentials();
-            return true;
+            const response = await this._fetchJson(`/api/scheduler/wechat-credentials?_=${Date.now()}`, { cache: 'no-store' });
+            endpointCredentials = Array.isArray(response)
+                ? response.map((credential, index) => this._normalizeWechatCredential(credential, index)).filter(Boolean)
+                : [];
         } catch (error) {
             console.error('Fetch wechat credentials failed:', error);
-            this.wechatCredentials = [];
-            this.renderWechatCredentials();
-            return false;
+            endpointError = error;
         }
+
+        const localConfig = window.configManager?.getConfig?.() || window.configManager?.config || {};
+        let configCredentials = this._credentialsFromConfig(localConfig);
+        if (endpointCredentials.length === 0 && configCredentials.length === 0) {
+            try {
+                const configResponse = await this._fetchJson(`/api/config?_=${Date.now()}`, { cache: 'no-store' });
+                configCredentials = this._credentialsFromConfig(configResponse);
+            } catch (error) {
+                console.error('Fetch config credentials fallback failed:', error);
+                endpointError ||= error;
+            }
+        }
+
+        this.wechatCredentials = this._mergeWechatCredentials(endpointCredentials, configCredentials);
+        this.renderWechatCredentials();
+        return this.wechatCredentials.length > 0 || !endpointError;
     }
 
     async refreshWechatCredentials(showToast = false) {
@@ -179,7 +246,9 @@ class SchedulerManager {
         const accountSelect = document.getElementById('task-target-appid');
         if (tip && accountSelect?.dataset.staleBinding !== 'true') {
             tip.textContent = success
-                ? `已同步 ${this.wechatCredentials.length} 个公众号`
+                ? (this.wechatCredentials.length > 0
+                    ? `已同步 ${this.wechatCredentials.length} 个公众号，可分别固定绑定到不同任务`
+                    : '未读取到公众号，请先在设置中添加并保存公众号')
                 : '刷新失败，请检查网络后重试';
         }
         if (button) {
@@ -188,7 +257,11 @@ class SchedulerManager {
         }
         if (showToast) {
             this._notify(
-                success ? `公众号列表已刷新，共 ${this.wechatCredentials.length} 个` : '公众号列表刷新失败',
+                success
+                    ? (this.wechatCredentials.length > 0
+                        ? `公众号列表已刷新，共 ${this.wechatCredentials.length} 个，可为不同任务分别选择`
+                        : '没有已保存的公众号，请先前往设置添加')
+                    : '公众号列表刷新失败',
                 success ? 'success' : 'error'
             );
         }
@@ -199,10 +272,11 @@ class SchedulerManager {
         const select = document.getElementById('task-target-appid');
         if (!select) return;
         const current = select.value;
-        select.innerHTML = '<option value="">全部公众号</option>';
+        select.innerHTML = '<option value="__default__">跟随默认公众号</option><option value="__none__">不绑定公众号</option>';
         for (const [index, cred] of this.wechatCredentials.entries()) {
             const displayName = String(cred.name || cred.author || `公众号 ${index + 1}`).trim() || `公众号 ${index + 1}`;
-            const label = cred.appid ? `${displayName} (${cred.appid})` : `${displayName}（未配置 AppID）`;
+            const defaultBadge = cred.is_default ? ' · 默认' : '';
+            const label = cred.appid ? `${displayName}${defaultBadge} (${cred.appid})` : `${displayName}（未配置 AppID）`;
             const opt = document.createElement('option');
             opt.value = cred.account_id || cred.appid;
             opt.dataset.appid = cred.appid;
@@ -220,7 +294,12 @@ class SchedulerManager {
             if (selectedTaskMatch) select.value = selectedTaskMatch.account_id || selectedTaskMatch.appid;
         }
         const tip = document.getElementById('task-account-refresh-tip');
-        if (selectedTask && (selectedTask.target_account_id || selectedTask.target_appid) && !selectedTaskMatch) {
+        if (selectedTask?.account_binding_mode === 'default') {
+            select.value = '__default__';
+        } else if (selectedTask?.account_binding_mode === 'none') {
+            select.value = '__none__';
+        }
+        if (selectedTask && selectedTask.account_binding_mode === 'fixed' && !selectedTaskMatch) {
             select.dataset.staleBinding = 'true';
             if (tip) tip.textContent = '原绑定公众号已删除，请刷新后重新选择公众号';
         } else {
@@ -234,6 +313,18 @@ class SchedulerManager {
             c.account_id === accountRef || c.appid === accountRef || (appid && c.appid === appid)
         );
         return cred ? (cred.name || cred.author || cred.appid) : '已删除公众号（请重新选择）';
+    }
+
+    _bindingLabel(task) {
+        const name = task.resolved_account_name || '';
+        if (task.account_binding_mode === 'default') {
+            return name ? `跟随默认 · ${name}` : '跟随默认 · 未设置';
+        }
+        if (task.account_binding_mode === 'none') return '不绑定公众号';
+        if (task.binding_status === 'missing_account') return '原公众号已删除';
+        if (task.binding_status === 'disabled') return `${name || '固定公众号'} · 已暂停`;
+        if (task.binding_status === 'unconfigured') return `${name || '固定公众号'} · 配置不完整`;
+        return `固定绑定 · ${name || this._getCredentialLabel(task.target_account_id || task.target_appid, task.target_appid)}`;
     }
 
     _shortId(id) {
@@ -303,18 +394,28 @@ class SchedulerManager {
             const rowClass = this.lastCreatedTaskId === task.id ? ' class="scheduler-row-new"' : '';
             const id = this.escapeAttr(task.id);
             const isRunning = this._isRunningStatus(task.status);
+            const bindingError = ['missing_account', 'missing_default', 'unconfigured', 'disabled'].includes(task.binding_status);
+            const bindingColor = bindingError ? 'var(--danger-color)' : 'var(--text-secondary)';
+            const preflightText = task.preflight_status === 'error' && task.preflight_message
+                ? `<br><span style="font-size:10px;color:var(--danger-color);">${this.escapeHtml(task.preflight_message)}</span>`
+                : '';
             const toggleTitle = isRunning ? '运行中不可切换，请先取消本次执行' : (task.status === 'enabled' ? '暂停' : '启用');
             return `
             <tr${rowClass} data-task-id="${id}">
                 <td class="scheduler-id-cell" title="${this.escapeAttr(task.id)}">#${this.escapeHtml(this._shortId(task.id))}</td>
                 <td class="font-medium" title="${this.escapeAttr(this._taskLabel(task))}">${this.escapeHtml(this.truncate(this._taskLabel(task), 36))}</td>
-                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span><br><span class="text-secondary" style="font-size:11px;">${this.escapeHtml(({none:'只生成文章',save:'存草稿',publish:'正式发布'})[task.post_action] || '正式发布')}</span>${task.target_account_id || task.target_appid ? `<br><span class="text-secondary" style="font-size:11px;">→ ${this.escapeHtml(this._getCredentialLabel(task.target_account_id || task.target_appid, task.target_appid))}</span>` : ''}</td>
+                <td><span class="tag tag-outline">${this.escapeHtml(this.platformLabels[task.platform] || task.platform)}</span><br><span class="text-secondary" style="font-size:11px;">${this.escapeHtml(({none:'只生成文章',save:'存草稿',publish:'正式发布'})[task.post_action] || '正式发布')}</span><br><span style="font-size:11px;color:${bindingColor};">→ ${this.escapeHtml(this._bindingLabel(task))}</span>${preflightText}</td>
                 <td style="white-space:nowrap;font-size:13px;">${this.escapeHtml(task.execution_time || '-')}</td>
                 <td>${this.getRepeatText(task)}</td>
                 <td><span class="status-badge status-${this.escapeAttr(task.status)}">${this.getStatusText(task.status)}</span></td>
                 <td>
                     <div class="table-actions">
                         ${isRunning ? this._cancelButton(id) : ''}
+                        ${bindingError
+                            ? `<button class="btn btn-icon btn-sm" onclick="window.schedulerManager.repairTaskBinding('${id}')" title="修复公众号绑定"${isRunning ? ' disabled' : ''}>↻</button>`
+                            : task.preflight_status === 'error'
+                                ? `<button class="btn btn-icon btn-sm" onclick="window.schedulerManager.preflightTask('${id}')" title="重新预检"${isRunning ? ' disabled' : ''}>✓</button>`
+                                : ''}
                         <button class="btn btn-icon btn-sm" onclick="window.schedulerManager.openEditTaskModal('${id}')" title="编辑"${isRunning ? ' disabled' : ''}>
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -409,7 +510,7 @@ class SchedulerManager {
         document.getElementById('task-modal-title').innerText = '新建定时任务';
         document.getElementById('task-topic').value = '';
         document.getElementById('task-platform').value = 'wechat';
-        document.getElementById('task-target-appid').value = '';
+        document.getElementById('task-target-appid').value = '__default__';
         document.getElementById('task-post-action').value = 'save';
         document.getElementById('task-image-style').value = 'auto';
         document.getElementById('task-exec-time').value = this.getDefaultExecTime();
@@ -439,7 +540,11 @@ class SchedulerManager {
         document.getElementById('task-modal-title').innerText = '编辑定时任务';
         document.getElementById('task-topic').value = task.topic || '';
         document.getElementById('task-platform').value = task.platform || 'wechat';
-        document.getElementById('task-target-appid').value = task.target_account_id || task.target_appid || '';
+        document.getElementById('task-target-appid').value = task.account_binding_mode === 'default'
+            ? '__default__'
+            : task.account_binding_mode === 'none'
+                ? '__none__'
+                : (task.target_account_id || task.target_appid || '');
         document.getElementById('task-post-action').value = task.post_action || 'publish';
         document.getElementById('task-image-style').value = task.image_style || 'auto';
         // execution_time 格式: "2026-06-24 08:00:00" -> "2026-06-24T08:00:00"
@@ -541,6 +646,7 @@ class SchedulerManager {
         const platform = document.getElementById('task-platform').value;
         const targetAccountId = document.getElementById('task-target-appid').value;
         const accountSelect = document.getElementById('task-target-appid');
+        const bindingMode = targetAccountId === '__default__' ? 'default' : targetAccountId === '__none__' ? 'none' : 'fixed';
         const targetCredential = this.wechatCredentials.find(c => (c.account_id || c.appid) === targetAccountId);
         const repeatMode = document.getElementById('task-repeat-mode').value;
         const interval = document.getElementById('task-interval').value;
@@ -558,8 +664,12 @@ class SchedulerManager {
             this._notify('当前仅支持微信公众号定时发布', 'warning');
             return;
         }
-        if (accountSelect?.dataset.staleBinding === 'true' && !targetAccountId) {
+        if (accountSelect?.dataset.staleBinding === 'true' && bindingMode === 'fixed' && !targetCredential) {
             this._notify('原绑定公众号已删除，请重新选择一个公众号', 'warning');
+            return;
+        }
+        if (bindingMode === 'none' && postAction !== 'none') {
+            this._notify('存草稿或正式发布必须选择公众号', 'warning');
             return;
         }
 
@@ -576,9 +686,10 @@ class SchedulerManager {
                 image_style: imageStyle,
                 collection_mode: collectionMode,
                 post_action: postAction,
+                account_binding_mode: bindingMode,
             };
-            body.target_account_id = targetAccountId || null;
-            body.target_appid = targetCredential?.appid || null;
+            body.target_account_id = bindingMode === 'fixed' ? targetAccountId : null;
+            body.target_appid = bindingMode === 'fixed' ? (targetCredential?.appid || null) : null;
 
             let result;
             if (this.selectedTaskId) {
@@ -611,6 +722,11 @@ class SchedulerManager {
             this._notify('任务正在执行，请使用取消本次执行', 'warning');
             return;
         }
+        const task = this.tasks.find(item => String(item.id) === String(id));
+        if (currentStatus !== 'enabled' && task?.preflight_status === 'error') {
+            await this.preflightTask(id);
+            return;
+        }
         const newStatus = currentStatus === 'enabled' ? 'disabled' : 'enabled';
         try {
             await this._fetchJson(`/api/scheduler/tasks/${encodeURIComponent(id)}`, {
@@ -623,6 +739,32 @@ class SchedulerManager {
             console.error('Toggle task failed:', error);
             this._notify(`操作失败：${error.message}`, 'error');
         }
+    }
+
+    async preflightTask(id) {
+        try {
+            this._notify('正在检查公众号、模型和图片配置...', 'info');
+            const result = await this._fetchJson(`/api/scheduler/tasks/${encodeURIComponent(id)}/preflight`, {
+                method: 'POST',
+            });
+            await this.refreshData(false, true);
+            this._notify(result.message || '执行前检查通过', result.status === 'success' ? 'success' : 'error');
+        } catch (error) {
+            await this.refreshData(false, true);
+            this._notify(`预检失败：${error.message}`, 'error');
+        }
+    }
+
+    repairTaskBinding(id) {
+        this.openEditTaskModal(id);
+        window.setTimeout(() => {
+            const select = document.getElementById('task-target-appid');
+            if (!select) return;
+            select.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            select.focus();
+            select.classList.add('scheduler-field-attention');
+            window.setTimeout(() => select.classList.remove('scheduler-field-attention'), 1800);
+        }, 50);
     }
 
     async cancelTask(id) {

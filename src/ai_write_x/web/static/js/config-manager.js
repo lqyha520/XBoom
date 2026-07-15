@@ -1536,27 +1536,64 @@ class AIWriteXConfigManager {
     // 删除凭证  
     async deleteWeChatCredential(index) {
         const credentials = [...(this.config.wechat?.credentials || [])];
-        credentials.splice(index, 1);
+        const credential = credentials[index];
+        if (!credential) return;
 
-        const updated = await this.updateConfig({
-            wechat: { credentials }
-        });
-        if (!updated) {
-            window.app?.showNotification('删除公众号失败，请稍后重试', 'error');
+        if (!credential.account_id) {
+            credentials.splice(index, 1);
+            await this.updateConfig({ wechat: { credentials } });
+            this.populateWeChatUI();
             return;
         }
 
-        // 删除后立即保存到文件，防止重启后凭证恢复；保存完成后再刷新定时任务。
-        const saved = await this.saveConfig();
-        this.populateWeChatUI();
-        if (saved) {
-            document.dispatchEvent(new CustomEvent('wechat-credentials-updated'));
-        }
+        try {
+            const impactResponse = await fetch(`/api/config/wechat/accounts/${encodeURIComponent(credential.account_id)}/delete-impact`, { cache: 'no-store' });
+            if (!impactResponse.ok) throw new Error(`HTTP ${impactResponse.status}`);
+            const impact = await impactResponse.json();
+            const name = impact.name || credential.name || credential.author || '该公众号';
+            if (impact.running_tasks > 0) {
+                window.app?.showNotification(`有 ${impact.running_tasks} 个相关定时任务正在运行，请先取消后再删除`, 'warning');
+                return;
+            }
+            const message = impact.affected_tasks > 0
+                ? `删除“${name}”将暂停 ${impact.affected_tasks} 个相关定时任务，是否继续？`
+                : `确定删除“${name}”吗？`;
+            if (!confirm(message)) return;
 
-        window.app?.showNotification(
-            saved ? '公众号已删除并保存' : '公众号已删除，但保存配置失败',
-            saved ? 'info' : 'error'
-        );
+            const response = await fetch(`/api/config/wechat/accounts/${encodeURIComponent(credential.account_id)}`, { method: 'DELETE' });
+            if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.detail || `HTTP ${response.status}`);
+            }
+            const result = await response.json();
+            await this.loadConfig();
+            this.populateWeChatUI();
+            document.dispatchEvent(new CustomEvent('wechat-credentials-updated'));
+            window.app?.showNotification(
+                result.paused_tasks > 0 ? `公众号已删除，已暂停 ${result.paused_tasks} 个定时任务` : '公众号已删除',
+                'success'
+            );
+        } catch (error) {
+            window.app?.showNotification(`删除公众号失败：${error.message}`, 'error');
+        }
+    }
+
+    async setDefaultWeChatAccount(accountId) {
+        if (!accountId) return;
+        try {
+            const response = await fetch(`/api/config/wechat/accounts/${encodeURIComponent(accountId)}/set-default`, { method: 'POST' });
+            if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.detail || `HTTP ${response.status}`);
+            }
+            const result = await response.json();
+            this.config.wechat.default_account_id = result.default_account_id;
+            this.populateWeChatUI();
+            document.dispatchEvent(new CustomEvent('wechat-credentials-updated'));
+            window.app?.showNotification(`已将“${result.default_account_name || '该公众号'}”设为默认公众号`, 'success');
+        } catch (error) {
+            window.app?.showNotification(`设置默认公众号失败：${error.message}`, 'error');
+        }
     }
 
     // 保存微信配置  
@@ -1583,6 +1620,8 @@ class AIWriteXConfigManager {
         const success = await this.saveConfig();
 
         if (success) {
+            await this.loadConfig();
+            this.populateWeChatUI();
             const saveBtn = document.getElementById('save-wechat-config');
             if (saveBtn) {
                 saveBtn.classList.remove('has-changes');
@@ -1592,7 +1631,9 @@ class AIWriteXConfigManager {
         }
 
         window.app?.showNotification(
-            success ? '微信配置已保存' : '保存微信配置失败',
+            success
+                ? `微信配置已保存${this._lastSaveResult?.default_account_name ? ` · 默认：${this._lastSaveResult.default_account_name}` : ''}${this._lastSaveResult?.following_default_tasks ? ` · ${this._lastSaveResult.following_default_tasks} 个任务跟随默认` : ''}${this._lastSaveResult?.paused_or_error_tasks ? ` · ${this._lastSaveResult.paused_or_error_tasks} 个任务已暂停或异常` : ''}`
+                : '保存微信配置失败',
             success ? 'success' : 'error'
         );
     }
@@ -1618,6 +1659,13 @@ class AIWriteXConfigManager {
         avatar.textContent = (credential.name || credential.author || '微').trim().slice(0, 1).toUpperCase();
         const titleBlock = document.createElement('div');
         titleBlock.className = 'credential-title-block';
+        const isDefault = credential.account_id && credential.account_id === this.config.wechat?.default_account_id;
+        if (isDefault) {
+            const defaultBadge = document.createElement('span');
+            defaultBadge.className = 'credential-default-badge';
+            defaultBadge.textContent = '默认公众号';
+            title.appendChild(defaultBadge);
+        }
         const meta = document.createElement('div');
         meta.className = 'credential-meta';
         meta.textContent = credential.appid
@@ -1648,8 +1696,15 @@ class AIWriteXConfigManager {
             this.deleteWeChatCredential(index);
         });
 
+        const defaultBtn = document.createElement('button');
+        defaultBtn.className = `credential-default-btn${isDefault ? ' active' : ''}`;
+        defaultBtn.textContent = isDefault ? '当前默认' : '设为默认';
+        defaultBtn.disabled = isDefault || credential.enabled === false || !credential.account_id || !credential.appid || !credential.appsecret;
+        defaultBtn.addEventListener('click', () => this.setDefaultWeChatAccount(credential.account_id));
+
         const headerActions = document.createElement('div');
         headerActions.className = 'credential-header-actions';
+        headerActions.appendChild(defaultBtn);
         headerActions.appendChild(testBtn);
         headerActions.appendChild(deleteBtn);
         header.appendChild(identity);
@@ -7029,6 +7084,7 @@ class AIWriteXConfigManager {
             }
 
             const result = await response.json();
+            this._lastSaveResult = result;
             return result.status === 'success';
         } catch (error) {
             return false;

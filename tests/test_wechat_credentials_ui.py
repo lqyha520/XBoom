@@ -14,3 +14,7 @@ def test_all_wechat_credentials_can_be_deleted_and_empty_state_is_rendered():
     assert "wechat-credentials-empty" in script
     assert "暂未配置公众号" in script
     assert ".wechat-credentials-empty" in styles
+    assert "setDefaultWeChatAccount" in script
+    assert "delete-impact" in script
+    assert "credential-default-badge" in script
+    assert ".credential-default-btn" in styles

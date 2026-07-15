@@ -44,6 +44,9 @@ class AccountProfileService:
             root["credentials"] = credentials
         return credentials
 
+    def _wechat_root(self) -> dict:
+        return self.config.config.setdefault("wechat", {})
+
     @staticmethod
     def _account_id(credential: dict, index: int) -> str:
         existing = str(credential.get("account_id") or "").strip()
@@ -79,9 +82,15 @@ class AccountProfileService:
             normalized, item_changed = self._normalize(credential or {}, index)
             normalized_credentials.append(normalized)
             changed = changed or item_changed
-        if not normalized_credentials:
-            normalized, _ = self._normalize({}, 0)
-            normalized_credentials.append(normalized)
+        usable_ids = [
+            item.get("account_id") for item in normalized_credentials
+            if item.get("enabled", True) and item.get("appid") and item.get("appsecret")
+        ]
+        root = self._wechat_root()
+        current_default = str(root.get("default_account_id") or "").strip()
+        next_default = current_default if current_default in usable_ids else (usable_ids[0] if usable_ids else "")
+        if current_default != next_default or "default_account_id" not in root:
+            root["default_account_id"] = next_default
             changed = True
         if changed:
             self.config.config["wechat"]["credentials"] = normalized_credentials
@@ -104,6 +113,57 @@ class AccountProfileService:
             None,
         )
 
+    def get_default_account_id(self) -> str:
+        self.migrate()
+        return str(self._wechat_root().get("default_account_id") or "").strip()
+
+    def get_default(self) -> dict | None:
+        account_id = self.get_default_account_id()
+        return self.get_raw(account_id) if account_id else None
+
+    def set_default(self, account_id: str) -> dict:
+        profile = self.get_raw(account_id)
+        if not profile:
+            raise KeyError(account_id)
+        if not profile.get("appid") or not profile.get("appsecret"):
+            raise ValueError("公众号 AppID 或 AppSecret 未配置完整")
+        root = self._wechat_root()
+        previous_default = root.get("default_account_id", "")
+        root["default_account_id"] = account_id
+        if not self.config.save_config(self.config.config):
+            root["default_account_id"] = previous_default
+            raise RuntimeError(self.config.error_message or "默认公众号保存失败")
+        return profile
+
+    def resolve_task_account(self, task) -> tuple[dict | None, str, str]:
+        mode = str(getattr(task, "account_binding_mode", None) or "fixed")
+        if mode == "none":
+            return None, "none", "不绑定公众号"
+        if mode == "default":
+            profile = self.get_default()
+            if not profile:
+                return None, "missing_default", "尚未设置可用的默认公众号"
+            status, message = self.status_for(profile)
+            if status == "disabled":
+                return profile, "disabled", message
+            if status == "unconfigured":
+                return profile, "unconfigured", message
+            return profile, "following_default", "跟随默认公众号"
+
+        account_id = str(getattr(task, "target_account_id", None) or "").strip()
+        appid = str(getattr(task, "target_appid", None) or "").strip()
+        profile = self.get_raw(account_id) if account_id else None
+        if not profile and appid:
+            profile = self.get_by_appid(appid)
+        if not profile:
+            return None, "missing_account", "原公众号已删除"
+        status, message = self.status_for(profile)
+        if status == "disabled":
+            return profile, "disabled", message
+        if status == "unconfigured":
+            return profile, "unconfigured", message
+        return profile, "fixed", "固定绑定"
+
     @staticmethod
     def status_for(profile: dict) -> tuple[str, str]:
         if not profile.get("enabled", True):
@@ -122,6 +182,7 @@ class AccountProfileService:
         result["status"] = status
         result["status_message"] = message
         result["bound_tasks"] = self.bound_task_count(profile)
+        result["is_default"] = profile.get("account_id") == self.get_default_account_id()
         return result
 
     def list_public(self) -> list[dict]:
@@ -133,41 +194,122 @@ class AccountProfileService:
 
             account_id = profile.get("account_id")
             appid = profile.get("appid")
-            return sum(
-                1
-                for task in db_manager.get_all_tasks()
-                if getattr(task, "target_account_id", None) == account_id
-                or (not getattr(task, "target_account_id", None) and getattr(task, "target_appid", None) == appid)
-            )
+            is_default = account_id == self.get_default_account_id()
+            count = 0
+            for task in db_manager.get_all_tasks():
+                mode = str(getattr(task, "account_binding_mode", None) or "fixed")
+                if mode == "default" and is_default:
+                    count += 1
+                elif mode == "fixed" and (
+                    getattr(task, "target_account_id", None) == account_id
+                    or (not getattr(task, "target_account_id", None) and getattr(task, "target_appid", None) == appid)
+                ):
+                    count += 1
+            return count
         except Exception:
             return 0
 
-    def rebind_all_tasks_to_single_account(self) -> int:
-        """Bind every scheduled task to the only usable WeChat account."""
-        profiles = [
-            item for item in self.list_raw()
-            if item.get("enabled", True) and item.get("appid") and item.get("appsecret")
-        ]
-        if len(profiles) != 1:
-            return 0
+    def delete_impact(self, account_id: str) -> dict:
+        profile = self.get_raw(account_id)
+        if not profile:
+            raise KeyError(account_id)
+        fixed_task_ids = []
+        default_task_ids = []
+        from src.ai_write_x.database.db_manager import db_manager
 
-        profile = profiles[0]
-        changed = 0
+        for task in db_manager.get_all_tasks():
+            mode = str(getattr(task, "account_binding_mode", None) or "fixed")
+            if mode == "fixed" and (
+                getattr(task, "target_account_id", None) == account_id
+                or (not getattr(task, "target_account_id", None)
+                    and getattr(task, "target_appid", None) == profile.get("appid"))
+            ):
+                fixed_task_ids.append(str(task.id))
+            elif mode == "default" and account_id == self.get_default_account_id():
+                default_task_ids.append(str(task.id))
+        task_ids = list(dict.fromkeys(fixed_task_ids + default_task_ids))
+        active_statuses = {"running", "cancel_requested"}
+        running_tasks = sum(
+            1 for task in db_manager.get_all_tasks()
+            if str(task.id) in task_ids and getattr(task, "status", "") in active_statuses
+        )
+        return {
+            "account_id": account_id,
+            "name": profile.get("name") or profile.get("author") or "未命名公众号",
+            "is_default": account_id == self.get_default_account_id(),
+            "fixed_tasks": len(fixed_task_ids),
+            "default_tasks": len(default_task_ids),
+            "affected_tasks": len(task_ids),
+            "running_tasks": running_tasks,
+            "task_ids": task_ids,
+        }
+
+    def safe_delete(self, account_id: str) -> dict:
+        impact = self.delete_impact(account_id)
+        if impact.get("running_tasks"):
+            raise ValueError("仍有相关定时任务正在运行，请先取消任务后再删除公众号")
+        from src.ai_write_x.core import task_status
+        from src.ai_write_x.database.models import ScheduledTask
+
+        pause_message = "绑定公众号已删除，请重新选择或确认新默认公众号"
+        root = self._wechat_root()
+        previous_credentials = copy.deepcopy(root.get("credentials", []))
+        previous_default = root.get("default_account_id", "")
+        credentials = [item for item in self.list_raw() if item.get("account_id") != account_id]
+        root["credentials"] = credentials
+        if impact["is_default"]:
+            usable = [
+                item for item in credentials
+                if item.get("enabled", True) and item.get("appid") and item.get("appsecret")
+            ]
+            root["default_account_id"] = usable[0].get("account_id") if usable else ""
+        if not self.config.save_config(self.config.config):
+            root["credentials"] = previous_credentials
+            root["default_account_id"] = previous_default
+            raise RuntimeError(self.config.error_message or "公众号删除失败")
+
+        task_snapshots = []
+        paused = 0
         try:
-            from src.ai_write_x.database.db_manager import db_manager
-
-            for task in db_manager.get_all_tasks():
-                if (getattr(task, "target_account_id", None) == profile.get("account_id")
-                        and getattr(task, "target_appid", None) == profile.get("appid")):
+            for task_id in impact["task_ids"]:
+                task = ScheduledTask.get_by_id(task_id)
+                if not task:
                     continue
-                task.target_account_id = profile.get("account_id")
-                task.target_appid = profile.get("appid")
+                task_snapshots.append((
+                    task,
+                    task.status,
+                    getattr(task, "preflight_status", None),
+                    getattr(task, "preflight_message", None),
+                    getattr(task, "preflight_checked_at", None),
+                    getattr(task, "updated_at", None),
+                ))
+                task.status = task_status.DISABLED
+                task.preflight_status = "error"
+                task.preflight_message = pause_message
+                task.preflight_checked_at = datetime.now()
                 task.updated_at = datetime.now()
                 task.save()
-                changed += 1
+                paused += 1
         except Exception:
-            return changed
-        return changed
+            for task, status, preflight_status, preflight_message, checked_at, updated_at in reversed(task_snapshots):
+                task.status = status
+                task.preflight_status = preflight_status
+                task.preflight_message = preflight_message
+                task.preflight_checked_at = checked_at
+                task.updated_at = updated_at
+                try:
+                    task.save()
+                except Exception:
+                    pass
+            root["credentials"] = previous_credentials
+            root["default_account_id"] = previous_default
+            self.config.save_config(self.config.config)
+            raise
+        return {
+            **impact,
+            "paused_tasks": paused,
+            "default_account_id": root.get("default_account_id") or "",
+        }
 
     def save(self, data: dict, account_id: str | None = None) -> dict:
         credentials = self.list_raw()
