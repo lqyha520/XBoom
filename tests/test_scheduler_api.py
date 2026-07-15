@@ -122,6 +122,7 @@ def test_scheduler_refreshes_and_repairs_wechat_account_bindings():
     template = (root / "src/ai_write_x/web/templates/components/views/scheduler.html").read_text(encoding="utf-8")
     script = (root / "src/ai_write_x/web/static/js/scheduler-manager.js").read_text(encoding="utf-8")
     config_script = (root / "src/ai_write_x/web/static/js/config-manager.js").read_text(encoding="utf-8")
+    profile_source = (root / "src/ai_write_x/core/account_profiles.py").read_text(encoding="utf-8")
     scheduler_source = (root / "src/ai_write_x/core/scheduler.py").read_text(encoding="utf-8")
     assert "fetchWechatCredentials()" in script
     assert "wechat-credentials-updated" in script
@@ -134,3 +135,5 @@ def test_scheduler_refreshes_and_repairs_wechat_account_bindings():
     assert "refreshWechatCredentials(true)" in template
     assert "cache: 'no-store'" in script
     assert "已删除公众号（请重新选择）" in script
+    assert "rebind_all_tasks_to_single_account" in profile_source
+    assert "rebound_tasks" in SCHEDULER_API.with_name("config.py").read_text(encoding="utf-8")

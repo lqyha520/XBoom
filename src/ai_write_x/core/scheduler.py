@@ -226,9 +226,21 @@ class SchedulerService:
                 profile_service = AccountProfileService()
                 profile = profile_service.get_raw(target_account_id)
                 # 公众号被删除后重新添加时，账号 ID 可能变化；只允许按同一个
-                # AppID 找回账号，不能因为只剩一个公众号就自动改绑，避免发错账号。
+                # AppID 找回账号。若当前只有一个已配置账号，则视为“更换公众号”
+                # 场景自动迁移旧任务绑定，避免历史任务持续失败。
                 if not profile and target_appid:
                     profile = profile_service.get_by_appid(target_appid)
+                if not profile:
+                    candidates = [item for item in profile_service.list_raw()
+                                  if item.get("enabled", True)
+                                  and item.get("appid")
+                                  and item.get("appsecret")]
+                    if len(candidates) == 1:
+                        profile = candidates[0]
+                        log.print_log(
+                            f"[Scheduler] Auto-migrating task {task_id[:8]} to the only configured WeChat account",
+                            "warning",
+                        )
                 if not profile or not profile.get("enabled", True):
                     raise RuntimeError("绑定的公众号不存在或已暂停，请在定时任务中重新选择公众号")
                 resolved_account_id = profile.get("account_id")

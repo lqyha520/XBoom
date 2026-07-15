@@ -155,3 +155,17 @@ def test_workshop_removes_fast_mode_and_exposes_image_style_selector():
     assert "真实纪实摄影" in template
     assert "image_style:" in script
     assert "fast_mode: isFastModeOn" not in script
+
+
+def test_final_article_removes_visible_image_failure_cards():
+    html = """
+    <article>
+      <p>正文内容</p>
+      <section class="image-fallback-card"><div>配图待补齐</div></section>
+      <img src="/images/existing.png" alt="existing">
+    </article>
+    """
+    cleaned = VisualAssetsManager.ensure_visible_image_fallbacks(html, topic="测试")
+    assert "image-fallback-card" not in cleaned
+    assert "配图待补齐" not in cleaned
+    assert "/images/existing.png" in cleaned

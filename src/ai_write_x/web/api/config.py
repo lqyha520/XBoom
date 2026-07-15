@@ -163,7 +163,17 @@ async def save_config_to_file():
         config = Config.get_instance()
         # 调用核心配置类的保存方法，传递当前内存中的配置
         if config.save_config(config.config, config.aiforge_config):
-            return {"status": "success", "message": "所有配置文件已持久化到磁盘"}
+            rebound_tasks = 0
+            try:
+                from src.ai_write_x.core.account_profiles import AccountProfileService
+                rebound_tasks = AccountProfileService(config).rebind_all_tasks_to_single_account()
+            except Exception as rebind_error:
+                log.print_log(f"公众号更新后迁移定时任务绑定失败: {rebind_error}", "warning")
+            return {
+                "status": "success",
+                "message": "所有配置文件已持久化到磁盘",
+                "rebound_tasks": rebound_tasks,
+            }
         else:
             return {"status": "error", "message": "物理保存失败，请检查文件权限"}
     except Exception as e:

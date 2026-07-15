@@ -2278,6 +2278,42 @@ class VisualAssetsManager:
         if not html or not html.strip():
             return html
 
+        # 最终文章不再展示“配图待补齐”提示卡。图片部分失败时保留已成功
+        # 生成的图片即可，避免提示卡与真实配图同时出现在正文中。
+        cleaned = cls.remove_image_fallback_cards(html)
+        valid = cls.count_valid_article_images(cleaned)
+        target = max(1, cls.get_target_image_count())
+        if valid < target:
+            lg.print_log(
+                f"[VisualAssets] 配图未达到目标数量（{valid}/{target}），最终文章仅保留成功图片",
+                "warning",
+            )
+        return cleaned
+
+    @classmethod
+    def remove_image_fallback_cards(cls, html: str) -> str:
+        """Remove legacy visible image-failure cards from final article HTML."""
+        if not html or "image-fallback-card" not in html:
+            return html
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(html, "html.parser")
+            removed = 0
+            for card in soup.select(".image-fallback-card"):
+                card.decompose()
+                removed += 1
+            if removed:
+                lg.print_log(f"[VisualAssets] 已清理 {removed} 个配图失败提示卡", "info")
+            return soup.decode(formatter=None)
+        except Exception:
+            return re.sub(
+                r'<section\b(?=[^>]*\bclass=["\'][^"\']*image-fallback-card)[\s\S]*?</section>',
+                "",
+                html,
+                flags=re.IGNORECASE,
+            )
+
         valid = cls.count_valid_article_images(html)
         target = max(1, cls.get_target_image_count())
         if valid >= target:
@@ -2346,6 +2382,7 @@ class VisualAssetsManager:
             re.search(r"\[\[V-SCENE:", html)
             or "img-placeholder" in html
             or re.search(r"data-img-prompt=", html)
+            or "image-fallback-card" in html
         )
         has_picsum = bool(re.search(r"picsum\.photos", html, re.I))
         has_leaks = cls.has_scene_description_leaks(html)
@@ -2390,6 +2427,11 @@ class VisualAssetsManager:
         try:
             lg.print_log(f"开始自动修复文章图片: {article_path_str}", "info")
             content = file_path.read_text(encoding="utf-8")
+            original_content = content
+            content = cls.remove_image_fallback_cards(content)
+            fallback_cards_removed = content != original_content
+            if fallback_cards_removed:
+                file_path.write_text(content, encoding="utf-8")
             
             has_vscene = bool(re.search(r'\[\[V-SCENE:', content))
             has_img_prompt = bool(re.search(r'\[(?:IMG_PROMPT|图片解析)[:：]', content))
@@ -2410,6 +2452,8 @@ class VisualAssetsManager:
                     f"[VisualAssets] 文章 {file_path.name} 已有 {valid_images} 张本地配图，跳过补图",
                     "success",
                 )
+                if fallback_cards_removed:
+                    lg.print_log("[VisualAssets] 已移除历史配图失败提示卡", "info")
                 cls.persist_cover_metadata(article_path_str, content)
                 return {"status": "skipped", "message": f"已有 {valid_images} 张有效配图"}
             

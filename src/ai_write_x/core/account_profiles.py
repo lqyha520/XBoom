@@ -142,6 +142,33 @@ class AccountProfileService:
         except Exception:
             return 0
 
+    def rebind_all_tasks_to_single_account(self) -> int:
+        """Bind every scheduled task to the only usable WeChat account."""
+        profiles = [
+            item for item in self.list_raw()
+            if item.get("enabled", True) and item.get("appid") and item.get("appsecret")
+        ]
+        if len(profiles) != 1:
+            return 0
+
+        profile = profiles[0]
+        changed = 0
+        try:
+            from src.ai_write_x.database.db_manager import db_manager
+
+            for task in db_manager.get_all_tasks():
+                if (getattr(task, "target_account_id", None) == profile.get("account_id")
+                        and getattr(task, "target_appid", None) == profile.get("appid")):
+                    continue
+                task.target_account_id = profile.get("account_id")
+                task.target_appid = profile.get("appid")
+                task.updated_at = datetime.now()
+                task.save()
+                changed += 1
+        except Exception:
+            return changed
+        return changed
+
     def save(self, data: dict, account_id: str | None = None) -> dict:
         credentials = self.list_raw()
         existing = self.get_raw(account_id) if account_id else None

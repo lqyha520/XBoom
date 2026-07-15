@@ -1,5 +1,7 @@
 from src.ai_write_x.core.account_profiles import AccountProfileService
+from src.ai_write_x.database.db_manager import db_manager
 from pathlib import Path
+from types import SimpleNamespace
 
 
 class FakeConfig:
@@ -114,3 +116,32 @@ def test_account_matrix_ui_is_removed_and_profile_fields_live_in_wechat_settings
     assert "credential-avatar" in config_script
     assert ".credential-main-grid" in config_css
     assert ".publish-section .publishing-controls-row" in config_css
+
+
+def test_single_configured_account_rebinds_stale_scheduled_tasks(monkeypatch):
+    service = AccountProfileService(FakeConfig([
+        {"account_id": "new-account", "name": "new", "appid": "wxnew", "appsecret": "secret"}
+    ]))
+    task = SimpleNamespace(
+        target_account_id="old-account",
+        target_appid="wxold",
+        updated_at=None,
+        saved=0,
+    )
+    task.save = lambda: setattr(task, "saved", task.saved + 1)
+    unbound_task = SimpleNamespace(
+        target_account_id=None,
+        target_appid=None,
+        updated_at=None,
+        saved=0,
+    )
+    unbound_task.save = lambda: setattr(unbound_task, "saved", unbound_task.saved + 1)
+    monkeypatch.setattr(db_manager, "get_all_tasks", lambda: [task, unbound_task])
+
+    assert service.rebind_all_tasks_to_single_account() == 2
+    assert task.target_account_id == "new-account"
+    assert task.target_appid == "wxnew"
+    assert task.saved == 1
+    assert unbound_task.target_account_id == "new-account"
+    assert unbound_task.target_appid == "wxnew"
+    assert unbound_task.saved == 1
