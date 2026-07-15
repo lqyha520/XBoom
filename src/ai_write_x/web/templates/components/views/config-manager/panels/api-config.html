@@ -1,12 +1,20 @@
 <div id="config-api" class="config-panel llm-api-panel">
-    <div class="config-header">
-        <div class="header-content">
+    <div class="config-header llm-api-page-header">
+        <div class="header-content llm-api-page-title">
+            <span class="llm-api-page-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M12 3a3 3 0 0 0-3 3v1a3 3 0 0 0-3 3v1a3 3 0 0 0 1 5.24V17a3 3 0 0 0 5 2.24A3 3 0 0 0 17 17v-.76A3 3 0 0 0 18 11v-1a3 3 0 0 0-3-3V6a3 3 0 0 0-3-3Z"/>
+                    <path d="M9 7.5A2.5 2.5 0 0 0 11.5 10M15 7.5A2.5 2.5 0 0 1 12.5 10M9 15a3 3 0 0 1 3-3 3 3 0 0 1 3 3"/>
+                </svg>
+            </span>
             <div>
+                <span class="llm-api-page-eyebrow">MODEL GATEWAY</span>
                 <h2>大模型 API</h2>
-                <p class="config-description">选择厂商并配置密钥与模型，各厂商数据独立保存</p>
+                <p class="config-description">集中管理写作模型、密钥和备用能力，各厂商配置互不影响</p>
             </div>
         </div>
         <div class="header-actions">
+            <span class="llm-api-local-safe"><span></span>密钥仅保存在本机</span>
             <button type="button" class="btn btn-secondary" id="reset-api-config">
                 恢复默认
             </button>
@@ -28,7 +36,7 @@
         <div id="custom-apis-container" class="hidden" aria-hidden="true"></div>
 
         <details class="llm-api-help-panel">
-            <summary>使用说明</summary>
+            <summary>配置说明与常见问题</summary>
             <div class="llm-api-help-body">
                 <ul>
                     <li>通过下拉框切换厂商；每个厂商的 Key、模型<strong>独立保存</strong>。</li>

@@ -1,12 +1,19 @@
 <div id="config-img-api" class="config-panel img-api-panel">
-    <div class="config-header">
-        <div class="header-content">
+    <div class="config-header img-api-page-header">
+        <div class="header-content img-api-page-title">
+            <span class="img-api-page-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m5 18 4.5-4.5 3 3 2-2L19 18"/>
+                </svg>
+            </span>
             <div>
+                <span class="img-api-page-eyebrow">IMAGE PIPELINE</span>
                 <h2>图片生成 API</h2>
-                <p class="config-description">为文章自动配图：先选服务、填好密钥与模型，再点「设为当前使用」；各厂商配置互不影响</p>
+                <p class="config-description">管理文章配图服务，按 URL、密钥和模型完成连接配置</p>
             </div>
         </div>
         <div class="header-actions">
+            <span class="img-api-local-safe"><span></span>密钥仅保存在本机</span>
             <button type="button" class="btn btn-secondary" id="reset-img-api-config">
                 恢复默认
             </button>
@@ -17,16 +24,6 @@
     </div>
 
     <div class="config-form img-api-config-form">
-        <details class="img-api-settings-panel" open>
-            <summary class="img-api-settings-summary">
-                <span class="img-api-settings-summary-title">图片生成策略</span>
-                <span class="img-api-settings-summary-desc">超时、配图数量、占位图回退</span>
-            </summary>
-            <div id="img-api-settings-body" class="img-api-settings-body">
-                <!-- JS 填充 -->
-            </div>
-        </details>
-
         <div id="img-api-provider-toolbar" class="img-api-provider-toolbar" role="region" aria-label="图片服务选择与操作">
             <!-- JS: 厂商下拉、状态、操作按钮 -->
         </div>
@@ -35,8 +32,18 @@
             <!-- JS: 当前选中厂商表单 -->
         </div>
 
+        <details class="img-api-settings-panel">
+            <summary class="img-api-settings-summary">
+                <span class="img-api-settings-summary-title">生成策略</span>
+                <span class="img-api-settings-summary-desc">超时时间、配图数量和失败回退</span>
+            </summary>
+            <div id="img-api-settings-body" class="img-api-settings-body">
+                <!-- JS 填充 -->
+            </div>
+        </details>
+
         <details class="img-api-help-panel">
-            <summary>使用说明</summary>
+            <summary>服务说明与常见问题</summary>
             <div class="img-api-help-body">
                 <ul>
                     <li>通过下拉框切换配图服务；各厂商 Key、模型<strong>独立保存</strong>。</li>

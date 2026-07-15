@@ -87,32 +87,6 @@ wechat:
       appid: wx769757c8a05e5fdc
       appsecret: ''
       account_id: 9760e329-745e-5b27-9e52-efe03d8ad373
-    - platform: wechat
-      name: 公众号 3
-      author: 公众号 3
-      enabled: true
-      niche: ''
-      audience: ''
-      brand_voice: ''
-      forbidden_words: []
-      signature: ''
-      default_template_category: ''
-      default_template: ''
-      health_status: unchecked
-      health_message: 尚未检测
-      last_checked_at: ''
-      draft_only: false
-      call_sendall: false
-      sendall: true
-      tag_id: 0
-      daily_publish_limit: 0
-      approval_policy: required
-      dedup_days: 30
-      cross_account_duplicate_policy: warn
-      default_voice_preset_id: ''
-      appid: wx287b0f2817bfd162
-      appsecret: ''
-      account_id: 32150484-5af8-51f3-9e5b-8af8a3e46f16
 api:
   api_type: agnes
   OpenRouter:

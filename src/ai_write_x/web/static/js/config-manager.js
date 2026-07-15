@@ -2162,11 +2162,15 @@ class AIWriteXConfigManager {
         const currentLabel = this.getLLMProviderDisplayName(currentAPIType);
         const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
+        const avatarText = String(selected.display || 'AI').trim().slice(0, 2).toUpperCase();
         toolbar.innerHTML = `
             <div class="llm-api-toolbar-grid">
                 <div class="llm-api-toolbar-main">
-                    <label class="llm-api-picker-label" for="api-provider-select">配置厂商</label>
-                    <select id="api-provider-select" class="form-control llm-api-provider-select" aria-label="选择大模型厂商">${optionsHtml}</select>
+                    <span class="llm-api-provider-avatar" aria-hidden="true">${esc(avatarText)}</span>
+                    <div class="llm-api-provider-picker">
+                        <label class="llm-api-picker-label" for="api-provider-select">正在配置</label>
+                        <select id="api-provider-select" class="form-control llm-api-provider-select" aria-label="选择大模型厂商">${optionsHtml}</select>
+                    </div>
                     <div class="llm-api-status-chip ${isCurrent ? 'is-active' : ''}" role="status">
                         <span class="llm-api-status-dot" aria-hidden="true"></span>
                         <div class="llm-api-status-copy">
@@ -2177,15 +2181,15 @@ class AIWriteXConfigManager {
                 </div>
                 <div class="llm-api-toolbar-actions">
                     <button type="button" class="btn btn-primary btn-sm" id="set-current-api-provider" ${isCurrent ? 'disabled' : ''}>
-                        ${isCurrent ? '✓ 当前使用' : '设为当前使用'}
+                        ${isCurrent ? '✓ 写作中使用' : '设为写作模型'}
                     </button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="test-api-provider">测试连接</button>
-                    <button type="button" class="btn btn-ghost btn-sm" id="add-custom-api-btn">+ 自定义</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="test-api-provider">连接测试</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="add-custom-api-btn">+ 添加自定义</button>
                     <button type="button" class="btn btn-ghost btn-sm llm-api-btn-danger" id="delete-api-provider" title="删除当前厂商配置">删除</button>
                 </div>
             </div>
             <div class="llm-api-global-bar">
-                <span class="llm-api-global-label">全局写作</span>
+                <span class="llm-api-global-label">当前写作模型</span>
                 <strong id="current-api-type-label" class="llm-api-global-value">${esc(currentLabel)}</strong>
                 <span class="llm-api-global-sep">·</span>
                 <span class="llm-api-global-hint">${isCustom ? 'OpenAI 兼容接口' : '内置厂商'} · 切换下拉不丢失已填内容</span>
@@ -2213,6 +2217,13 @@ class AIWriteXConfigManager {
     createLLMFormSection(title, description = '') {
         const section = document.createElement('section');
         section.className = 'api-form-section';
+        const sectionClass = {
+            '基本信息': 'api-section-basic',
+            '连接与认证': 'api-section-connection',
+            '模型': 'api-section-model',
+            '模型配置': 'api-section-config',
+        }[title];
+        if (sectionClass) section.classList.add(sectionClass);
         const head = document.createElement('div');
         head.className = 'api-form-section-head';
         const titleEl = document.createElement('h4');
@@ -2653,26 +2664,29 @@ class AIWriteXConfigManager {
             modelSelectGroup.classList.remove('form-group-half');
             modelSelectGroup.classList.add('form-group-full');
 
+            const baseOnlyRow = document.createElement('div');
+            baseOnlyRow.className = 'form-row api-config-step api-config-step-url';
+            apiBaseGroup.classList.remove('form-group-half');
+            apiBaseGroup.classList.add('form-group-full');
+            const apiBaseLabel = apiBaseGroup.querySelector('label');
+            if (apiBaseLabel) apiBaseLabel.textContent = 'API URL';
+            baseOnlyRow.appendChild(apiBaseGroup);
+
             const keyOnlyRow = document.createElement('div');
-            keyOnlyRow.className = 'form-row';
+            keyOnlyRow.className = 'form-row api-config-step api-config-step-key';
             keyOnlyRow.appendChild(keySelectGroup);
 
-            const connSec = this.createLLMFormSection(
-                '连接与认证',
-                '点击 API KEY 添加密钥（一行一个）；下方为厂商预设接口信息'
-            );
-            connSec.body.appendChild(keyOnlyRow);
-            row1.classList.add('api-endpoint-meta');
-            connSec.body.appendChild(row1);
-
-            const modelSec = this.createLLMFormSection(
-                '模型',
-                '主模型用于写稿；点击刷新可拉取厂商可用模型列表'
-            );
             const modelRow = document.createElement('div');
-            modelRow.className = 'form-row';
+            modelRow.className = 'form-row api-config-step api-config-step-model';
             modelRow.appendChild(modelSelectGroup);
-            modelSec.body.appendChild(modelRow);
+
+            const configSec = this.createLLMFormSection(
+                '模型配置',
+                '依次确认 API URL、API Key 和用于写作的主模型'
+            );
+            configSec.body.appendChild(baseOnlyRow);
+            configSec.body.appendChild(keyOnlyRow);
+            configSec.body.appendChild(modelRow);
 
             const advDetails = document.createElement('details');
             advDetails.className = 'api-form-advanced';
@@ -2680,8 +2694,7 @@ class AIWriteXConfigManager {
             advDetails.appendChild(row3);
             advDetails.appendChild(row4);
 
-            form.appendChild(connSec.section);
-            form.appendChild(modelSec.section);
+            form.appendChild(configSec.section);
             form.appendChild(advDetails);
         } else {
             form.appendChild(row1);
@@ -2711,7 +2724,19 @@ class AIWriteXConfigManager {
         // 如果选中的是空字符串或索引超出有效范围,显示"-- 点击添加 --"  
         const selectedItem = validItems[selectedIndex];
         const isOrchestrationModel = type === '备用模型' || type === '模板设计模型' || type === '语义精修模型';
-        display.textContent = selectedItem || (isOrchestrationModel ? '-- 默认为主模型 --' : '-- 点击添加 --');
+        const formatItemLabel = (item, index) => {
+            if (type !== 'API KEY') return item;
+            const value = String(item || '');
+            const suffix = value.length >= 4 ? value.slice(-4) : '已保存';
+            return `密钥 ${index + 1}  ····${suffix}`;
+        };
+        display.textContent = selectedItem
+            ? formatItemLabel(selectedItem, Math.max(0, selectedIndex))
+            : (isOrchestrationModel ? '-- 默认为主模型 --' : '-- 点击添加 --');
+        if (type === 'API KEY') {
+            display.classList.add('is-secret');
+            display.title = '点击管理 API Key';
+        }
 
         // 下拉选项容器  
         const dropdown = document.createElement('div');
@@ -2799,12 +2824,12 @@ class AIWriteXConfigManager {
             validItems.forEach((item, index) => {
                 const option = document.createElement('div');
                 option.className = 'select-option';
-                option.textContent = item;
+                option.textContent = formatItemLabel(item, index);
 
                 // 点击选项  
                 option.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    display.textContent = item;
+                    display.textContent = formatItemLabel(item, index);
                     closeDropdown();
 
                     const originalIndex = items.indexOf(item);
@@ -4098,16 +4123,17 @@ class AIWriteXConfigManager {
             basicRow.appendChild(typeGroup);
             basicSec.body.appendChild(basicRow);
 
-            const connSec = this.createLLMFormSection('连接与认证', 'Base 地址与 API Key（一行一个 Key）');
-            connSec.body.appendChild(baseGroup);
-            connSec.body.appendChild(keyGroup);
-
-            const modelSec = this.createLLMFormSection('模型', '测试连接成功后可刷新模型列表');
-            modelSec.body.appendChild(modelGroup);
+            const configSec = this.createLLMFormSection('模型配置', '依次填写 API URL、API Key 和主模型');
+            baseGroup.querySelector('label').textContent = 'API URL';
+            baseGroup.classList.add('api-config-step', 'api-config-step-url');
+            keyGroup.classList.add('api-config-step', 'api-config-step-key');
+            modelGroup.classList.add('api-config-step', 'api-config-step-model');
+            configSec.body.appendChild(baseGroup);
+            configSec.body.appendChild(keyGroup);
+            configSec.body.appendChild(modelGroup);
 
             form.appendChild(basicSec.section);
-            form.appendChild(connSec.section);
-            form.appendChild(modelSec.section);
+            form.appendChild(configSec.section);
             form.appendChild(resultDiv);
         } else {
             form.appendChild(nameGroup);
@@ -4689,11 +4715,15 @@ class AIWriteXConfigManager {
         const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         const canTest = selected.key !== 'picsum';
 
+        const avatarText = String(selected.display || 'IMG').trim().slice(0, 2).toUpperCase();
         toolbar.innerHTML = `
             <div class="img-api-toolbar-grid">
                 <div class="img-api-toolbar-main">
-                    <label class="img-api-picker-label" for="img-api-provider-select">配图服务</label>
-                    <select id="img-api-provider-select" class="form-control img-api-provider-select" aria-label="选择图片生成服务">${optionsHtml}</select>
+                    <span class="img-api-provider-avatar" aria-hidden="true">${esc(avatarText)}</span>
+                    <div class="img-api-provider-picker">
+                        <label class="img-api-picker-label" for="img-api-provider-select">正在配置</label>
+                        <select id="img-api-provider-select" class="form-control img-api-provider-select" aria-label="选择图片生成服务">${optionsHtml}</select>
+                    </div>
                     <div class="img-api-status-chip ${isCurrent ? 'is-active' : ''}" role="status">
                         <span class="img-api-status-dot" aria-hidden="true"></span>
                         <div class="img-api-status-copy">
@@ -4704,15 +4734,15 @@ class AIWriteXConfigManager {
                 </div>
                 <div class="img-api-toolbar-actions">
                     <button type="button" class="btn btn-primary btn-sm" id="set-current-img-api-provider" ${isCurrent ? 'disabled' : ''}>
-                        ${isCurrent ? '✓ 当前使用' : '设为当前使用'}
+                        ${isCurrent ? '✓ 配图中使用' : '设为配图服务'}
                     </button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="test-img-api-provider" ${canTest ? '' : 'disabled'} title="${canTest ? '测试连接并生成预览图' : 'Picsum 无需测试'}">测试连接</button>
-                    <button type="button" class="btn btn-ghost btn-sm" id="add-custom-img-api">+ 自定义</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="test-img-api-provider" ${canTest ? '' : 'disabled'} title="${canTest ? '测试连接并生成预览图' : 'Picsum 无需测试'}">连接测试</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="add-custom-img-api">+ 添加自定义</button>
                     <button type="button" class="btn btn-ghost btn-sm img-api-btn-danger" id="delete-img-api-provider" ${isCustom ? '' : 'disabled'} title="删除自定义配图服务">删除</button>
                 </div>
             </div>
             <div class="img-api-global-bar">
-                <span>当前配图</span>
+                <span>当前配图服务</span>
                 <strong id="current-img-api-type-label" class="img-api-global-value">${esc(currentLabel)}</strong>
                 <span>·</span>
                 <span>${isCustom ? 'OpenAI 兼容文生图' : '内置服务'} · 切换下拉不丢失已填内容</span>
@@ -4803,10 +4833,8 @@ class AIWriteXConfigManager {
             return g;
         };
 
-        wrap.appendChild(mk('普通超时（秒）', 'number', 'img-api-settings-default-timeout', settings.default_timeout_seconds ?? 60, '默认 60'));
-        wrap.appendChild(mk('极速超时（秒）', 'number', 'img-api-settings-fast-timeout', settings.fast_mode_timeout_seconds ?? 45, '默认 45'));
+        wrap.appendChild(mk('生成超时（秒）', 'number', 'img-api-settings-default-timeout', settings.default_timeout_seconds ?? 60, '默认 60'));
         wrap.appendChild(mk('文章配图数量', 'number', 'img-api-settings-article-image-count', settings.article_image_count ?? settings.fast_mode_prompt_count ?? 3, '1–12，含封面'));
-        wrap.appendChild(mk('提示词截取长度', 'number', 'img-api-settings-fast-prompt-excerpt', settings.fast_mode_prompt_excerpt_length ?? 120, '默认 120'));
 
         const fallback = document.createElement('label');
         fallback.className = 'checkbox-label img-api-settings-fallback';
@@ -5109,14 +5137,15 @@ class AIWriteXConfigManager {
         `;
         basicBody.appendChild(nameGroup);
 
-        const { section: secAuth, body: authBody } = this.createLLMFormSection(
-            '连接与认证',
-            'OpenAI 兼容文生图接口'
+        const { section: secConfig, body: configBody } = this.createLLMFormSection(
+            '图片模型配置',
+            '依次填写 API URL、API Key 和图片生成模型'
         );
+        secConfig.classList.add('img-api-section-config');
         const baseGroup = document.createElement('div');
         baseGroup.className = 'form-group form-group-full';
         baseGroup.innerHTML = `
-            <label>API Base</label>
+            <label>API URL</label>
             <input type="text" value="${api.api_base || ''}" placeholder="https://api.openai.com/v1" onchange="window.configManager.updateCustomImgAPI(${index}, 'api_base', this.value)">
             <p class="field-help">末尾加 # 可强制使用原始地址，不自动补全路径</p>
         `;
@@ -5126,16 +5155,12 @@ class AIWriteXConfigManager {
             <label>API KEY</label>
             <input type="password" value="${api.api_key || ''}" placeholder="Bearer Token" onchange="window.configManager.updateCustomImgAPI(${index}, 'api_key', this.value)">
         `;
-        authBody.appendChild(baseGroup);
-        authBody.appendChild(keyGroup);
-
-        const { section: secModel, body: modelBody } = this.createLLMFormSection(
-            '模型',
-            '选择或输入文生图模型名'
-        );
+        baseGroup.classList.add('img-config-step', 'img-config-step-url');
+        keyGroup.classList.add('img-config-step', 'img-config-step-key');
         const imgModelOptions = (api.models || []).map(m => `<option value="${m}" ${api.model === m ? 'selected' : ''}>${m}</option>`).join('');
         const modelGroup = document.createElement('div');
         modelGroup.className = 'form-group form-group-full';
+        modelGroup.classList.add('img-config-step', 'img-config-step-model');
         modelGroup.innerHTML = `
             <label>图片生成模型</label>
             <div class="model-select-wrapper">
@@ -5147,7 +5172,8 @@ class AIWriteXConfigManager {
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                 </button>
             </div>
-            <input type="text" id="custom-img-model-input-${index}" value="${api.model || ''}" placeholder="如 flux-pro、dall-e-3" style="margin-top:8px" onchange="window.configManager.updateCustomImgAPI(${index}, 'model', this.value)">
+            <button type="button" class="img-manual-model-toggle" onclick="window.configManager.toggleImgManualModelInput('custom-img-model-input-${index}', this)">手动填写模型名</button>
+            <input type="text" id="custom-img-model-input-${index}" value="${api.model || ''}" placeholder="如 flux-pro、dall-e-3" hidden onchange="window.configManager.updateCustomImgAPI(${index}, 'model', this.value)">
             <div id="test-result-custom-img-${index}" class="test-result-container" style="display: none; margin-top: 15px;">
                 <div class="test-status"></div>
                 <div class="test-image-preview" style="margin-top: 10px; text-align: center;">
@@ -5155,11 +5181,12 @@ class AIWriteXConfigManager {
                 </div>
             </div>
         `;
-        modelBody.appendChild(modelGroup);
+        configBody.appendChild(baseGroup);
+        configBody.appendChild(keyGroup);
+        configBody.appendChild(modelGroup);
 
         form.appendChild(secBasic);
-        form.appendChild(secAuth);
-        form.appendChild(secModel);
+        form.appendChild(secConfig);
         card.appendChild(header);
         card.appendChild(form);
 
@@ -5403,15 +5430,18 @@ class AIWriteXConfigManager {
             body.appendChild(note);
             form.appendChild(section);
         } else {
-            const { section: secAuth, body: authBody } = this.createLLMFormSection(
-                '连接与认证',
-                providerKey === 'comfyui' ? '本地 ComfyUI 服务地址' : 'API KEY 与接口地址'
+            const { section: secConfig, body: configBody } = this.createLLMFormSection(
+                '图片模型配置',
+                providerKey === 'comfyui'
+                    ? '依次确认本地服务 URL、可选 Key 和工作流模型'
+                    : '依次确认 API URL、API Key 和图片生成模型'
             );
+            secConfig.classList.add('img-api-section-config');
 
             if (['modelscope', 'ali', 'agnes', 'comfyui'].includes(providerKey)) {
                 const apiBaseUrl = providerData.api_base || '';
                 const baseUrlGroup = this.createFormGroup(
-                    'API Base',
+                    'API URL',
                     'text',
                     `img-api-${providerKey}-api-base`,
                     apiBaseUrl,
@@ -5419,37 +5449,33 @@ class AIWriteXConfigManager {
                     providerKey !== 'comfyui'
                 );
                 baseUrlGroup.classList.add('form-group-full');
-                authBody.appendChild(baseUrlGroup);
+                baseUrlGroup.classList.add('img-config-step', 'img-config-step-url');
+                configBody.appendChild(baseUrlGroup);
             }
 
             if (providerKey !== 'comfyui') {
-                authBody.appendChild(
-                    this.createImgApiKeyField(providerKey, providerData.api_key || '', 'API KEY')
-                );
+                const keyField = this.createImgApiKeyField(providerKey, providerData.api_key || '', 'API KEY');
+                keyField.classList.add('img-config-step', 'img-config-step-key');
+                configBody.appendChild(keyField);
             } else {
-                authBody.appendChild(
-                    this.createImgApiKeyField(
-                        providerKey,
-                        providerData.api_key || '',
-                        'API KEY（可选）'
-                    )
+                const keyField = this.createImgApiKeyField(
+                    providerKey,
+                    providerData.api_key || '',
+                    'API KEY（可选）'
                 );
+                keyField.classList.add('img-config-step', 'img-config-step-key');
+                configBody.appendChild(keyField);
             }
-            form.appendChild(secAuth);
-
-            const { section: secModel, body: modelBody } = this.createLLMFormSection(
-                '模型',
-                '文生图模型，可刷新列表或手动输入'
-            );
             const builtinModels = (providerData.models || [])
                 .map((m) => `<option value="${m}" ${providerData.model === m ? 'selected' : ''}>${m}</option>`)
                 .join('');
             const modelGroup = document.createElement('div');
             modelGroup.className = 'form-group form-group-full';
+            modelGroup.classList.add('img-config-step', 'img-config-step-model');
             modelGroup.innerHTML = `
                 <label>图片生成模型</label>
                 <div class="model-select-wrapper">
-                    <select id="img-api-${providerKey}-model" onchange="window.configManager.updateImgAPIField('${providerKey}', 'model', this.value)">
+                    <select id="img-api-${providerKey}-model" onchange="window.configManager.updateImgAPIField('${providerKey}', 'model', this.value); document.getElementById('img-api-${providerKey}-model-input').value = this.value">
                         <option value="${providerData.model || ''}">${providerData.model || '请先刷新模型列表'}</option>
                         ${builtinModels}
                     </select>
@@ -5457,7 +5483,8 @@ class AIWriteXConfigManager {
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                     </button>
                 </div>
-                <input type="text" value="${providerData.model || ''}" placeholder="或手动输入模型名称" style="margin-top:8px" id="img-api-${providerKey}-model-input" onchange="window.configManager.updateImgAPIField('${providerKey}', 'model', this.value); document.getElementById('img-api-${providerKey}-model').value = this.value;">
+                <button type="button" class="img-manual-model-toggle" onclick="window.configManager.toggleImgManualModelInput('img-api-${providerKey}-model-input', this)">手动填写模型名</button>
+                <input type="text" value="${providerData.model || ''}" placeholder="输入模型名称" hidden id="img-api-${providerKey}-model-input" onchange="window.configManager.updateImgAPIField('${providerKey}', 'model', this.value); document.getElementById('img-api-${providerKey}-model').value = this.value;">
                 <div id="test-result-builtin-img-${providerKey}" class="test-result-container" style="display: none; margin-top: 15px;">
                     <div class="test-status"></div>
                     <div class="test-image-preview" style="margin-top: 10px; text-align: center;">
@@ -5465,8 +5492,8 @@ class AIWriteXConfigManager {
                     </div>
                 </div>
             `;
-            modelBody.appendChild(modelGroup);
-            form.appendChild(secModel);
+            configBody.appendChild(modelGroup);
+            form.appendChild(secConfig);
 
             if (providerKey === 'comfyui') {
                 const helpDiv = document.createElement('div');
@@ -5486,6 +5513,14 @@ class AIWriteXConfigManager {
 
         card.appendChild(form);
         return card;
+    }
+
+    toggleImgManualModelInput(inputId, button) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        input.hidden = !input.hidden;
+        button.textContent = input.hidden ? '手动填写模型名' : '收起手动填写';
+        if (!input.hidden) input.focus();
     }
 
     // 获取内置图片 API 提供商的模型列表
