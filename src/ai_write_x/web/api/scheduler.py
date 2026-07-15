@@ -235,19 +235,21 @@ async def get_wechat_credentials():
     """获取已配置的微信公众号凭证列表（脱敏）"""
     try:
         from src.ai_write_x.core.account_profiles import AccountProfileService
-        return [
-            {
+        profiles = AccountProfileService().list_public()
+        result = []
+        for index, item in enumerate(profiles, start=1):
+            name = str(item.get("name") or item.get("author") or f"公众号 {index}").strip()
+            result.append({
                 "account_id": item.get("account_id"),
                 "appid": item.get("appid", ""),
-                "author": item.get("author") or item.get("name") or "",
-                "name": item.get("name") or item.get("author") or "",
+                "author": item.get("author") or name,
+                "name": name or f"公众号 {index}",
                 "draft_only": item.get("draft_only", False),
                 "status": item.get("status"),
                 "enabled": item.get("enabled", True),
-            }
-            for item in AccountProfileService().list_public()
-            if item.get("appid")
-        ]
+                "configured": bool(item.get("appid") and item.get("has_secret")),
+            })
+        return result
     except Exception as e:
         log.print_log(f"[Scheduler] 获取凭证列表失败: {e}", "error")
         return []

@@ -15,7 +15,6 @@ class SchedulerManager {
         this._pendingRefresh = false;
         this._lastError = '';
         this._onWechatCredentialsUpdated = () => {
-            this.fetchWechatCredentials();
             this.refreshData(false, true);
         };
         this.platformLabels = {
@@ -155,13 +154,45 @@ class SchedulerManager {
 
     async fetchWechatCredentials() {
         try {
-            this.wechatCredentials = await this._fetchJson('/api/scheduler/wechat-credentials');
+            this.wechatCredentials = await this._fetchJson('/api/scheduler/wechat-credentials', { cache: 'no-store' });
             if (!Array.isArray(this.wechatCredentials)) this.wechatCredentials = [];
             this.renderWechatCredentials();
+            return true;
         } catch (error) {
             console.error('Fetch wechat credentials failed:', error);
             this.wechatCredentials = [];
+            this.renderWechatCredentials();
+            return false;
         }
+    }
+
+    async refreshWechatCredentials(showToast = false) {
+        const button = document.getElementById('task-refresh-wechat');
+        const tip = document.getElementById('task-account-refresh-tip');
+        if (button) {
+            button.disabled = true;
+            button.textContent = '刷新中...';
+        }
+        if (tip) tip.textContent = '正在读取最新公众号配置...';
+
+        const success = await this.fetchWechatCredentials();
+        const accountSelect = document.getElementById('task-target-appid');
+        if (tip && accountSelect?.dataset.staleBinding !== 'true') {
+            tip.textContent = success
+                ? `已同步 ${this.wechatCredentials.length} 个公众号`
+                : '刷新失败，请检查网络后重试';
+        }
+        if (button) {
+            button.disabled = false;
+            button.textContent = '刷新';
+        }
+        if (showToast) {
+            this._notify(
+                success ? `公众号列表已刷新，共 ${this.wechatCredentials.length} 个` : '公众号列表刷新失败',
+                success ? 'success' : 'error'
+            );
+        }
+        return success;
     }
 
     renderWechatCredentials() {
@@ -169,23 +200,31 @@ class SchedulerManager {
         if (!select) return;
         const current = select.value;
         select.innerHTML = '<option value="">全部公众号</option>';
-        for (const cred of this.wechatCredentials) {
-            const label = cred.name ? `${cred.name} (${cred.appid})` : (cred.author || cred.appid);
+        for (const [index, cred] of this.wechatCredentials.entries()) {
+            const displayName = String(cred.name || cred.author || `公众号 ${index + 1}`).trim() || `公众号 ${index + 1}`;
+            const label = cred.appid ? `${displayName} (${cred.appid})` : `${displayName}（未配置 AppID）`;
             const opt = document.createElement('option');
             opt.value = cred.account_id || cred.appid;
             opt.dataset.appid = cred.appid;
-            opt.disabled = cred.enabled === false;
+            opt.disabled = cred.enabled === false || cred.configured === false;
             opt.textContent = label;
             select.appendChild(opt);
         }
         if (current) select.value = current;
+        const selectedTask = this.selectedTaskId && this.tasks.find(item => String(item.id) === String(this.selectedTaskId));
+        const selectedTaskMatch = selectedTask && this.wechatCredentials.find((cred) =>
+            cred.account_id === selectedTask.target_account_id ||
+            (selectedTask.target_appid && cred.appid === selectedTask.target_appid)
+        );
         if (current && select.value !== current) {
-            const task = this.selectedTaskId && this.tasks.find(item => String(item.id) === String(this.selectedTaskId));
-            const match = task && this.wechatCredentials.find((cred) =>
-                cred.account_id === task.target_account_id ||
-                (task.target_appid && cred.appid === task.target_appid)
-            );
-            if (match) select.value = match.account_id || match.appid;
+            if (selectedTaskMatch) select.value = selectedTaskMatch.account_id || selectedTaskMatch.appid;
+        }
+        const tip = document.getElementById('task-account-refresh-tip');
+        if (selectedTask && (selectedTask.target_account_id || selectedTask.target_appid) && !selectedTaskMatch) {
+            select.dataset.staleBinding = 'true';
+            if (tip) tip.textContent = '原绑定公众号已删除，请刷新后重新选择公众号';
+        } else {
+            delete select.dataset.staleBinding;
         }
     }
 
@@ -194,7 +233,7 @@ class SchedulerManager {
         const cred = this.wechatCredentials.find(c =>
             c.account_id === accountRef || c.appid === accountRef || (appid && c.appid === appid)
         );
-        return cred ? (cred.name || cred.author || cred.appid) : accountRef;
+        return cred ? (cred.name || cred.author || cred.appid) : '已删除公众号（请重新选择）';
     }
 
     _shortId(id) {
@@ -501,6 +540,7 @@ class SchedulerManager {
         const execTime = document.getElementById('task-exec-time').value;
         const platform = document.getElementById('task-platform').value;
         const targetAccountId = document.getElementById('task-target-appid').value;
+        const accountSelect = document.getElementById('task-target-appid');
         const targetCredential = this.wechatCredentials.find(c => (c.account_id || c.appid) === targetAccountId);
         const repeatMode = document.getElementById('task-repeat-mode').value;
         const interval = document.getElementById('task-interval').value;
@@ -516,6 +556,10 @@ class SchedulerManager {
         }
         if (platform !== 'wechat') {
             this._notify('当前仅支持微信公众号定时发布', 'warning');
+            return;
+        }
+        if (accountSelect?.dataset.staleBinding === 'true' && !targetAccountId) {
+            this._notify('原绑定公众号已删除，请重新选择一个公众号', 'warning');
             return;
         }
 

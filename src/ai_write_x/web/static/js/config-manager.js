@@ -1534,22 +1534,29 @@ class AIWriteXConfigManager {
     }
 
     // 删除凭证  
-    deleteWeChatCredential(index) {
+    async deleteWeChatCredential(index) {
         const credentials = [...(this.config.wechat?.credentials || [])];
         credentials.splice(index, 1);
 
-        this.updateConfig({
+        const updated = await this.updateConfig({
             wechat: { credentials }
-        }).then(async () => {
-            // 删除后立即保存到文件，防止重启后凭证恢复
-            await this.saveConfig();
-            this.populateWeChatUI();
-
-            window.app?.showNotification(
-                '凭证已删除并保存',
-                'info'
-            );
         });
+        if (!updated) {
+            window.app?.showNotification('删除公众号失败，请稍后重试', 'error');
+            return;
+        }
+
+        // 删除后立即保存到文件，防止重启后凭证恢复；保存完成后再刷新定时任务。
+        const saved = await this.saveConfig();
+        this.populateWeChatUI();
+        if (saved) {
+            document.dispatchEvent(new CustomEvent('wechat-credentials-updated'));
+        }
+
+        window.app?.showNotification(
+            saved ? '公众号已删除并保存' : '公众号已删除，但保存配置失败',
+            saved ? 'info' : 'error'
+        );
     }
 
     // 保存微信配置  

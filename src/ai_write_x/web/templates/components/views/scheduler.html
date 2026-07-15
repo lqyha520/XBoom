@@ -157,7 +157,11 @@
                         </div>
                         <div class="form-group">
                             <label>目标公众号</label>
-                            <select id="task-target-appid" class="form-control"><option value="">全部公众号</option></select>
+                            <div class="scheduler-account-select-row">
+                                <select id="task-target-appid" class="form-control"><option value="">全部公众号</option></select>
+                                <button type="button" id="task-refresh-wechat" class="btn btn-secondary scheduler-account-refresh-btn" onclick="window.schedulerManager.refreshWechatCredentials(true)">刷新</button>
+                            </div>
+                            <small id="task-account-refresh-tip" class="scheduler-account-refresh-tip">公众号有增删或修改时，可点击刷新同步最新列表</small>
                         </div>
                         <div class="form-group">
                             <label>图片风格</label>

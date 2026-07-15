@@ -119,6 +119,7 @@ def test_scheduler_exposes_and_submits_image_style():
 
 def test_scheduler_refreshes_and_repairs_wechat_account_bindings():
     root = SCHEDULER_API.parents[4]
+    template = (root / "src/ai_write_x/web/templates/components/views/scheduler.html").read_text(encoding="utf-8")
     script = (root / "src/ai_write_x/web/static/js/scheduler-manager.js").read_text(encoding="utf-8")
     config_script = (root / "src/ai_write_x/web/static/js/config-manager.js").read_text(encoding="utf-8")
     scheduler_source = (root / "src/ai_write_x/core/scheduler.py").read_text(encoding="utf-8")
@@ -127,3 +128,9 @@ def test_scheduler_refreshes_and_repairs_wechat_account_bindings():
     assert "get_by_appid(target_appid)" in scheduler_source
     assert "Repaired stale account binding" in scheduler_source
     assert "wechat-credentials-updated" in config_script
+    assert '"configured": bool(item.get("appid") and item.get("has_secret"))' in SCHEDULER_API.read_text(encoding="utf-8")
+    assert "未配置 AppID" in script
+    assert 'id="task-refresh-wechat"' in template
+    assert "refreshWechatCredentials(true)" in template
+    assert "cache: 'no-store'" in script
+    assert "已删除公众号（请重新选择）" in script
