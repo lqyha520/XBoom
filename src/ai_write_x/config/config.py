@@ -6,6 +6,10 @@ import tomlkit
 
 from src.ai_write_x.utils import log
 from src.ai_write_x.utils import utils
+from src.ai_write_x.utils.api_url import (
+    normalize_openai_base_url,
+    normalize_openai_provider_urls,
+)
 from src.ai_write_x.utils.path_manager import PathManager
 
 # 默认分类配置
@@ -1794,7 +1798,8 @@ class Config:
         with self._lock:
             if not self.config:
                 raise ValueError("配置未加载")
-            return self.config["api"][self.config["api"]["api_type"]]["api_base"]
+            raw_url = self.config["api"][self.config["api"]["api_type"]]["api_base"]
+            return normalize_openai_base_url(raw_url)
 
     @property
     def api_provider(self):
@@ -2525,6 +2530,7 @@ class Config:
         """保存配置到 config.yaml，自动剥离敏感密钥，不验证"""
         with self._lock:
             ret = True
+            normalize_openai_provider_urls(config.get("api", {}))
             self.config = config
             
             # --- 🔐 第一步: 保存敏感信息到 secrets 文件 ---
@@ -2810,6 +2816,7 @@ class Config:
 
                 # 合并配置（版本号自动更新为最新）
                 merged_config = self.merge_with_user_config(user_config or {})
+                normalize_openai_provider_urls(merged_config.get("api", {}))
 
                 # 保存合并后的配置
                 with open(self.config_path, "w", encoding="utf-8") as f:
