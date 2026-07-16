@@ -1166,19 +1166,12 @@ class VisualAssetsManager:
                     if not actual_api_base:
                         lg.print_log("  [跳过] Agnes API未配置 api_base", "warning")
                         continue
-                    # Agnes API 仅支持标准尺寸，将非标准尺寸映射到最接近的支持尺寸
-                    # Agnes 支持的尺寸: 1024x1024, 1152x768, 768x1152, 1152x864, 864x1152, 1360x768, 768x1360
-                    agnes_size_map = {
-                        "1024x436": "1360x768",   # 2.35:1 → 16:9 宽幅（最接近）
-                        "1024x576": "1360x768",   # 16:9 → Agnes 的 16:9
-                        "1024x768": "1152x768",   # 4:3 → 3:2（最接近）
-                        "768x1024": "768x1152",   # 3:4 → 2:3（最接近）
-                        "1024x1024": "1024x1024", # 1:1
-                    }
-                    raw_size = size.replace("*", "x")
-                    agnes_size = agnes_size_map.get(raw_size, "1024x1024")
-                    if agnes_size != raw_size:
-                        lg.print_log(f"  [Agnes] 尺寸映射: {raw_size} → {agnes_size}")
+                    # Agnes 2.1 使用档位式尺寸；统一生成 1K，并保留文章要求的宽高比。
+                    supported_ratios = {"1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9"}
+                    agnes_ratio = "21:9" if ratio.strip() == "2.35:1" else ratio.strip()
+                    if agnes_ratio not in supported_ratios:
+                        agnes_ratio = "1:1"
+                    agnes_size = "1K"
                     from openai import OpenAI
                     proxy = config.proxy
                     http_client = None
@@ -1187,12 +1180,13 @@ class VisualAssetsManager:
                         http_client = httpx.Client(proxy=proxy)
                     client = OpenAI(api_key=img_api_key, base_url=sdk_api_base, http_client=http_client)
                     try:
-                        lg.print_log(f"  [Agnes] 正在调用 agnes-image API (size={agnes_size})...")
+                        lg.print_log(f"  [Agnes] 正在调用 agnes-image API (size={agnes_size}, ratio={agnes_ratio})...")
                         response = client.images.generate(
                             model=img_api_model or "agnes-image-2.1-flash",
                             prompt=prompt,
                             n=1,
-                            size=agnes_size
+                            size=agnes_size,
+                            extra_body={"ratio": agnes_ratio},
                         )
                     except Exception as agnes_err:
                         err_str = str(agnes_err)
@@ -1205,7 +1199,8 @@ class VisualAssetsManager:
                                 model=img_api_model or "agnes-image-2.1-flash",
                                 prompt=prompt,
                                 n=1,
-                                size=agnes_size
+                                size=agnes_size,
+                                extra_body={"ratio": agnes_ratio},
                             )
                         # 429/401 → 切换 Key
                         elif ("429" in err_str or "401" in err_str) and len(img_api_keys) > 1:
@@ -1217,7 +1212,8 @@ class VisualAssetsManager:
                                 model=img_api_model or "agnes-image-2.1-flash",
                                 prompt=prompt,
                                 n=1,
-                                size=agnes_size
+                                size=agnes_size,
+                                extra_body={"ratio": agnes_ratio},
                             )
                         else:
                             raise agnes_err

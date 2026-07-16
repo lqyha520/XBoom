@@ -5,6 +5,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "src/ai_write_x/web/templates/components/views/config-manager/panels/img-api-config.html"
 SCRIPT = ROOT / "src/ai_write_x/web/static/js/config-manager.js"
 STYLES = ROOT / "src/ai_write_x/web/static/css/views/config-manager.css"
+VISUAL_ASSETS = ROOT / "src/ai_write_x/core/visual_assets.py"
+PUBLISHER = ROOT / "src/ai_write_x/tools/wx_publisher.py"
+CONFIG_API = ROOT / "src/ai_write_x/web/api/config.py"
 
 
 def test_image_api_page_uses_compact_pipeline_layout():
@@ -55,3 +58,19 @@ def test_image_api_url_preview_matches_v1_normalization():
     assert "attachImgAPIURLPreview" in script
     assert "已自动补 /v1" in script
     assert "grid-template-columns: minmax(0, 1.5fr)" in styles
+
+
+def test_agnes_image_generation_uses_1k_tier_with_ratio():
+    template = TEMPLATE.read_text(encoding="utf-8")
+    visual_assets = VISUAL_ASSETS.read_text(encoding="utf-8")
+    publisher = PUBLISHER.read_text(encoding="utf-8")
+    config_api = CONFIG_API.read_text(encoding="utf-8")
+
+    assert 'agnes_size = "1K"' in visual_assets
+    assert visual_assets.count('extra_body={"ratio": agnes_ratio}') == 3
+    assert '"2.35:1" else ratio.strip()' in visual_assets
+    assert 'size="1K"' in publisher
+    assert 'extra_body={"ratio": agnes_ratio}' in publisher
+    assert 'payload["size"] = "1K"' in config_api
+    assert 'payload["ratio"] = "1:1"' in config_api
+    assert "图片按 1K 生成" in template

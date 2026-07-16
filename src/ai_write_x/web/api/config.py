@@ -505,6 +505,11 @@ async def test_custom_img_api(config: CustomAPIConfig):
         # 对于异步API（阿里/模型答），尝试开启异步模式
         is_modelscope = "modelscope" in url.lower()
         is_ali = "dashscope" in url.lower() or "aliyuncs" in url.lower()
+        is_agnes = "agnes-ai.com" in url.lower()
+
+        if is_agnes:
+            payload["size"] = "1K"
+            payload["ratio"] = "1:1"
         
         if is_modelscope:
             headers["X-ModelScope-Async-Mode"] = "true"

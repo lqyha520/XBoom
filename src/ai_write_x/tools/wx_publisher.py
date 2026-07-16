@@ -277,8 +277,17 @@ class WeixinPublisher:
         """使用Agnes Image API生成图片 (OpenAI兼容格式)"""
         image_dir = PathManager.get_image_dir()
         img_url = None
+        normalized_size = size.replace("*", "x")
+        ratio_map = {
+            "1024x436": "21:9",
+            "1024x576": "16:9",
+            "1024x768": "4:3",
+            "768x1024": "3:4",
+            "1024x1024": "1:1",
+        }
+        agnes_ratio = ratio_map.get(normalized_size, "1:1")
         log.print_log(f"[图像生成] 开始使用Agnes生成图片...")
-        log.print_log(f"[图像生成] 模型: {self.img_api_model}, 尺寸: {size}")
+        log.print_log(f"[图像生成] 模型: {self.img_api_model}, 尺寸: 1K, 比例: {agnes_ratio}")
 
         try:
             log.print_log("[图像生成] 正在调用 Agnes API...")
@@ -291,7 +300,8 @@ class WeixinPublisher:
                 model=self.img_api_model or "agnes-image-2.1-flash",
                 prompt=prompt,
                 n=1,
-                size=size.replace("*", "x")
+                size="1K",
+                extra_body={"ratio": agnes_ratio},
             )
 
             if response.data and len(response.data) > 0:
