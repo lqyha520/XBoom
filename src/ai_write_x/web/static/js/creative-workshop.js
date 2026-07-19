@@ -726,7 +726,13 @@ class CreativeWorkshopManager {
         }
 
         // ========== 阶段 3: 获取话题 ==========  
-        let topic = this.currentTopic.trim();
+        const topicInput = document.getElementById('topic-input');
+        let topic = (topicInput?.value || '').trim();
+        this.currentTopic = topic;
+        const collectionMode = document.getElementById('workshop-collection-mode')?.checked || false;
+        const seriesName = collectionMode
+            ? topic.split(/[：:]/, 1)[0].trim()
+            : '';
         let referenceConfig = this.getReferenceConfig();
 
         // 借鉴模式参数校验  
@@ -830,6 +836,15 @@ class CreativeWorkshopManager {
             const articleCount = parseInt(document.getElementById('article-count')?.value || '1', 10);
             const postAction = document.getElementById('post-action')?.value || 'none';
 
+            this.appendLog(
+                collectionMode
+                    ? `📌 实际提交：系列「${seriesName || '未填写'}」｜${articleCount} 篇｜合集模式`
+                    : `📌 实际提交：话题「${topic || '自动选题'}」｜${articleCount} 篇`,
+                'info',
+                false,
+                Date.now() / 1000
+            );
+
             const autoReTemplateSwitch = document.getElementById('auto-retemplate-switch');
             const isBeautifyOn = autoReTemplateSwitch ? autoReTemplateSwitch.checked : false;
 
@@ -849,7 +864,8 @@ class CreativeWorkshopManager {
                     ai_beautify: isBeautifyOn,
                     filter_processed: workshopFilterProcessed?.checked || false,
                     image_style: document.getElementById('workshop-image-style')?.value || 'auto',
-                    collection_mode: document.getElementById('workshop-collection-mode')?.checked || false,
+                    collection_mode: collectionMode,
+                    series_name: seriesName,
                     target_account_id: document.getElementById('target-account-id')?.value || null
                 })
             });

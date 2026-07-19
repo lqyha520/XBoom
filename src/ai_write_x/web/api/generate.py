@@ -19,6 +19,7 @@ from src.ai_write_x.core.generation_checkpoint import normalize_checkpoint
 from src.ai_write_x.core.task_manager import task_manager, TaskStatus
 
 from src.ai_write_x.config.config import Config
+from src.ai_write_x.core.series_topics import normalize_series_name
 from src.ai_write_x.utils import utils, log
 
 router = APIRouter(prefix="/api", tags=["generate"])
@@ -53,6 +54,7 @@ class GenerateRequest(BaseModel):
     fast_mode: Optional[bool] = False
     image_style: Optional[str] = "auto"
     collection_mode: Optional[bool] = False
+    series_name: Optional[str] = ""
     target_account_id: Optional[str] = None
     resume_checkpoint: Optional[dict] = Field(default=None, exclude=True)
 
@@ -108,6 +110,17 @@ async def generate_content(request: GenerateRequest):
             raise HTTPException(status_code=400, detail=f"配置错误: {config.error_message}")
 
         topic = request.topic.strip() if request.topic else ""
+        requested_series_name = (
+            normalize_series_name(request.series_name or topic)
+            if request.collection_mode
+            else ""
+        )
+        log.print_log(
+            f"[GenerateContract] topic={topic or '自动选题'} | "
+            f"collection_mode={bool(request.collection_mode)} | "
+            f"series={requested_series_name or '无'} | count={request.article_count or 1}",
+            "info",
+        )
         
         # 借鉴模式下，如果没有话题但有文章ID，从文章提取话题
         if request.reference and not topic:
@@ -152,7 +165,7 @@ async def generate_content(request: GenerateRequest):
         import threading
         import queue
         
-        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False, fast_mode=False, image_style="auto", collection_mode=False, resume_checkpoint=None, account_profile=None):
+        def batch_thread_worker(global_config_dict, req_topic, req_platform, is_reference, ref_config_dict, ai_beautify, filter_processed=False, fast_mode=False, image_style="auto", collection_mode=False, requested_series_name="", resume_checkpoint=None, account_profile=None):
             # V11 Hotfix: 通过 log.get_process_queue() 动态获取当前线程绑定的日志队列
             # 兼容 task_manager.py 的 _worker_wrapper 注入逻辑
             import src.ai_write_x.utils.log as lg
@@ -209,38 +222,26 @@ async def generate_content(request: GenerateRequest):
                     )
                 elif req_topic:
                     if collection_mode:
-                        series_name = req_topic.split("：", 1)[0] if "：" in req_topic else req_topic
-                        from src.ai_write_x.utils.topic_deduplicator import TopicDeduplicator
+                        from src.ai_write_x.core.series_topics import plan_series_topics
+
+                        series_name = normalize_series_name(requested_series_name or req_topic)
                         _dedup = TopicDeduplicator(dedup_days=7)
                         recent = _dedup.get_recent_topics(days=7) if hasattr(_dedup, 'get_recent_topics') else []
-                        excluded_str = '、'.join(recent[:20]) if recent else '无'
-                        sub_prompt = (
-                            f"核心系列「{series_name}」，请为每篇文章生成一个不同的子话题。\n"
-                            f"要求：只输出子话题本身，不要包含「{series_name}」前缀，不要冒号，不要序号。\n"
-                            f"【话题锚定铁律】：生成的子话题必须严格属于「{series_name}」领域，禁止偏移到其他领域。"
-                            f"例如，如果系列是「育儿经验」，子话题必须是关于育儿的，不能变成职场、情感等其他话题。\n"
-                            f"不要与以下已用选题重复：{excluded_str}\n"
-                            f"共需 {article_count} 个子话题，每行一个。"
+                        from src.ai_write_x.core.llm_client import LLMClient
+
+                        llm = LLMClient()
+                        lg.print_log(
+                            f"📌 合集主题契约: series={series_name}, count={article_count}",
+                            "info",
                         )
-                        try:
-                            from src.ai_write_x.core.llm_client import LLMClient
-                            llm = LLMClient()
-                            res = llm.chat([{"role": "user", "content": sub_prompt}], temperature=0.9).strip()
-                            lines_res = [l.strip().strip('-*0123456789. \n"\'') for l in res.split('\n') if l.strip()]
-                            for line in lines_res:
-                                if line:
-                                    # 剥离子话题中可能带有的任何「XXX：」前缀（AI可能返回其他系列名）
-                                    if "：" in line:
-                                        line = line.split("：", 1)[1].strip()
-                                    elif ":" in line:
-                                        line = line.split(":", 1)[1].strip()
-                                    full_title = f"{series_name}：{line}"
-                                    if full_title not in topics_to_generate:
-                                        topics_to_generate.append(full_title)
-                        except Exception:
-                            pass
-                        while len(topics_to_generate) < article_count:
-                            topics_to_generate.append(f"{series_name}：系列深度解析 {len(topics_to_generate)+1}")
+                        topics_to_generate = plan_series_topics(
+                            llm.chat,
+                            series_name,
+                            article_count,
+                            seed_topic=req_topic,
+                            recent_topics=recent,
+                            used_topics=used_session_topics,
+                        )
                     else:
                         topics_to_generate.append(req_topic)
                         if article_count > 1:
@@ -515,7 +516,8 @@ async def generate_content(request: GenerateRequest):
                             "date_str": d_str,
                             "fast_mode": False,
                             "image_style": image_style,
-                            "collection_mode": collection_mode
+                            "collection_mode": collection_mode,
+                            "series_name": normalize_series_name(requested_series_name or req_topic) if collection_mode else "",
                         }
                         if account_profile:
                             config_data["brand_profile"] = account_profile
@@ -824,6 +826,7 @@ async def generate_content(request: GenerateRequest):
                     "message": f"程序执行异常:\n```\n{error_trace}\n```", 
                     "timestamp": time.time()
                 })
+                raise
             finally:
                 global _last_generation_meta
                 _last_generation_meta = {
@@ -846,10 +849,9 @@ async def generate_content(request: GenerateRequest):
                     article_count,
                     successful=success_count,
                 )
-                # 确保发送完成消息给前端
+                # 成功/失败信号已在对应分支发送；这里仅做状态和资源收尾。
                 lg.print_log(f"🏁 任务执行结束，success_count={success_count}", "info")
-                log_q.put({"type": "internal", "message": "任务执行完成", "timestamp": time.time(), "success": success_count > 0})
-                
+
                 # 恢复日志队列为空，防止影响后续其它请求
                 lg.set_process_queue(None)
                 
@@ -908,6 +910,7 @@ async def generate_content(request: GenerateRequest):
                 False,
                 request.image_style or "auto",
                 request.collection_mode or False,
+                requested_series_name,
                 request.resume_checkpoint,
                 account_profile,
             ),
@@ -915,6 +918,7 @@ async def generate_content(request: GenerateRequest):
                 "kind": "generation",
                 "request": request.model_dump(mode="json"),
                 "topic": topic,
+                "series_name": requested_series_name,
                 "article_count": request.article_count or 1,
                 "target_account_id": request.target_account_id,
                 "checkpoint": normalize_checkpoint(request.resume_checkpoint),
@@ -931,6 +935,7 @@ async def generate_content(request: GenerateRequest):
             "message": msg,
             "mode": "reference" if request.reference else "hot_search",
             "topic": topic,
+            "series_name": requested_series_name,
             "article_count": request.article_count
         }
 

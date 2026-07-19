@@ -122,11 +122,15 @@ class UnifiedContentWorkflow:
         collection_mode = kwargs.get("collection_mode", False)
         collection_constraint = ""
         if collection_mode:
-            series_name = topic.split("：", 1)[0] if "：" in topic else topic
+            from src.ai_write_x.core.series_topics import normalize_series_name
+
+            series_name = normalize_series_name(kwargs.get("series_name") or topic)
             collection_constraint = (
                 f"\n\n【合集模式约束】本文属于「{series_name}」系列合集。"
-                f"文章标题必须以「{series_name}：」开头，后接具体的子话题。"
-                f"正文中可适当体现系列归属感，但不要生硬重复系列名。"
+                f"已审核通过的唯一文章主题是「{topic}」，不得改写成其他领域的话题。"
+                f"文章标题必须完整保留为「{topic}」。"
+                f"正文的核心论点、案例和建议都必须直接服务于该主题及「{series_name}」范围；"
+                f"如果参考资料、记忆或示例与该范围冲突，必须忽略冲突内容。"
             )
 
         if reference_content:
@@ -202,9 +206,8 @@ class UnifiedContentWorkflow:
 
         collection_mode = kwargs.get("collection_mode", False)
         if collection_mode:
-            series_name = topic.split("：", 1)[0] if "：" in topic else topic
-            if not title.startswith(series_name + "：") and not title.startswith(series_name + ":"):
-                title = f"{series_name}：{title}"
+            # 合集标题已经在选题阶段通过范围审核，写作模型不得再次改题。
+            title = topic
 
         lg.print_log(f"✅ 初稿生成完成，约 {len(result_str)} 字", "success")
 
@@ -1058,9 +1061,8 @@ class UnifiedContentWorkflow:
                         new_title = opt_result.get("recommended", current_title)
                         collection_mode = kwargs.get("collection_mode", False)
                         if collection_mode:
-                            series_name = topic.split("：", 1)[0] if "：" in topic else topic
-                            if not new_title.startswith(series_name + "：") and not new_title.startswith(series_name + ":"):
-                                new_title = f"{series_name}：{new_title}"
+                            # 合集模式保留已审核选题，避免标题优化阶段再次跨域。
+                            new_title = topic
                         transform_content.title = new_title
                         final_title = new_title
                         yield {"type": "log", "message": f"✨ AI标题优化完成: '{current_title[:30]}...' → '{new_title[:30]}...'"}

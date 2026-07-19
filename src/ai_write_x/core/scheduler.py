@@ -383,25 +383,40 @@ class SchedulerService:
         from src.ai_write_x.core.llm_client import LLMClient
 
         recent_topics = deduplicator.get_recent_topics(days=7) if hasattr(deduplicator, "get_recent_topics") else []
-        excluded = "、".join(list(dict.fromkeys(recent_topics + used_topics_in_batch))[:20]) or "无"
         llm = LLMClient()
 
         if is_collection:
-            prompt = (
-                f"你是资深内容策划编辑。核心系列是《{original_topic}》，请为今天的文章生成一个子话题标题。\n"
-                f"要求：属于该系列，但切入点要新；不要与这些已用选题重复：{excluded}\n"
-                f"只输出标题本身。最终格式可以是：{original_topic}：你的子话题"
+            from src.ai_write_x.core.series_topics import (
+                SeriesTopicPlanningError,
+                normalize_series_name,
+                plan_series_topics,
             )
-        else:
-            prompt = (
-                f"你是资深内容策划编辑。核心领域是《{original_topic}》，请生成一个具体、有吸引力的文章标题。\n"
-                f"不要与这些已用选题重复：{excluded}\n只输出一个标题，不要解释。"
-            )
+
+            series_name = normalize_series_name(original_topic)
+            try:
+                planned = plan_series_topics(
+                    llm.chat,
+                    series_name,
+                    1,
+                    seed_topic=original_topic,
+                    recent_topics=recent_topics,
+                    used_topics=used_topics_in_batch,
+                )
+                diverged = planned[0]
+                log.print_log(f"[Scheduler] Series topic approved: {diverged}", "info")
+                return diverged
+            except SeriesTopicPlanningError as exc:
+                log.print_log(f"[Scheduler] Series topic scope validation failed: {exc}", "error")
+                raise
+
+        excluded = "、".join(list(dict.fromkeys(recent_topics + used_topics_in_batch))[:20]) or "无"
+        prompt = (
+            f"你是资深内容策划编辑。核心领域是《{original_topic}》，请生成一个具体、有吸引力的文章标题。\n"
+            f"不要与这些已用选题重复：{excluded}\n只输出一个标题，不要解释。"
+        )
 
         try:
             diverged = llm.chat([{"role": "user", "content": prompt}], temperature=0.9).strip().strip('"').strip("'").strip()
-            if is_collection and diverged and not diverged.startswith(original_topic):
-                diverged = f"{original_topic}：{diverged}"
             if diverged and not deduplicator.is_duplicate(diverged) and diverged not in used_topics_in_batch:
                 log.print_log(f"[Scheduler] Diverged topic: {diverged}", "info")
                 return diverged

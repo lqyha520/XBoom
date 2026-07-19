@@ -3,7 +3,7 @@
 
 from datetime import datetime
 
-__version__ = "1.3.6"
+__version__ = "1.3.7"
 __author__ = "小爆来咯"
 __build_time__ = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
